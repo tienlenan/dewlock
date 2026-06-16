@@ -17,6 +17,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getDemoMode, getFixtureNearMissBlock } from "@/lib/demo/fixtures";
+import { recall, isMemoryEnabled } from "@dewlock/walrus";
+import {
+  recallCommittedCap,
+  formatCapBlockWithRecall,
+  type MemwalIO,
+} from "@dewlock/agent/memory/conviction-streak";
 
 // ---------------------------------------------------------------------------
 // Input schema — mirrors prepareTrade inputSchema exactly (subset surface)
@@ -81,6 +87,43 @@ function corsHeaders(origin: string | null): Record<string, string> {
     "access-control-allow-methods": "POST, OPTIONS",
     "access-control-allow-headers": "content-type",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cap-block enrichment — surface recalled day-1 cap in block reason text
+// ---------------------------------------------------------------------------
+
+/**
+ * When the Guardian blocks on tx_cap or daily_cap, recall the user's committed
+ * cap from memwal and replace the generic reason with a legible recall-based message.
+ * Best-effort: returns original result unchanged on any error or when memwal not configured.
+ */
+async function enrichCapBlockWithRecall(
+  result: unknown,
+  walletAddress: string,
+): Promise<unknown> {
+  const r = result as { ok?: boolean; gates?: string[]; reasons?: string[] };
+  if (r.ok !== false || !r.gates || !r.reasons) return result;
+
+  const capGateIdx = r.gates.findIndex((g) => g === "tx_cap" || g === "daily_cap");
+  if (capGateIdx === -1 || !isMemoryEnabled()) return result;
+
+  try {
+    const io: MemwalIO = { remember: async () => undefined, recall };
+    const ns = `dewlock:${walletAddress}`;
+    const recalled = await recallCommittedCap(io, ns);
+    if (!recalled) return result;
+
+    const capGate = r.gates[capGateIdx] as "tx_cap" | "daily_cap";
+    const enrichedReasons = r.reasons.map((reason, i) =>
+      r.gates![i] === capGate
+        ? formatCapBlockWithRecall(0, recalled, capGate)
+        : reason,
+    );
+    return { ...r, reasons: enrichedReasons };
+  } catch {
+    return result;
+  }
 }
 
 export async function OPTIONS(req: NextRequest) {
@@ -167,7 +210,11 @@ export async function POST(req: NextRequest) {
       verifiedContacts: input.verifiedContacts ?? [],
     });
 
-    return Response.json(result, {
+    // Enrich cap-block reason with recalled day-1 cap when memwal is configured.
+    // The Guardian cap gate is still authoritative; this only makes the block legible.
+    const enrichedResult = await enrichCapBlockWithRecall(result, input.walletAddress);
+
+    return Response.json(enrichedResult, {
       headers: {
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",

@@ -1,14 +1,16 @@
 "use client";
 
 /**
- * MemoryChip — a small inline recall note rendered in the chat thread.
+ * MemoryChip — inline recall note rendered in the chat thread.
  *
- * Represents copilot "memory" context surfaced to the user: daily cap,
- * risk profile, saved contacts. These are PREVIEW/SAMPLE — the memory
- * persistence layer (P5 roadmap) is not yet live. Labeled clearly.
+ * Represents copilot memory context: daily cap, risk profile, saved contacts.
+ * Renders recalled data from the /api/memory-recall endpoint when available;
+ * falls back to the sample chips only when memory is empty or not configured.
  *
  * Visual: star icon + mono label + text, matches the mockup sidebar memory pill.
  */
+
+import { useEffect, useState } from "react";
 
 interface MemoryChipProps {
   text: string;
@@ -51,9 +53,86 @@ export function MemoryChip({ text }: MemoryChipProps) {
   );
 }
 
-/** Static sample chips shown at the top of the chat on first load — preview only. */
+/** Static sample chips — shown only when memwal is not configured or memory is empty. */
 export const SAMPLE_MEMORY_CHIPS: string[] = [
   "I remember your $5,000 daily cap",
   "Cetus LP in range",
   "888.sui is a saved contact",
 ];
+
+// ---------------------------------------------------------------------------
+// Recalled memory state — fetched from /api/memory-recall per wallet
+// ---------------------------------------------------------------------------
+
+export interface RecalledMemory {
+  /** e.g. "risk cap: $5/tx, $20/day; risk profile: conservative" */
+  capEntry?: string;
+  /** e.g. ["contact: alice = 0xabc..."] */
+  contactEntries?: string[];
+  /** true when memwal is configured and returned at least one result */
+  hasReal: boolean;
+}
+
+/**
+ * Hook: fetch recalled memory for the connected wallet.
+ * Returns null while loading, empty object with hasReal=false when memwal not configured.
+ * [needs live-env] real recall requires reachable memwal relayer + provisioned account.
+ */
+export function useRecalledMemory(walletAddress: string | undefined): RecalledMemory | null {
+  const [mem, setMem] = useState<RecalledMemory | null>(null);
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setMem({ hasReal: false });
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/memory-recall?wallet=${encodeURIComponent(walletAddress)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { capEntry?: string; contactEntries?: string[] } | null) => {
+        if (cancelled) return;
+        if (!data) {
+          setMem({ hasReal: false });
+          return;
+        }
+        setMem({
+          capEntry: data.capEntry,
+          contactEntries: data.contactEntries,
+          hasReal: Boolean(data.capEntry || data.contactEntries?.length),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setMem({ hasReal: false });
+      });
+
+    return () => { cancelled = true; };
+  }, [walletAddress]);
+
+  return mem;
+}
+
+/**
+ * Build human-readable chip texts from recalled memory entries.
+ * Returns an empty array when memory is empty — caller falls back to SAMPLE_MEMORY_CHIPS.
+ */
+export function buildRecalledChips(mem: RecalledMemory): string[] {
+  const chips: string[] = [];
+
+  if (mem.capEntry) {
+    // "risk cap: $5/tx, $20/day; risk profile: conservative" → readable chip text
+    const txMatch = /\$(\d+(?:\.\d+)?)\/tx/i.exec(mem.capEntry);
+    const profileMatch = /risk profile:\s*([a-z]+)/i.exec(mem.capEntry);
+    if (txMatch) {
+      const profile = profileMatch ? ` · ${profileMatch[1]}` : "";
+      chips.push(`Cap: $${txMatch[1]}/tx${profile}`);
+    }
+  }
+
+  if (mem.contactEntries?.length) {
+    const count = mem.contactEntries.length;
+    chips.push(`${count} saved contact${count > 1 ? "s" : ""}`);
+  }
+
+  return chips;
+}

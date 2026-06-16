@@ -23,7 +23,7 @@ export const maxDuration = 60;
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { buildAndPublishReceipt, contentHash } from "@dewlock/walrus";
+import { buildAndPublishReceipt, contentHash, memNamespace, remember, isMemoryEnabled } from "@dewlock/walrus";
 import { anchorReceiptHead } from "@dewlock/sui";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +135,16 @@ async function processReceipt(body: PostBody, key: string): Promise<void> {
     });
 
     const blobId = blob.blobId;
+
+    // Async decision log alongside the blob receipt — fire-and-forget, never blocking.
+    // [needs live-env] memwal relayer must be reachable for this write to persist.
+    if (body.txDigest && body.verdict === "approved" && isMemoryEnabled()) {
+      const ts = new Date().toISOString();
+      const blobPart = blobId ? `blob:${blobId}` : "blob:pending";
+      const logText =
+        `action log: ${ts} | ${body.action} | tx:${body.txDigest} | usd:$0.00 | ${blobPart}`;
+      void remember(memNamespace(body.walletAddress), logText).catch(() => undefined);
+    }
 
     if (!blobId || blob.status === "not_configured" || blob.status === "failed") {
       // Blob write failed or not configured — update cache with error state.

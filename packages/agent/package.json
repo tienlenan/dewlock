@@ -8,7 +8,19 @@
     "./allowlist": "./dist/allowlist.js",
     "./guardian": "./dist/guardian.js",
     "./tools/prepare-trade": "./dist/tools/prepare-trade.js",
-    "./tools/get-portfolio": "./dist/tools/get-portfolio.js"
+    "./tools/get-portfolio": "./dist/tools/get-portfolio.js",
+    "./memory/conviction-streak": {
+      "import": "./dist/memory/conviction-streak.js",
+      "types": "./dist/memory/conviction-streak.d.ts"
+    },
+    "./memory/contacts": {
+      "import": "./dist/memory/contacts.js",
+      "types": "./dist/memory/contacts.d.ts"
+    },
+    "./memory/receipt-log": {
+      "import": "./dist/memory/receipt-log.js",
+      "types": "./dist/memory/receipt-log.d.ts"
+    }
   },
   "scripts": {
     "build": "tsc --noCheck",

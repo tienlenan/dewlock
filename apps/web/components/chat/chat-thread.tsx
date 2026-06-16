@@ -25,7 +25,12 @@ import { TxPreviewCard } from "@/components/tx-preview-card";
 import { BlockCard } from "@/components/block-card";
 import { PortfolioCard } from "@/components/portfolio-card";
 import { ReceiptCard, type ReceiptStatus } from "@/components/receipt-card";
-import { MemoryChip, SAMPLE_MEMORY_CHIPS } from "@/components/app/memory-chip";
+import {
+  MemoryChip,
+  SAMPLE_MEMORY_CHIPS,
+  useRecalledMemory,
+  buildRecalledChips,
+} from "@/components/app/memory-chip";
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
 import { useSignAndExecuteTx, WysiwysError } from "@dewlock/sui/sign";
@@ -137,7 +142,7 @@ export function ChatThread({ messages, onReplaceCard, walletAddress }: ChatThrea
         }}
       >
         {/* Welcome + memory chips — shown on empty thread */}
-        <WelcomeRow showMemory={isEmpty} />
+        <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} />
 
         {/* Message list */}
         {messages.map((msg) => (
@@ -159,7 +164,22 @@ export function ChatThread({ messages, onReplaceCard, walletAddress }: ChatThrea
 // WelcomeRow — always visible; memory chips shown only before first message
 // ---------------------------------------------------------------------------
 
-function WelcomeRow({ showMemory }: { showMemory: boolean }) {
+function WelcomeRow({
+  showMemory,
+  walletAddress,
+}: {
+  showMemory: boolean;
+  walletAddress?: string;
+}) {
+  // Fetch recalled memory from memwal via /api/memory-recall.
+  // Returns null while loading; { hasReal: false } when memwal not configured.
+  const recalled = useRecalledMemory(walletAddress);
+
+  const chips = recalled?.hasReal
+    ? buildRecalledChips(recalled)
+    : SAMPLE_MEMORY_CHIPS;
+  const isReal = Boolean(recalled?.hasReal);
+
   return (
     <div className="flex gap-3">
       <DewdropAvatar />
@@ -170,27 +190,28 @@ function WelcomeRow({ showMemory }: { showMemory: boolean }) {
           <strong>you</strong> sign.
         </div>
 
-        {showMemory && (
+        {showMemory && chips.length > 0 && (
           <>
-            {/* Memory recall note */}
+            {/* Memory recall note — real when memwal configured, sample otherwise */}
             <div style={{ marginTop: 7, fontSize: "12.5px", color: "var(--fg-muted)" }}>
-              I remember your{" "}
-              <strong style={{ color: "var(--fg)" }}>$5,000</strong> daily cap, a{" "}
-              <strong style={{ color: "var(--fg)" }}>conservative</strong> risk profile, and that{" "}
-              <strong style={{ color: "var(--fg)" }}>888.sui</strong> is a saved contact.
+              {isReal
+                ? "I recall your preferences from memory:"
+                : "I remember your preferences (sample):"}
             </div>
 
-            {/* Memory chips — labeled preview */}
+            {/* Memory chips */}
             <div className="flex flex-wrap gap-1.5 mt-3">
-              {SAMPLE_MEMORY_CHIPS.map((chip) => (
+              {chips.map((chip) => (
                 <MemoryChip key={chip} text={chip} />
               ))}
-              <span
-                className="split-mono self-center"
-                style={{ fontSize: "9px", color: "var(--fg-faint)", marginLeft: 2 }}
-              >
-                · sample
-              </span>
+              {!isReal && (
+                <span
+                  className="split-mono self-center"
+                  style={{ fontSize: "9px", color: "var(--fg-faint)", marginLeft: 2 }}
+                >
+                  · sample
+                </span>
+              )}
             </div>
           </>
         )}
