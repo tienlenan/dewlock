@@ -129,7 +129,15 @@ export function ChatThread({ messages, onReplaceCard, walletAddress }: ChatThrea
   }, [messages]);
 
   return (
+    /*
+     * role="log" + aria-live="polite": announces new messages to screen readers
+     * without interrupting ongoing speech (polite = waits for current utterance).
+     * aria-label provides a descriptive region name for AT landmark navigation.
+     */
     <div
+      role="log"
+      aria-live="polite"
+      aria-label="Conversation"
       className="flex-1 overflow-y-auto"
       style={{
         padding: "26px clamp(16px, 4vw, 40px)",

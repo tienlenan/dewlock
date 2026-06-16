@@ -241,16 +241,21 @@ export function ChatInput({
             padding: "8px 8px 8px 16px",
           }}
         >
+          {/* Label is visually hidden — the placeholder and surrounding UI convey
+              context sighted; screen readers read the aria-label on focus. */}
+          <label htmlFor="chat-text-input" className="sr-only">Message</label>
           <input
+            id="chat-text-input"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder="State your intent in plain language…"
+            aria-label="Message"
             style={{
               flex: 1,
               border: "none",
-              outline: "none",
+              /* outline:none removed — focus-visible ring from globals.css applies */
               background: "transparent",
               fontFamily: "var(--font-sans)",
               fontSize: "14.5px",

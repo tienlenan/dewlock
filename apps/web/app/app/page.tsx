@@ -220,6 +220,14 @@ export default function AppPage() {
         fontFamily: "var(--font-sans)",
       }}
     >
+      {/* Skip-to-main link — visually hidden, becomes visible on keyboard focus */}
+      <a
+        href="#app-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[999] focus:px-3 focus:py-2 focus:rounded focus:text-sm focus:font-semibold"
+        style={{ background: "var(--accent)", color: "#fff" }}
+      >
+        Skip to main content
+      </a>
       {/* ── Top bar ── */}
       <header
         style={{
@@ -239,6 +247,8 @@ export default function AppPage() {
           className="md:hidden flex items-center justify-center"
           onClick={() => setSidebarOpen(true)}
           aria-label="Open sidebar"
+          aria-controls="app-sidebar"
+          aria-expanded={sidebarOpen}
           style={{
             width: 34,
             height: 34,
@@ -249,7 +259,8 @@ export default function AppPage() {
             cursor: "pointer",
           }}
         >
-          <Menu size={16} />
+          {/* Icon-only button — label above is the accessible name */}
+          <Menu size={16} aria-hidden />
         </button>
 
         {/* Brand — mark + copilot label. BrandLogo is theme-aware via CSS dark: */}
@@ -352,14 +363,17 @@ export default function AppPage() {
           onNewConversation={handleNewConversation}
         />
 
-        {/* Main chat column */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Main chat column — <main> landmark for AT skip-navigation */}
+        <main
+          id="app-main"
+          style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
+        >
           {account ? (
             <ChatShell walletAddress={account.address} />
           ) : (
             <ConnectGate />
           )}
-        </div>
+        </main>
       </div>
     </div>
   );

@@ -637,6 +637,23 @@ main > article + section { margin-top: -1px; }
 }
 
 /* ==========================================================================
+   REDUCED-MOTION — pause all decorative animations.
+   Aurora already handled above; this block covers the app-copilot animations
+   (fadeUp, stampIn, pulse) and the landing scroll-behaviour.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  /* Pause every animation and transition in one rule.
+     Using animation-duration:0.01ms rather than animation:none preserves
+     animationend events that JS may rely on (e.g. stampIn finish callbacks). */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
    DARK LANDING COHERENCE
    In dark mode the landing uses --bg / --bg-sub as section surfaces.
    Sections with bg-transparent pick up the body background (--bg) which

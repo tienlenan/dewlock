@@ -460,6 +460,8 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
         {/* WYSIWYS digest — collapsed by default for advanced users */}
         <button
           type="button"
+          aria-expanded={showDigest}
+          aria-controls="tx-digest-panel"
           onClick={() => setShowDigest((v) => !v)}
           className="split-mono text-left"
           style={{ fontSize: "10px", color: "var(--fg-subtle)", textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
@@ -468,6 +470,7 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
         </button>
         {showDigest && (
           <div
+            id="tx-digest-panel"
             className="rounded-lg p-3"
             style={{ background: "var(--bg-sub)", display: "flex", flexDirection: "column", gap: 4 }}
           >

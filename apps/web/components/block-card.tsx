@@ -129,8 +129,11 @@ export function BlockCard({ reasons, gates }: BlockCardProps) {
         >
           guardian · verdict
         </span>
-        {/* Rotated stamp — exact mockup treatment */}
+        {/* Rotated stamp — role="status" announces the verdict to screen readers
+            when this component mounts (aria-live implicit on role=status). */}
         <span
+          role="status"
+          aria-label="Transaction blocked by Guardian"
           style={{
             display: "inline-block",
             padding: "5px 12px",

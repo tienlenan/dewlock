@@ -138,12 +138,14 @@ export function FloatingNav() {
                   type="button"
                   aria-label={menuOpen ? "Close menu" : "Open menu"}
                   aria-expanded={menuOpen}
+                  aria-controls="mobile-nav-dropdown"
                   className="md:hidden flex flex-col gap-1 p-2 text-fg"
                   onClick={() => setMenuOpen((o) => !o)}
                 >
-                  <span className={`block w-5 h-px bg-current transition-transform duration-150 ${menuOpen ? "translate-y-1.5 rotate-45" : ""}`} />
-                  <span className={`block w-5 h-px bg-current transition-opacity duration-150 ${menuOpen ? "opacity-0" : ""}`} />
-                  <span className={`block w-5 h-px bg-current transition-transform duration-150 ${menuOpen ? "-translate-y-1.5 -rotate-45" : ""}`} />
+                  {/* Animated hamburger lines — decorative, button label is the accessible name */}
+                  <span aria-hidden className={`block w-5 h-px bg-current transition-transform duration-150 ${menuOpen ? "translate-y-1.5 rotate-45" : ""}`} />
+                  <span aria-hidden className={`block w-5 h-px bg-current transition-opacity duration-150 ${menuOpen ? "opacity-0" : ""}`} />
+                  <span aria-hidden className={`block w-5 h-px bg-current transition-transform duration-150 ${menuOpen ? "-translate-y-1.5 -rotate-45" : ""}`} />
                 </button>
               </div>
             </nav>
@@ -153,7 +155,9 @@ export function FloatingNav() {
 
       {/* Mobile dropdown — outside the pill so it can be full-width */}
       {menuOpen && (
-        <div
+        <nav
+          id="mobile-nav-dropdown"
+          aria-label="Mobile navigation"
           className="fixed top-[5rem] inset-x-4 z-40 rounded-2xl border border-border bg-card/95 backdrop-blur-xl shadow-nav px-4 py-4 flex flex-col gap-3 md:hidden"
         >
           {nav.anchors.map((a) => (
@@ -173,7 +177,7 @@ export function FloatingNav() {
           >
             {nav.launchApp} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
           </Link>
-        </div>
+        </nav>
       )}
     </>
   );

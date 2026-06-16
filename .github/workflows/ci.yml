@@ -1,0 +1,75 @@
+# Dewlock CI — runs on every push and PR to main.
+# Single job: install → typecheck → unit tests → Next.js build.
+# No secrets needed at this stage; env vars that require live infra are skipped.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+
+      - name: Get pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Typecheck all packages in dependency order
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      # Unit + integration tests (vitest at workspace root)
+      - name: Run tests
+        run: pnpm exec vitest run
+        env:
+          # Public env vars needed for test-time imports
+          NEXT_PUBLIC_SUI_NETWORK: mainnet
+          NEXT_PUBLIC_DEMO_MODE: ""
+          # Conservative SUI price floor for deterministic cap-gate tests
+          SUI_USD_PRICE_FLOOR: "3.0"
+
+      # Next.js production build — fails on type / import errors not caught above
+      - name: Build web app
+        run: pnpm --filter web build
+        env:
+          # Only NEXT_PUBLIC_ vars; no secrets committed here.
+          # Server-only vars (AI_GATEWAY_API_KEY, WALRUS_*, etc.) are set in Vercel.
+          NEXT_PUBLIC_SUI_NETWORK: mainnet
+          NEXT_PUBLIC_DEMO_MODE: "fixture"
+          NEXT_PUBLIC_APP_URL: https://dewlock.xyz
+          NEXT_PUBLIC_EXPLORER_OBJECT_URL_TEMPLATE: "https://suiscan.xyz/mainnet/object/{id}"
+          # Cap defaults — safe public values
+          NEXT_PUBLIC_TX_USD_CAP: "5000"
+          # Agent URL can be empty during CI build; no runtime call is made
+          NEXT_PUBLIC_AGENT_URL: ""
