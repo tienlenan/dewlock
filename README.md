@@ -29,14 +29,22 @@ docs/           product/spec docs + production backlog
 pnpm install
 cp LOCAL-ENV-KEYS.md → apps/web/.env.local   # fill real keys (gitignored; never commit)
 pnpm --filter web dev                          # http://localhost:3000
-pnpm -r typecheck && pnpm exec vitest run      # 224 tests
+pnpm -r typecheck && pnpm exec vitest run      # 378 tests
 ```
 
-Routes: `/` landing · `/brand-design` styleguide · `/app` copilot.
+Routes: `/` landing · `/brand-design` styleguide · `/app` copilot · `/protocols` registry.
+
+## Multi-protocol coverage
+
+A single **protocol registry** (`@dewlock/sui`) is the sole author of the enforced allowlist and the public posture at `/protocols`. Only `active + built` protocols contribute Move targets; recently-hacked (Nemo/Volo/Aftermath-PERP) and off-model (Bluefin) protocols stay **listed but never built** (refused before a PTB exists).
+
+- **Swap aggregation** — Cetus Aggregator best-execution across activated venues (Cetus + DeepBook); a route through any non-activated DEX fail-closes at the allowlist. Source-aware min-out re-derive.
+- **Lending** — NAVI + Suilend deposit/repay (health-improving only; borrow/withdraw gated off). Value bounded by the dry-run net-outflow cap.
+- **Cross-chain inflow** — Wormhole Sui redeem, built SDK-free, behind 9 fail-closed bridge gates (recipient==self, priced-asset allowlist, VAA verify, fee model). Source leg is wallet-driven (Connect).
 
 ## Status
 
-Core flow (track/transfer/swap), Guardian (security-verified), DeepBook limit-order, and the BLOCK theater are **implemented + unit-tested** (224 tests). Mainnet-small, `$5/tx` + `$20/day` server caps; zero user-fund keys server-side.
+Core flow (track/transfer/swap), Guardian (security-verified), DeepBook limit-order, multi-protocol swaps/lending/bridge, and the BLOCK theater are **implemented + unit-tested** (378 tests). Mainnet-small, `$5/tx` + `$20/day` server caps (bridge uses a fee model + recipient==self, not the trade cap); zero user-fund keys server-side.
 
 **Before a live demo** (see `docs/docs/production-backlog.md` → `[needs live-env]`): pin real Cetus/DeepBook pool IDs, publish the `dewlock_receipt` Move package + set `DEWLOCK_RECEIPT_PACKAGE_ID`, fund the Walrus blob signer, pre-fund a BalanceManager, and validate the swap/portfolio/SuiNS/chat flow with a connected wallet.
 

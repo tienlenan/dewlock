@@ -21,6 +21,26 @@ export {
   LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
 } from "./allowlist";
 export type { SupportedCoinType } from "./allowlist";
+// Protocol registry — single source of truth for protocol posture + active targets.
+export {
+  getProtocols,
+  getProtocol,
+  getActiveProtocols,
+  getExcludedProtocols,
+  getBuiltProtocols,
+  getActiveMoveTargets,
+  getProtocolByTarget,
+  isTargetActive,
+  assertProtocolActive,
+} from "./protocol-registry";
+export type {
+  ProtocolEntry,
+  ProtocolCategory,
+  ProtocolStatus,
+  ProtocolBuildState,
+  ProtocolIncident,
+  ProtocolGateResult,
+} from "./protocol-registry";
 export { stableJson, sha256Hex, sha256HexBytes, useSignAndExecuteTx, WysiwysError } from "./sign";
 export { getSuiMainnetClient, getSuiDevnetClient } from "./client";
 export { dryRunTransaction, DryRunFailedError } from "./dry-run";

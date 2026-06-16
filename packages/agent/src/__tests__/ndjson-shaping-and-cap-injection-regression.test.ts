@@ -167,13 +167,24 @@ describe("NDJSON line serialisation contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () => {
-  it("ALLOWED_MOVE_TARGETS contains only Cetus CLMM + SuiNS + native pay + DeepBook", () => {
+  it("ALLOWED_MOVE_TARGETS contains only Cetus CLMM + Aggregator + SuiNS + native pay + DeepBook", () => {
     const targets = [...ALLOWED_MOVE_TARGETS];
     for (const t of targets) {
       const isAllowed =
         // Cetus
         t.includes("::pool::swap") ||
         t.includes("::pool::add_liquidity_fix_coin") ||
+        // Cetus Aggregator — per-DEX swap wrappers (activated venues only)
+        t.includes("::cetus::swap") ||
+        t.includes("::deepbookv3::swap") ||
+        // Lending — NAVI (incentive_v3) + Suilend (lending_market) deposit/repay
+        t.includes("::incentive_v3::entry_deposit") ||
+        t.includes("::incentive_v3::entry_repay") ||
+        t.includes("::lending_market::deposit_liquidity_and_mint_ctokens") ||
+        t.includes("::lending_market::deposit_ctokens_into_obligation") ||
+        t.includes("::lending_market::repay") ||
+        // Wormhole bridge redeem (Sui-side complete_transfer)
+        t.includes("::complete_transfer::complete_transfer") ||
         // SuiNS
         t.includes("::registry::lookup") ||
         // Native SUI transfer

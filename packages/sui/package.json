@@ -6,8 +6,15 @@
   "exports": {
     ".": "./dist/index.js",
     "./allowlist": "./dist/allowlist.js",
+    "./protocol-registry": "./dist/protocol-registry.js",
+    "./protocol-constants": "./dist/protocol-constants.js",
     "./dry-run": "./dist/dry-run.js",
     "./quotes-source": "./dist/quotes-source.js",
+    "./aggregator-quotes": "./dist/aggregator-quotes.js",
+    "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
+    "./build-lend": "./dist/build-lend.js",
+    "./wormhole-vaa": "./dist/wormhole/vaa.js",
+    "./build-redeem": "./dist/wormhole/build-redeem.js",
     "./client": "./dist/client.js",
     "./build-transfer": "./dist/build-transfer.js",
     "./build-swap": "./dist/build-swap.js",
@@ -20,11 +27,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
+    "@cetusprotocol/aggregator-sdk": "^1.6.1",
     "@cetusprotocol/cetus-sui-clmm-sdk": "5.4.0",
-    "@mysten/deepbook-v3": "1.4.1",
     "@mysten/dapp-kit": "^1.0.0",
+    "@mysten/deepbook-v3": "1.4.1",
     "@mysten/sui": "2.18.0",
     "@mysten/suins": "1.2.0",
+    "@naviprotocol/lending": "^1.4.6",
+    "@suilend/sdk": "^3.0.4",
     "bn.js": "^5.2.3"
   },
   "devDependencies": {

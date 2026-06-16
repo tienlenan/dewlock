@@ -42,10 +42,12 @@ export interface SwapQuote {
   minAmountOut: bigint;
   /** Slippage fraction applied (e.g. 0.005 = 0.5%). */
   slippageFraction: number;
-  /** Cetus pool object ID used for this quote. */
+  /** Cetus pool object ID used for this quote (or a route id for aggregator). */
   poolId: string;
   /** Source of the quote for audit logging. */
   source: "live" | "fixture";
+  /** For aggregator quotes: the venues the chosen route hops through (preview only). */
+  routeProviders?: string[];
 }
 
 export class QuoteFetchError extends Error {

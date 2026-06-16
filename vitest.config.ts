@@ -92,8 +92,15 @@ export default defineConfig({
 
       // @dewlock/sui sub-paths
       { find: "@dewlock/sui/allowlist", replacement: src("sui", "allowlist.ts") },
+      { find: "@dewlock/sui/protocol-registry", replacement: src("sui", "protocol-registry.ts") },
+      { find: "@dewlock/sui/protocol-constants", replacement: src("sui", "protocol-constants.ts") },
       { find: "@dewlock/sui/dry-run", replacement: src("sui", "dry-run.ts") },
       { find: "@dewlock/sui/quotes-source", replacement: src("sui", "quotes-source.ts") },
+      { find: "@dewlock/sui/aggregator-quotes", replacement: src("sui", "aggregator-quotes.ts") },
+      { find: "@dewlock/sui/build-aggregator-swap", replacement: src("sui", "build-aggregator-swap.ts") },
+      { find: "@dewlock/sui/build-lend", replacement: src("sui", "build-lend.ts") },
+      { find: "@dewlock/sui/wormhole-vaa", replacement: src("sui", "wormhole/vaa.ts") },
+      { find: "@dewlock/sui/build-redeem", replacement: src("sui", "wormhole/build-redeem.ts") },
       { find: "@dewlock/sui/client", replacement: src("sui", "client.ts") },
       { find: "@dewlock/sui/build-transfer", replacement: src("sui", "build-transfer.ts") },
       { find: "@dewlock/sui/build-swap", replacement: src("sui", "build-swap.ts") },

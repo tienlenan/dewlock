@@ -15,11 +15,50 @@ import { z } from "zod";
 import { getSuiMainnetClient, buildTransfer } from "@dewlock/sui";
 // build-swap imports Cetus SDK — use subpath to keep it isolated from the root bundle
 import { buildSwap } from "@dewlock/sui/build-swap";
+import { buildAggregatorSwap } from "@dewlock/sui/build-aggregator-swap";
+import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
+import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
 // build-limit-order imports DeepBook SDK — use subpath for the same isolation rationale
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
-import { guardianCheck } from "../guardian";
+import { buildLend } from "@dewlock/sui/build-lend";
+import { guardianCheck, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
 import { COIN_TYPES } from "../allowlist";
-import type { TradeProposal } from "../guardian";
+import type { TradeProposal, ActionType, SwapSource, LendingProtocol } from "../guardian";
+
+// Actions this tool can accept. Type-checked subset of the canonical ActionType
+// (a typo or unhandled action is a compile error) — single source. Borrow/withdraw
+// are accepted but immediately returned guarded (no builder).
+const TOOL_ACTION_TYPES = [
+  "transfer",
+  "swap",
+  "limit_order",
+  "lend_deposit",
+  "lend_repay",
+  "lend_borrow",
+  "lend_withdraw",
+] as const satisfies readonly ActionType[];
+
+/**
+ * Pick the best swap source by independent quote (max output). Falls back to
+ * whichever source quotes successfully; defaults to cetus if both fail (the
+ * subsequent build then fail-closes if cetus also can't quote).
+ */
+async function pickBestSwapSource(
+  coinTypeIn: string,
+  coinTypeOut: string,
+  amountInNative: bigint,
+  slippageBps: number,
+  sender: string,
+): Promise<SwapSource> {
+  const [cetus, agg] = await Promise.allSettled([
+    fetchSwapQuote(coinTypeIn, coinTypeOut, amountInNative, slippageBps, sender),
+    fetchAggregatorQuote(coinTypeIn, coinTypeOut, amountInNative, slippageBps, sender),
+  ]);
+  const cetusOut = cetus.status === "fulfilled" ? cetus.value.estimatedAmountOut : -1n;
+  const aggOut = agg.status === "fulfilled" ? agg.value.estimatedAmountOut : -1n;
+  if (aggOut > cetusOut) return "aggregator";
+  return "cetus";
+}
 
 // ---------------------------------------------------------------------------
 // Session spend tracker (server-side in-memory for the hackathon)
@@ -64,7 +103,7 @@ export const prepareTrade = createTool({
       .string()
       .regex(/^0x[0-9a-fA-F]{64}$/, "Must be a 0x-prefixed 64-hex-char Sui address"),
 
-    actionType: z.enum(["transfer", "swap", "limit_order"]),
+    actionType: z.enum(TOOL_ACTION_TYPES),
 
     // --- Transfer fields ---
     recipientInput: z
@@ -79,6 +118,11 @@ export const prepareTrade = createTool({
       .describe("Canonical output coin type for swaps"),
 
     poolId: z.string().optional().describe("Cetus pool ID (required for live swaps)"),
+
+    swapSource: z
+      .enum(SWAP_SOURCES)
+      .optional()
+      .describe("Swap source: 'cetus' (direct pool) or 'aggregator' (best route). Omit for best-route auto-select."),
 
     slippageBps: z
       .number()
@@ -125,6 +169,18 @@ export const prepareTrade = createTool({
       .optional()
       .describe("Order expiry as unix millisecond timestamp. Required for limit orders."),
 
+    // --- Lending fields (actionType==="lend_*") ---
+    lendingProtocol: z
+      .enum(LENDING_PROTOCOLS)
+      .optional()
+      .describe("Lending protocol for lend_* actions: 'navi' or 'suilend'."),
+
+    obligationId: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/)
+      .optional()
+      .describe("Suilend obligation object id (required for live Suilend repay)."),
+
     // --- Common fields ---
     coinTypeIn: z
       .enum(COIN_TYPE_VALUES)
@@ -167,6 +223,8 @@ export const prepareTrade = createTool({
         amountInNative: z.string(), // bigint serialized as string
         minAmountOutNative: z.string().optional(),
         slippageBps: z.number().optional(),
+        swapSource: z.enum(SWAP_SOURCES).optional(),
+        routeProviders: z.array(z.string()).optional(),
         recipientAddress: z.string().optional(),
         estimatedUsdValue: z.number(),
         gasCostMist: z.string(), // bigint serialized as string
@@ -192,6 +250,9 @@ export const prepareTrade = createTool({
         midPrice: z.number().optional(),
         orderType: z.literal("POST_ONLY").optional(),
         notionalQuote: z.number().optional(),
+        lendingProtocol: z.enum(LENDING_PROTOCOLS).optional(),
+        healthBefore: z.number().optional(),
+        healthAfter: z.number().optional(),
       }),
     }),
     // Block: Guardian refused
@@ -212,12 +273,15 @@ export const prepareTrade = createTool({
       amountInNative: amountStr,
       slippageBps = 50,
       poolId,
+      swapSource,
       poolKey,
       balanceManagerId,
       side,
       limitPrice,
       limitQuantity,
       expireTimestampMs,
+      lendingProtocol,
+      obligationId,
       actionLabel,
       argProvenance,
       verifiedContacts = [],
@@ -230,6 +294,9 @@ export const prepareTrade = createTool({
     let txBytes: string;
     let recipientAddress: string | undefined;
     let minAmountOutNative: bigint | undefined;
+    let chosenSwapSource: SwapSource | undefined;
+    let swapRouteProviders: string[] | undefined;
+    let lendHealthBefore: number | undefined;
     // Limit-order extra context for Guardian proposal
     let limitOrderBookParams: { tickSize: number; lotSize: number; minSize: number } | undefined;
     let limitOrderMidPrice: number | undefined;
@@ -285,20 +352,53 @@ export const prepareTrade = createTool({
         limitOrderBaseCoinType = orderResult.baseCoinType;
         limitOrderQuoteCoinType = orderResult.quoteCoinType;
         limitOrderNotionalQuote = orderResult.notionalQuote;
+      } else if (actionType === "lend_borrow" || actionType === "lend_withdraw") {
+        // Health-reducing verbs are gated off — surface immediately, build nothing.
+        return {
+          ok: false as const,
+          reasons: [
+            `Lending action "${actionType}" is guarded and not yet enabled — only deposit and repay are permitted.`,
+          ],
+          gates: ["lending"],
+        };
+      } else if (actionType === "lend_deposit" || actionType === "lend_repay") {
+        if (!lendingProtocol) {
+          return { ok: false as const, reasons: ["lendingProtocol is required for lending actions"], gates: ["input_validation"] };
+        }
+        const lendResult = await buildLend(suiClient, {
+          senderAddress: walletAddress,
+          protocol: lendingProtocol as LendingProtocol,
+          action: actionType === "lend_deposit" ? "deposit" : "repay",
+          coinType: coinTypeIn,
+          amountNative: amountInNative,
+          obligationId,
+        });
+        txBytes = lendResult.txBytes;
+        lendHealthBefore = lendResult.healthBefore;
       } else {
         // swap
         if (!coinTypeOut) {
           return { ok: false as const, reasons: ["coinTypeOut is required for swaps"], gates: ["input_validation"] };
         }
-        const swapResult = await buildSwap(suiClient, {
+        // Explicit source, else best-route auto-select among activated sources.
+        const source =
+          swapSource ??
+          (await pickBestSwapSource(coinTypeIn, coinTypeOut, amountInNative, slippageBps, walletAddress));
+        const spec = {
           senderAddress: walletAddress,
           coinTypeIn,
           coinTypeOut,
           amountInNative,
           slippageBps,
-        });
+        };
+        const swapResult =
+          source === "aggregator"
+            ? await buildAggregatorSwap(suiClient, spec)
+            : await buildSwap(suiClient, spec);
         txBytes = swapResult.txBytes;
         minAmountOutNative = swapResult.quote.minAmountOut;
+        chosenSwapSource = source;
+        swapRouteProviders = swapResult.quote.routeProviders;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -332,6 +432,8 @@ export const prepareTrade = createTool({
       amountInNative: effectiveAmountInNative,
       minAmountOutNative,
       slippageBps,
+      swapSource: chosenSwapSource,
+      routeProviders: swapRouteProviders,
       poolId,
       recipientAddress,
       argProvenance,
@@ -346,6 +448,9 @@ export const prepareTrade = createTool({
       expireTimestampMs,
       bookParams: limitOrderBookParams,
       midPrice: limitOrderMidPrice,
+      // Lending
+      lendingProtocol: actionType.startsWith("lend_") ? (lendingProtocol as LendingProtocol) : undefined,
+      healthBefore: lendHealthBefore,
     };
 
     const guardianResult = await guardianCheck(proposal, suiClient);

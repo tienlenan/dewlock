@@ -21,6 +21,7 @@
 
 import React, { useState } from "react";
 import { AlertTriangle } from "lucide-react";
+import { LendSummary } from "./lend-card";
 
 // ---------------------------------------------------------------------------
 // Types — kept identical to preserve data contract with use-copilot-chat
@@ -40,6 +41,11 @@ export interface TxPreviewData {
   amountInNative: string;
   minAmountOutNative?: string;
   slippageBps?: number;
+  swapSource?: "cetus" | "aggregator";
+  routeProviders?: string[];
+  lendingProtocol?: "navi" | "suilend";
+  healthBefore?: number;
+  healthAfter?: number;
   recipientAddress?: string;
   estimatedUsdValue: number;
   gasCostMist: string;
@@ -113,8 +119,10 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
   const [provenanceAcknowledged, setProvenanceAcknowledged] = useState(false);
   const [showDigest, setShowDigest] = useState(false);
 
-  const isSwap = !!preview.coinTypeOut;
-  const isTransfer = !preview.coinTypeOut;
+  const isLend = !!preview.lendingProtocol;
+  const isSwap = !!preview.coinTypeOut && !isLend;
+  const isTransfer = !preview.coinTypeOut && !isLend;
+  const lendVerb: "deposit" | "repay" = /repay/i.test(preview.actionLabel) ? "repay" : "deposit";
   const confirmEnabled = !isPending && (!preview.requiresProvenanceConfirm || provenanceAcknowledged);
 
   const amountIn = formatNative(preview.amountInNative, preview.coinTypeIn);
@@ -313,6 +321,18 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
           </div>
         )}
 
+        {/* Lend: protocol + asset + health (borrow/withdraw never reach this card) */}
+        {isLend && preview.lendingProtocol && (
+          <LendSummary
+            protocol={preview.lendingProtocol}
+            verb={lendVerb}
+            amount={amountIn}
+            ticker={tickerIn}
+            healthBefore={preview.healthBefore}
+            healthAfter={preview.healthAfter}
+          />
+        )}
+
         {/* Details grid — Min received / Slippage cap / Network gas / Coin type */}
         <div className="flex flex-col gap-2" style={{ fontSize: "12.5px" }}>
           {isSwap && preview.slippageBps !== undefined && (
@@ -328,6 +348,17 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
                 mono
               />
             </>
+          )}
+          {isSwap && preview.swapSource && (
+            <DetailRow
+              label="Route"
+              value={
+                preview.swapSource === "aggregator"
+                  ? `aggregator · ${(preview.routeProviders ?? []).join(" → ") || "best route"}`
+                  : "Cetus (direct pool)"
+              }
+              mono
+            />
           )}
           <DetailRow label="Network gas" value={gasCost} mono />
           {/* Coin type — always shown for fake-coin prevention */}

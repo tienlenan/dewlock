@@ -26,15 +26,61 @@ import {
   COIN_DECIMALS,
   COIN_TYPES,
   DEEPBOOK_POOLS,
+  SUINS_PACKAGE,
+  CETUS_CLMM_PACKAGE,
+  CETUS_CLMM_PACKAGE_V2,
+  CETUS_AGGREGATOR_PACKAGE,
+  NAVI_PACKAGE,
+  SUILEND_PACKAGE,
+  WORMHOLE_WTT_PACKAGE,
+  DEEPBOOK_PACKAGE,
   getTrustedUsdPrice,
+  getProtocolByTarget,
+  assertProtocolActive,
   normalizeHomoglyphs,
   editDistance,
   LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
 } from "./allowlist";
+
+// ---------------------------------------------------------------------------
+// ActionType — SINGLE source of truth.
+//
+// Imported by the TradeProposal union, the prepareTrade zod schema, and the
+// tool router so a new action type is declared exactly once. Later phases extend
+// this list (lend_*, bridge_redeem); the tool's accepted set is a type-checked
+// subset of this canonical list (see prepare-trade.ts).
+// ---------------------------------------------------------------------------
+
+export const ACTION_TYPES = [
+  "transfer",
+  "swap",
+  "add_liquidity",
+  "limit_order",
+  // Lending. deposit/repay are health-IMPROVING (enabled); borrow/withdraw are
+  // health-REDUCING and stay gated OFF until a guarded post-tx health follow-up.
+  "lend_deposit",
+  "lend_repay",
+  "lend_borrow",
+  "lend_withdraw",
+  // Cross-chain inflow — the Sui-side Wormhole redeem (source leg is wallet-driven).
+  "bridge_redeem",
+] as const;
+
+export type ActionType = (typeof ACTION_TYPES)[number];
+
+/** Lending protocols Dewlock has a built adapter for. */
+export const LENDING_PROTOCOLS = ["navi", "suilend"] as const;
+export type LendingProtocol = (typeof LENDING_PROTOCOLS)[number];
+
+/** Swap execution source. "cetus" = direct CLMM pool; "aggregator" = best route. */
+export const SWAP_SOURCES = ["cetus", "aggregator"] as const;
+export type SwapSource = (typeof SWAP_SOURCES)[number];
 import { dryRunTransaction, DryRunFailedError, type DryRunResult } from "@dewlock/sui";
 // quotes-source imports Cetus SDK — use subpath to keep it isolated from the root bundle
 import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import type { SwapQuote } from "@dewlock/sui/quotes-source";
+// aggregator quote source — independent re-derive for swapSource="aggregator"
+import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -52,7 +98,7 @@ export interface TradeProposal {
   /** Human-readable label for audit trail. */
   actionLabel: string;
   /** Action type for gate routing. */
-  actionType: "transfer" | "swap" | "add_liquidity" | "limit_order";
+  actionType: ActionType;
 
   // --- Value fields ---
   /** Canonical coin type (outgoing). NEVER a ticker symbol. */
@@ -65,6 +111,14 @@ export interface TradeProposal {
   minAmountOutNative?: bigint;
   /** For swaps: slippage in basis points. */
   slippageBps?: number;
+  /**
+   * Which swap source built this PTB. The Guardian re-derives min-out from the
+   * SAME source (never crossing a Cetus quote with an aggregator PTB).
+   * Defaults to "cetus" when absent (backward compatible).
+   */
+  swapSource?: SwapSource;
+  /** For aggregator swaps: venues the chosen route hops through (preview only). */
+  routeProviders?: string[];
   /** Cetus pool ID (for swaps). */
   poolId?: string;
   /** Resolved 0x recipient address (for transfers). */
@@ -87,6 +141,14 @@ export interface TradeProposal {
   bookParams?: { tickSize: number; lotSize: number; minSize: number };
   /** Mid-price at build time (for fat-finger sanity band). */
   midPrice?: number;
+
+  // --- Lending fields (actionType === "lend_*") ---
+  /** Lending protocol routed to. Must be active+built in the registry. */
+  lendingProtocol?: LendingProtocol;
+  /** Health factor before the action (read on-chain at build time; preview only). */
+  healthBefore?: number;
+  /** Projected health factor after the action (preview only). */
+  healthAfter?: number;
 
   /**
    * Provenance of each arg: "user_turn" = came from the literal current
@@ -144,6 +206,8 @@ export interface TxPreview {
   amountInNative: bigint;
   minAmountOutNative?: bigint;
   slippageBps?: number;
+  swapSource?: SwapSource;
+  routeProviders?: string[];
   recipientAddress?: string;
   estimatedUsdValue: number;
   gasCostMist: bigint;
@@ -162,6 +226,10 @@ export interface TxPreview {
   midPrice?: number;
   orderType?: "POST_ONLY";
   notionalQuote?: number;
+  // --- Lending preview fields ---
+  lendingProtocol?: LendingProtocol;
+  healthBefore?: number;
+  healthAfter?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +288,15 @@ export async function guardianCheck(
   const allowlistResult = await checkAllowlist(proposal.txBytes);
   if (!allowlistResult.ok) {
     block("allowlist", allowlistResult.reason);
+  }
+
+  // --- Structural shape gate ---
+  // Even when every individual call is allowlisted, the PTB's MoveCall set must
+  // match the declared action's template — closes the "swap + smuggled
+  // add_liquidity value-mover" composition bypass the per-target gate misses.
+  const shapeResult = await checkActionShape(proposal);
+  if (!shapeResult.ok) {
+    block("action_shape", shapeResult.reason);
   }
 
   // --- Gate 9: Coin-type provenance (on-chain CoinMetadata) ---
@@ -322,7 +399,9 @@ export async function guardianCheck(
   }
 
   // --- Gate 4: Independent min-out cross-check (for swaps) ---
-  if (proposal.actionType === "swap" && proposal.coinTypeOut && proposal.poolId) {
+  // Runs for ANY swap with an output coin — not gated on poolId (the aggregator
+  // has no single pool), so a swap can never skip the min-out re-derive.
+  if (proposal.actionType === "swap" && proposal.coinTypeOut) {
     const minOutResult = await checkMinOut(proposal, suiClient);
     if (!minOutResult.ok) {
       block("min_out", minOutResult.reason);
@@ -334,6 +413,14 @@ export async function guardianCheck(
     const orderbookResult = await checkOrderbookConstraints(proposal);
     for (const err of orderbookResult.errors) {
       block(err.gate, err.reason);
+    }
+  }
+
+  // --- Lending gates (for lend_* actions) ---
+  if (proposal.actionType.startsWith("lend_")) {
+    const lendResult = checkLendingConstraints(proposal);
+    if (!lendResult.ok) {
+      block("lending", lendResult.reason);
     }
   }
 
@@ -351,6 +438,55 @@ export async function guardianCheck(
     } else {
       dryRunResult = dryRunCheck.result;
       approvedDigest = dryRunCheck.digest;
+
+      // --- Authoritative value gate: cap from ACTUAL net outflow ---
+      // Value the transaction from the dry-run's net balance deltas (what really
+      // leaves the user's wallet), not the self-declared amount. A composed PTB
+      // that moves more than declared is caught here. Limit orders rest on the
+      // book (deltas ~0), so they keep the notional-based value computed earlier.
+      if (proposal.actionType !== "limit_order") {
+        const outflow = computeNetOutflowUsd(dryRunResult, proposal.walletAddress);
+        if (!outflow.ok) {
+          block("trusted_price", outflow.reason);
+        } else {
+          try {
+            const { txUsdCap, dailyUsdCap } = getServerCaps();
+            if (outflow.usd > txUsdCap) {
+              block(
+                "tx_cap",
+                `Actual net outflow ~$${outflow.usd.toFixed(2)} (valued from dry-run balance deltas) ` +
+                  `exceeds per-tx cap of $${txUsdCap}.`,
+              );
+              capsWarning = true;
+            }
+            if (proposal.dailyUsdSpentSoFar + outflow.usd > dailyUsdCap) {
+              block(
+                "daily_cap",
+                `Daily spend would reach ~$${(proposal.dailyUsdSpentSoFar + outflow.usd).toFixed(2)} ` +
+                  `(actual outflow), exceeding daily cap of $${dailyUsdCap}.`,
+              );
+              capsWarning = true;
+            }
+          } catch (err) {
+            block("cap_config", err instanceof Error ? err.message : String(err));
+          }
+          // Cross-check: actual outflow must not materially exceed the declared
+          // value (catches a within-cap drain hiding behind a small declared amount).
+          const SANITY_RATIO = 1.5;
+          if (
+            outflow.usd > estimatedUsdValue * SANITY_RATIO &&
+            outflow.usd - estimatedUsdValue > 0.5
+          ) {
+            block(
+              "outflow_mismatch",
+              `Transaction outflows ~$${outflow.usd.toFixed(2)} but the declared action value is ` +
+                `~$${estimatedUsdValue.toFixed(2)} — moves more than declared. Refusing.`,
+            );
+          }
+          // Surface the actual outflow as the previewed value when it is larger.
+          if (outflow.usd > estimatedUsdValue) estimatedUsdValue = outflow.usd;
+        }
+      }
     }
   }
 
@@ -367,6 +503,8 @@ export async function guardianCheck(
     amountInNative: proposal.amountInNative,
     minAmountOutNative: proposal.minAmountOutNative,
     slippageBps: proposal.slippageBps,
+    swapSource: proposal.actionType === "swap" ? (proposal.swapSource ?? "cetus") : undefined,
+    routeProviders: proposal.routeProviders,
     recipientAddress: proposal.recipientAddress,
     estimatedUsdValue,
     gasCostMist: dryRunResult!.gasCostMist,
@@ -387,6 +525,9 @@ export async function guardianCheck(
       proposal.limitPrice !== undefined && proposal.limitQuantity !== undefined
         ? proposal.limitPrice * proposal.limitQuantity
         : undefined,
+    lendingProtocol: proposal.lendingProtocol,
+    healthBefore: proposal.healthBefore,
+    healthAfter: proposal.healthAfter,
   };
 
   return {
@@ -418,9 +559,18 @@ export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
         const mc = cmd.MoveCall;
         const target = `${mc.package}::${mc.module}::${mc.function}`;
         if (!ALLOWED_MOVE_TARGETS.has(target)) {
+          // Status-aware reason: if the target maps to a known-but-excluded
+          // protocol, name it; otherwise the generic refusal.
+          const owner = getProtocolByTarget(target);
+          const statusNote = owner
+            ? ` Target belongs to "${owner.name}", which is ${owner.status}` +
+              `${owner.lastIncident ? ` (security incident ${owner.lastIncident.date})` : ""} — refused.`
+            : "";
           return {
             ok: false,
-            reason: `Move call "${target}" is not on the protocol allowlist. Only Cetus CLMM and SuiNS calls are permitted.`,
+            reason:
+              `Move call "${target}" is not on the protocol allowlist (refused before build).` +
+              statusNote,
           };
         }
       }
@@ -433,6 +583,189 @@ export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
       reason: `Failed to parse PTB for allowlist check: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Structural PTB-shape gate (closes the compose-two-allowlisted-calls bypass)
+// ---------------------------------------------------------------------------
+
+/**
+ * Move-call targets each action type may legitimately contain. Commands
+ * (splitCoins/mergeCoins/transferObjects) are NOT MoveCalls and are not
+ * constrained here — value movement is bounded by the dry-run net-outflow cap.
+ */
+function allowedTargetsForAction(actionType: ActionType): Set<string> {
+  switch (actionType) {
+    case "swap":
+      return new Set([
+        // Direct Cetus CLMM swap.
+        `${CETUS_CLMM_PACKAGE}::pool::swap`,
+        `${CETUS_CLMM_PACKAGE_V2}::pool::swap`,
+        // Aggregator route hops — only the wrappers for ACTIVATED venues. A hop
+        // through a non-activated DEX uses a different `<AGG>::<dex>::swap`
+        // module that is absent from ALLOWED_MOVE_TARGETS → allowlist gate blocks.
+        `${CETUS_AGGREGATOR_PACKAGE}::cetus::swap`,
+        `${CETUS_AGGREGATOR_PACKAGE}::deepbookv3::swap`,
+      ]);
+    case "add_liquidity":
+      return new Set([
+        `${CETUS_CLMM_PACKAGE}::pool::add_liquidity_fix_coin`,
+        `${CETUS_CLMM_PACKAGE_V2}::pool::add_liquidity_fix_coin`,
+      ]);
+    case "limit_order":
+      return new Set([
+        `${DEEPBOOK_PACKAGE}::pool::place_limit_order`,
+        `${DEEPBOOK_PACKAGE}::pool::cancel_order`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_owner`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_trader`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::new`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::deposit`,
+      ]);
+    case "lend_deposit":
+      // Health-improving deposits only — NAVI entry_deposit / Suilend mint+deposit.
+      return new Set([
+        `${NAVI_PACKAGE}::incentive_v3::entry_deposit`,
+        `${SUILEND_PACKAGE}::lending_market::deposit_liquidity_and_mint_ctokens`,
+        `${SUILEND_PACKAGE}::lending_market::deposit_ctokens_into_obligation`,
+      ]);
+    case "lend_repay":
+      return new Set([
+        `${NAVI_PACKAGE}::incentive_v3::entry_repay`,
+        `${SUILEND_PACKAGE}::lending_market::repay`,
+      ]);
+    case "lend_borrow":
+    case "lend_withdraw":
+      // Health-REDUCING verbs are gated off (checkLendingConstraints blocks them
+      // before build); no targets allowlisted, so any such PTB is also refused.
+      return new Set<string>();
+    case "bridge_redeem":
+      // Only the Sui-side Wormhole Token-Bridge redeem.
+      return new Set([`${WORMHOLE_WTT_PACKAGE}::complete_transfer::complete_transfer`]);
+    case "transfer":
+      // Supported transfers (SUI) use splitCoins+transferObjects — no MoveCall —
+      // so the legitimate shape has an empty MoveCall set. Any MoveCall in a
+      // transfer PTB is unexpected and refused here. (Non-SUI transfers are not
+      // currently a supported build path; were they wired, their target would
+      // need an explicit allowlist + shape entry.)
+      return new Set<string>();
+    default:
+      return new Set();
+  }
+}
+
+/**
+ * Assert the PTB's MoveCall set matches the declared action's template. Any call
+ * outside that set — even an allowlisted one belonging to a different action —
+ * is refused. This closes the bypass where a declared swap also smuggles a
+ * second allowlisted value-mover (e.g. add_liquidity) past the per-target gate.
+ */
+export async function checkActionShape(proposal: TradeProposal): Promise<GateResult> {
+  try {
+    const bytes = Buffer.from(proposal.txBytes, "base64");
+    const tx = Transaction.from(bytes);
+    const commands = tx.getData().commands ?? [];
+    const allowed = allowedTargetsForAction(proposal.actionType);
+    const suinsLookup = `${SUINS_PACKAGE}::registry::lookup`;
+
+    for (const cmd of commands) {
+      if (!("MoveCall" in cmd) || !cmd.MoveCall) continue;
+      const mc = cmd.MoveCall;
+      const target = `${mc.package}::${mc.module}::${mc.function}`;
+      // Read-only SuiNS resolve moves no value — permitted inside any action.
+      if (target === suinsLookup) continue;
+      if (!allowed.has(target)) {
+        return {
+          ok: false,
+          reason:
+            `PTB shape mismatch: a "${proposal.actionType}" action must not contain the call "${target}". ` +
+            "An unexpected value-moving command was found — refusing the composed transaction.",
+        };
+      }
+    }
+    return { ok: true, reason: "" };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Failed to parse PTB for action-shape check: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lending gate — verb safety + protocol-active routing
+// ---------------------------------------------------------------------------
+
+/**
+ * Lending constraints (allowlist-before-build):
+ *  - borrow/withdraw are health-REDUCING → gated OFF until a guarded follow-up
+ *    that simulates the post-tx health factor.
+ *  - deposit/repay are health-IMPROVING → permitted, but only to an active+built
+ *    lending protocol. The USD value moved is bounded by the dry-run net-outflow
+ *    cap (deposit/repay are outflows), and the deposited coin must be priced
+ *    (the trusted-price gate blocks unpriced collateral).
+ */
+export function checkLendingConstraints(proposal: TradeProposal): GateResult {
+  const { actionType, lendingProtocol } = proposal;
+
+  if (actionType === "lend_borrow" || actionType === "lend_withdraw") {
+    return {
+      ok: false,
+      reason:
+        `Lending action "${actionType}" is guarded and not yet enabled. ` +
+        "Borrow/withdraw create or increase debt and require a simulated post-tx " +
+        "health-factor check; only deposit and repay are currently permitted.",
+    };
+  }
+
+  if (!lendingProtocol) {
+    return {
+      ok: false,
+      reason: "Lending action requires a lendingProtocol — none provided. Blocking (fail-closed).",
+    };
+  }
+  const gate = assertProtocolActive(lendingProtocol);
+  if (!gate.ok) {
+    return { ok: false, reason: gate.reason ?? `Lending protocol "${lendingProtocol}" is not active.` };
+  }
+  return { ok: true, reason: "" };
+}
+
+// ---------------------------------------------------------------------------
+// Net-outflow valuation — the authoritative cap basis (from dry-run deltas)
+// ---------------------------------------------------------------------------
+
+type OutflowResult = { ok: true; usd: number } | { ok: false; reason: string };
+
+/**
+ * Sum the USD value of everything that actually LEAVES the user's wallet in the
+ * dry-run (negative balance deltas owned by the sender), priced via the trusted
+ * USD map. Gas is subtracted from the SUI outflow so gas alone never trips the
+ * cap. An outflow in an unpriced coin → fail-closed block (value unbounded).
+ */
+export function computeNetOutflowUsd(dryRun: DryRunResult, sender: string): OutflowResult {
+  let usd = 0;
+  const senderNorm = sender.toLowerCase();
+  for (const d of dryRun.balanceDeltas) {
+    if (d.amount >= 0n) continue; // inflow — not an outflow
+    if ((d.owner ?? "").toLowerCase() !== senderNorm) continue; // only the user's own funds
+    let outNative = -d.amount;
+    if (d.coinType === COIN_TYPES.SUI) {
+      outNative = outNative > dryRun.gasCostMist ? outNative - dryRun.gasCostMist : 0n;
+    }
+    if (outNative <= 0n) continue;
+    const price = getTrustedUsdPrice(d.coinType);
+    if (price === undefined) {
+      return {
+        ok: false,
+        reason:
+          `Dry-run shows an outflow in "${d.coinType}", which has no trusted USD price — ` +
+          "cannot bound the transaction value. Blocking (fail-closed).",
+      };
+    }
+    const decimals = COIN_DECIMALS[d.coinType] ?? 9;
+    usd += (Number(outNative) / 10 ** decimals) * price;
+  }
+  return { ok: true, usd };
 }
 
 // Gate 9: Coin-type on-chain verification
@@ -537,19 +870,32 @@ async function checkMinOut(
   proposal: TradeProposal,
   suiClient: SuiClient,
 ): Promise<MinOutResult> {
-  if (!proposal.coinTypeOut || !proposal.slippageBps) {
+  // Guard on `=== undefined`, NOT falsiness: slippageBps=0 is a real value and
+  // must NOT skip the min-out re-derive (a 0-bps swap with a tampered zero
+  // min-out would otherwise slip through both this gate and the decimals check).
+  if (!proposal.coinTypeOut || proposal.slippageBps === undefined) {
     return { ok: true, reason: "" };
   }
 
-  // Re-derive min-out from a FRESH independent quote (not the one the builder used)
+  // Re-derive min-out from a FRESH independent quote of the SAME source the PTB
+  // was built with. Never cross a Cetus quote with an aggregator PTB.
+  const source = proposal.swapSource ?? "cetus";
   let freshQuote: SwapQuote;
   try {
-    freshQuote = await fetchSwapQuote(
-      proposal.coinTypeIn,
-      proposal.coinTypeOut,
-      proposal.amountInNative,
-      proposal.slippageBps,
-    );
+    freshQuote =
+      source === "aggregator"
+        ? await fetchAggregatorQuote(
+            proposal.coinTypeIn,
+            proposal.coinTypeOut,
+            proposal.amountInNative,
+            proposal.slippageBps,
+          )
+        : await fetchSwapQuote(
+            proposal.coinTypeIn,
+            proposal.coinTypeOut,
+            proposal.amountInNative,
+            proposal.slippageBps,
+          );
   } catch (err) {
     // Quote fetch failure → fail-closed (hardening #5)
     return {
@@ -604,8 +950,20 @@ async function checkMinOut(
     };
   }
 
+  // A swap PTB must embed a min-out for the Guardian to compare against. A swap
+  // that reaches here with no embedded min-out cannot be verified ⇒ block
+  // (fail-closed for any caller, not just prepareTrade which always supplies it).
+  if (proposal.minAmountOutNative === undefined) {
+    return {
+      ok: false,
+      reason:
+        "Swap PTB has no embedded min-out for the Guardian to verify against the " +
+        "independent quote — cannot bound slippage. Blocking (fail-closed).",
+    };
+  }
+
   // Compare PTB-embedded min-out vs freshly-derived min-out (10% tolerance band)
-  if (proposal.minAmountOutNative !== undefined) {
+  {
     const embeddedMinOut = proposal.minAmountOutNative;
     const freshMinOut = freshQuote.minAmountOut;
     // Tolerance: fresh min-out must be within 10% of embedded value

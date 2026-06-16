@@ -14,8 +14,14 @@ export {
   COIN_TYPES,
   COIN_DECIMALS,
   ALLOWED_MOVE_TARGETS,
+  NATIVE_PACKAGE,
   CETUS_CLMM_PACKAGE,
   CETUS_CLMM_PACKAGE_V2,
+  CETUS_AGGREGATOR_PACKAGE,
+  NAVI_PACKAGE,
+  SUILEND_PACKAGE,
+  WORMHOLE_CORE_PACKAGE,
+  WORMHOLE_WTT_PACKAGE,
   SUINS_PACKAGE,
   DEEPBOOK_PACKAGE,
   DEEPBOOK_REGISTRY,
@@ -24,5 +30,22 @@ export {
   normalizeHomoglyphs,
   editDistance,
   LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
+  // Protocol registry helpers (single-authored allowlist + status-aware routing)
+  getProtocols,
+  getProtocol,
+  getActiveProtocols,
+  getExcludedProtocols,
+  getActiveMoveTargets,
+  getProtocolByTarget,
+  isTargetActive,
+  assertProtocolActive,
 } from "@dewlock/sui/allowlist";
-export type { SupportedCoinType } from "@dewlock/sui/allowlist";
+export type {
+  SupportedCoinType,
+  ProtocolEntry,
+  ProtocolCategory,
+  ProtocolStatus,
+  ProtocolBuildState,
+  ProtocolIncident,
+  ProtocolGateResult,
+} from "@dewlock/sui/allowlist";
