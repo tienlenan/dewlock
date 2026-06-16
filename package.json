@@ -1,0 +1,27 @@
+{
+  "name": "dewlock",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Dewlock — Sui DeFi Copilot. Every transaction, sealed before you sign.",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter @dewlock/walrus typecheck && pnpm --filter @dewlock/agent typecheck && pnpm --filter @dewlock/sui typecheck",
+    "lint": "pnpm --filter web lint",
+    "test": "vitest run",
+    "health": "tsx scripts/health.ts",
+    "provision": "tsx scripts/provision-memwal.ts",
+    "gen:icons": "node scripts/gen-brand-icons.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@vitest/runner": "^4.1.9",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.9"
+  }
+}

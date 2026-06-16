@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --font-sans:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  --bg:hsl(205 38% 99%); --bg-sub:hsl(205 30% 96%); --bg-elev:hsl(0 0% 100%);
+  --bg-dark:hsl(215 40% 8%); --bg-ink:hsl(217 38% 11%);
+  --fg:hsl(213 24% 13%); --fg-muted:hsl(212 12% 46%); --fg-subtle:hsl(212 12% 55%); --fg-faint:hsl(212 10% 68%); --fg-inverse:hsl(205 25% 96%);
+  --border:hsl(205 24% 90%); --border-strong:hsl(205 20% 82%); --border-dark:hsl(217 28% 18%);
+  --accent:hsl(206 90% 48%); --accent-hover:hsl(206 88% 40%); --accent-ink:hsl(206 85% 36%); --accent-soft:hsl(205 100% 95%); --accent-2:hsl(205 90% 70%);
+  --tint-sky:hsl(205 100% 95%); --tint-periwinkle:hsl(205 90% 70%); --tint-blush:hsl(10 60% 96%); --tint-peach:hsl(28 100% 95%); --tint-mint:hsl(150 52% 96%);
+  --success:hsl(143 72% 35%); --warning:hsl(38 92% 44%); --destructive:hsl(2 64% 50%);
+  --radius:0.25rem;
+  --shadow-sm:0 1px 2px rgba(20,50,100,.04),0 1px 4px rgba(20,50,100,.06);
+  --shadow-md:0 1px 2px rgba(20,50,100,.04),0 8px 24px -8px rgba(30,90,170,.14);
+  --shadow-lg:0 1px 2px rgba(20,50,100,.04),0 16px 48px -16px rgba(30,90,170,.20);
+  --shadow-aqua:0 0 0 3px rgba(30,130,240,.22);
+}
+.dark{
+  --bg:hsl(213 26% 9%); --bg-sub:hsl(213 22% 12%); --bg-elev:hsl(213 20% 14%);
+  --bg-dark:hsl(217 40% 5%); --bg-ink:hsl(217 38% 8%);
+  --fg:hsl(205 25% 96%); --fg-muted:hsl(210 12% 62%); --fg-subtle:hsl(210 10% 52%); --fg-faint:hsl(213 10% 38%); --fg-inverse:hsl(205 25% 96%);
+  --border:hsl(213 16% 20%); --border-strong:hsl(213 16% 28%); --border-dark:hsl(217 28% 14%);
+  --accent:hsl(205 90% 60%); --accent-hover:hsl(205 90% 68%); --accent-ink:hsl(205 90% 68%); --accent-soft:hsl(205 35% 20%); --accent-2:hsl(205 80% 72%);
+  --tint-sky:hsl(205 30% 18%); --tint-periwinkle:hsl(218 40% 22%); --tint-blush:hsl(10 16% 14%); --tint-peach:hsl(24 26% 18%); --tint-mint:hsl(150 18% 15%);
+  --success:hsl(143 60% 48%); --warning:hsl(38 88% 58%); --destructive:hsl(2 70% 60%);
+  --shadow-md:0 2px 0 rgba(0,0,0,.4),0 8px 24px -8px rgba(0,0,0,.6);
+  --shadow-lg:0 4px 0 rgba(0,0,0,.4),0 16px 48px -16px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+body{margin:0}
+</style>
+</helmet>
+
+<div class="{{ rootClass }}" style="background:var(--bg);color:var(--fg);min-height:100vh;font-family:var(--font-sans);letter-spacing:-0.01em;-webkit-font-smoothing:antialiased">
+
+<!-- header -->
+<header style="position:sticky;top:0;z-index:40;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:color-mix(in srgb,var(--bg) 82%,transparent);border-bottom:1px solid var(--border)">
+  <div style="max-width:1080px;margin:0 auto;padding:18px clamp(20px,5vw,40px);display:flex;align-items:center;gap:16px">
+    <svg width="17" height="28" viewBox="0 0 16 26" fill="none"><path d="M8 2C8 2 2 8.5 2 13a6 6 0 0 0 12 0C14 8.5 8 2 8 2Z" fill="var(--accent)"></path><rect x="5" y="15" width="6" height="6" rx="1.2" fill="var(--bg-dark)" stroke="var(--accent)" stroke-width="1.5"></rect><circle cx="8" cy="17.8" r="1" fill="var(--accent-2)"></circle></svg>
+    <div><div style="font-weight:700;font-size:16px;letter-spacing:-0.03em;color:var(--fg)">dew<span style="color:var(--accent)">lock</span> <span style="color:var(--fg-faint);font-weight:500">/ design system</span></div></div>
+    <div style="margin-left:auto;display:flex;gap:4px;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:3px">
+      <button onClick="{{ setLight }}" style="{{ lightStyle }}">☀ Light</button>
+      <button onClick="{{ setDark }}" style="{{ darkStyle }}">☾ Dark</button>
+    </div>
+  </div>
+</header>
+
+<div style="max-width:1080px;margin:0 auto;padding:clamp(36px,6vw,64px) clamp(20px,5vw,40px)">
+
+  <!-- intro -->
+  <div style="max-width:640px;margin-bottom:56px">
+    <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent-ink)">Tokens · one set, two themes</span>
+    <h1 style="margin:14px 0 0;font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:-0.035em;line-height:1.02">A calm, precise system for moving real money.</h1>
+    <p style="margin:16px 0 0;font-size:16px;line-height:1.6;color:var(--fg-muted)">Cool near-white canvas, one confident Sui-blue, pastel multi-tints, always-dark "water-ink" panels. Every token flips cleanly between light and dark — toggle above to preview.</p>
+  </div>
+
+  <!-- COLORS -->
+  <section style="margin-bottom:56px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em">Color</h2><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-faint)">flips light · dark</span></div>
+
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-subtle);margin:0 0 12px">Surfaces &amp; borders</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px;margin-bottom:28px">
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--bg</div><div style="font-size:11px;color:var(--fg-faint)">canvas</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg-sub)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--bg-sub</div><div style="font-size:11px;color:var(--fg-faint)">recessed</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg-elev)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--bg-elev</div><div style="font-size:11px;color:var(--fg-faint)">card surface</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg);border-bottom:1px solid var(--border-strong)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--border</div><div style="font-size:11px;color:var(--fg-faint)">hairline · strong</div></div></div>
+    </div>
+
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-subtle);margin:0 0 12px">Ink / text on canvas</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px;margin-bottom:28px">
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--fg)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--fg</div><div style="font-size:11px;color:var(--fg-faint)">primary text</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--fg-muted)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--fg-muted</div><div style="font-size:11px;color:var(--fg-faint)">body</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--fg-subtle)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--fg-subtle</div><div style="font-size:11px;color:var(--fg-faint)">captions</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--fg-faint)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--fg-faint</div><div style="font-size:11px;color:var(--fg-faint)">disabled</div></div></div>
+    </div>
+
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-subtle);margin:0 0 12px">Always-dark "water-ink" panels <span style="color:var(--fg-faint)">— stay dark in both themes</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px;margin-bottom:28px">
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg-dark)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--bg-dark</div><div style="font-size:11px;color:var(--fg-faint)">hero · cta</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg-ink)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--bg-ink</div><div style="font-size:11px;color:var(--fg-faint)">console · cards</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg-ink);border-bottom:1px solid var(--border-dark)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--border-dark</div><div style="font-size:11px;color:var(--fg-faint)">on dark</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--bg-dark);display:flex;align-items:center;justify-content:center"><span style="color:var(--fg-inverse);font-size:13px;font-weight:600">Aa text</span></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--fg-inverse</div><div style="font-size:11px;color:var(--fg-faint)">text on dark</div></div></div>
+    </div>
+
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-subtle);margin:0 0 12px">Accent — Sui sky-blue</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px;margin-bottom:28px">
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--accent)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--accent</div><div style="font-size:11px;color:var(--fg-faint)">primary action</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--accent-ink)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--accent-ink</div><div style="font-size:11px;color:var(--fg-faint)">text · AA</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--accent-2)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--accent-2</div><div style="font-size:11px;color:var(--fg-faint)">highlight</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--accent-soft)"></div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--accent-soft</div><div style="font-size:11px;color:var(--fg-faint)">tint fill</div></div></div>
+    </div>
+
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-subtle);margin:0 0 12px">Pastel multi-tints</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:12px;margin-bottom:28px">
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:54px;background:var(--tint-sky)"></div><div style="padding:8px 10px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:var(--fg)">sky</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:54px;background:var(--tint-periwinkle)"></div><div style="padding:8px 10px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:var(--fg)">periwinkle</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:54px;background:var(--tint-blush)"></div><div style="padding:8px 10px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:var(--fg)">blush</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:54px;background:var(--tint-peach)"></div><div style="padding:8px 10px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:var(--fg)">peach</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:54px;background:var(--tint-mint)"></div><div style="padding:8px 10px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:var(--fg)">mint</div></div></div>
+    </div>
+
+    <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-subtle);margin:0 0 12px">Status <span style="color:var(--fg-faint)">— reserved for balance deltas &amp; Guardian verdicts only</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px">
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--success);display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--font-mono);font-size:13px;font-weight:600">+38.42</div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--success</div><div style="font-size:11px;color:var(--fg-faint)">positive delta</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--warning);display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--font-mono);font-size:13px;font-weight:600">! review</div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--warning</div><div style="font-size:11px;color:var(--fg-faint)">caution</div></div></div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="height:66px;background:var(--destructive);display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--font-mono);font-size:13px;font-weight:600">BLOCKED</div><div style="padding:9px 11px;background:var(--bg-elev);border-top:1px solid var(--border)"><div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg)">--destructive</div><div style="font-size:11px;color:var(--fg-faint)">block · negative</div></div></div>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section style="margin-bottom:56px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em">Typography</h2><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-faint)">Plus Jakarta Sans · JetBrains Mono</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:24px;background:var(--bg-elev)">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:18px">Display · Plus Jakarta Sans</div>
+        <div style="font-size:46px;font-weight:800;letter-spacing:-0.035em;line-height:1;margin-bottom:14px">Sealed</div>
+        <div style="font-size:30px;font-weight:700;letter-spacing:-0.03em;line-height:1.05;margin-bottom:14px">Section heading</div>
+        <div style="font-size:20px;font-weight:600;letter-spacing:-0.02em;margin-bottom:18px">Card title</div>
+        <div style="border-top:1px solid var(--border);padding-top:16px">
+          <div style="font-size:17px;line-height:1.6;color:var(--fg-muted);margin-bottom:8px">Body large — state your intent in plain language.</div>
+          <div style="font-size:14px;line-height:1.55;color:var(--fg-muted);margin-bottom:8px">Body — the Guardian re-derives the math before you sign.</div>
+          <div style="font-size:13px;line-height:1.5;color:var(--fg-subtle)">Caption — effects visible before confirming.</div>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:24px;background:var(--bg-elev)">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:18px">Mono · JetBrains Mono <span style="text-transform:none;letter-spacing:0">— addresses, amounts, digests</span></div>
+        <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:16px">SUI:MAINNET · LABEL</div>
+        <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;margin-bottom:14px;color:var(--fg)">9,847.00 USDC</div>
+        <div style="font-family:var(--font-mono);font-size:14px;color:var(--fg-muted);margin-bottom:14px">0x3a4f…c912</div>
+        <div style="font-family:var(--font-mono);font-size:13px;color:var(--fg-muted);line-height:1.7;background:var(--bg-sub);border:1px solid var(--border);border-radius:8px;padding:12px">intent › swap 10 SUI → USDC<br>blob 3vK…x9q2</div>
+        <div style="margin-top:16px;font-size:12px;color:var(--fg-faint);line-height:1.5">Tracking 0.14em · uppercase for technical labels. Tabular figures for amounts.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SPACING + RADIUS -->
+  <section style="margin-bottom:56px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em">Spacing, radius &amp; elevation</h2><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-faint)">4px base · 0.25rem radius</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--bg-elev)">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:16px">Spacing scale</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">4</span><div style="height:12px;width:4px;background:var(--accent);border-radius:2px"></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">8</span><div style="height:12px;width:8px;background:var(--accent);border-radius:2px"></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">16</span><div style="height:12px;width:16px;background:var(--accent);border-radius:2px"></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">24</span><div style="height:12px;width:24px;background:var(--accent);border-radius:2px"></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">32</span><div style="height:12px;width:32px;background:var(--accent);border-radius:2px"></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">48</span><div style="height:12px;width:48px;background:var(--accent);border-radius:2px"></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-subtle);width:42px">64</span><div style="height:12px;width:64px;background:var(--accent);border-radius:2px"></div></div>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--bg-elev)">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:16px">Radius</div>
+        <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+          <div style="text-align:center"><div style="width:56px;height:56px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:4px"></div><div style="font-family:var(--font-mono);font-size:10px;color:var(--fg-subtle);margin-top:7px">4px</div></div>
+          <div style="text-align:center"><div style="width:56px;height:56px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px"></div><div style="font-family:var(--font-mono);font-size:10px;color:var(--fg-subtle);margin-top:7px">8px</div></div>
+          <div style="text-align:center"><div style="width:56px;height:56px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px"></div><div style="font-family:var(--font-mono);font-size:10px;color:var(--fg-subtle);margin-top:7px">12px</div></div>
+          <div style="text-align:center"><div style="width:56px;height:56px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:999px"></div><div style="font-family:var(--font-mono);font-size:10px;color:var(--fg-subtle);margin-top:7px">full</div></div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin:22px 0 14px">Elevation</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div style="width:64px;height:50px;background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-sm)"></div>
+          <div style="width:64px;height:50px;background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md)"></div>
+          <div style="width:64px;height:50px;background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg)"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPONENTS -->
+  <section style="margin-bottom:24px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em">Components</h2><span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-faint)">buttons · badges · chips</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--bg-elev)">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:16px">Buttons</div>
+        <div style="display:flex;flex-direction:column;gap:11px;align-items:flex-start">
+          <button style="height:42px;padding:0 18px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-family:var(--font-sans);font-size:14px;font-weight:600;cursor:pointer;box-shadow:var(--shadow-aqua);display:inline-flex;align-items:center;gap:8px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M5 8l2 2 4-5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>Confirm &amp; Sign</button>
+          <button style="height:42px;padding:0 18px;background:var(--bg-elev);color:var(--fg);border:1px solid var(--border-strong);border-radius:9px;font-family:var(--font-sans);font-size:14px;font-weight:600;cursor:pointer">Secondary</button>
+          <button style="height:42px;padding:0 14px;background:transparent;color:var(--accent-ink);border:none;border-radius:9px;font-family:var(--font-sans);font-size:14px;font-weight:600;cursor:pointer">Ghost link →</button>
+          <button style="height:42px;padding:0 18px;background:var(--destructive);color:#fff;border:none;border-radius:9px;font-family:var(--font-sans);font-size:14px;font-weight:600;cursor:not-allowed;opacity:.95">Blocked</button>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--bg-elev)">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin-bottom:16px">Badges &amp; chips</div>
+        <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center">
+          <span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-muted);border:1px solid var(--border);background:var(--bg-sub);padding:5px 10px;border-radius:99px"><span style="width:6px;height:6px;border-radius:99px;background:var(--success)"></span>sui:mainnet</span>
+          <span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 40%,transparent);background:color-mix(in srgb,var(--warning) 12%,transparent);padding:5px 10px;border-radius:99px">devnet-preview</span>
+          <span style="display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--destructive);border:1px solid color-mix(in srgb,var(--destructive) 40%,transparent);background:color-mix(in srgb,var(--destructive) 12%,transparent);padding:5px 10px;border-radius:99px">blocked</span>
+          <span style="display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);background:var(--accent-soft);padding:5px 10px;border-radius:99px">post_only</span>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);margin:20px 0 12px">Contact / address chip</div>
+        <div style="display:flex;flex-wrap:wrap;gap:9px">
+          <span style="display:inline-flex;align-items:center;gap:8px;background:var(--bg-sub);border:1px solid var(--border);border-radius:99px;padding:6px 12px;font-size:13px;color:var(--fg)"><span style="width:18px;height:18px;border-radius:99px;background:var(--accent-soft);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">8</span>888.sui<span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-faint)">0x3a4f…c912</span></span>
+          <span style="display:inline-flex;align-items:center;gap:7px;background:var(--bg-sub);border:1px solid var(--border);border-radius:8px;padding:6px 11px;font-family:var(--font-mono);font-size:12px;color:var(--fg)">0x9c2a…f41b <span style="color:var(--accent-ink);cursor:pointer">⧉</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer style="border-top:1px solid var(--border);background:var(--bg-sub)"><div style="max-width:1080px;margin:0 auto;padding:22px clamp(20px,5vw,40px);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-faint)">dewlock design tokens · ported from globals.css · light-default, dark flip</div></footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;light&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;tsType&quot;:&quot;'light'|'dark'&quot;}}">
+class Component extends DCLogic {
+  state = { theme: null };
+  setTheme = (t) => this.setState({ theme: t });
+  renderVals() {
+    const theme = this.state.theme ?? (this.props.defaultTheme || 'light');
+    const seg = (active) => active
+      ? 'padding:7px 14px;border:none;border-radius:7px;font:600 12px/1 var(--font-sans);cursor:pointer;background:var(--accent);color:#fff'
+      : 'padding:7px 14px;border:none;border-radius:7px;font:600 12px/1 var(--font-sans);cursor:pointer;background:transparent;color:var(--fg-muted)';
+    return {
+      rootClass: theme === 'dark' ? 'dark' : '',
+      setLight: () => this.setTheme('light'),
+      setDark: () => this.setTheme('dark'),
+      lightStyle: seg(theme === 'light'),
+      darkStyle: seg(theme === 'dark'),
+    };
+  }
+}
+</script>
+</body>
+</html>

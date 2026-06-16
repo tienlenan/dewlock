@@ -1,0 +1,108 @@
+/**
+ * Guardian pure gates — extractable, unit-testable, zero external SDK dependencies.
+ *
+ * WHY separated from guardian.ts: the main guardian.ts imports @mysten/sui/transactions
+ * and @cetusprotocol/cetus-sui-clmm-sdk for PTB parsing and quote fetching. Those SDKs
+ * have ESM initialisation issues in vitest/Node. The deterministic gate logic (allowlist
+ * string matching, provenance check, lookalike detection) is pure TS with zero SDK deps
+ * and belongs here so tests can import it without pulling the full SDK chain.
+ *
+ * guardian.ts re-exports everything from this file so public API is unchanged.
+ */
+
+import {
+  ALLOWED_MOVE_TARGETS,
+  normalizeHomoglyphs,
+  editDistance,
+  LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
+} from "./allowlist";
+import type { TradeProposal } from "./guardian";
+
+// ---------------------------------------------------------------------------
+// Gate 7: Allowlist (pure string check — no Transaction.from needed here)
+// ---------------------------------------------------------------------------
+
+export interface GateResult {
+  ok: boolean;
+  reason: string;
+}
+
+/**
+ * Check that all Move targets in a decoded command list are on the allowlist.
+ * This is the pure version — guardian.ts wraps it with Transaction.from() parsing.
+ */
+export function isTargetAllowed(target: string): boolean {
+  return ALLOWED_MOVE_TARGETS.has(target);
+}
+
+// ---------------------------------------------------------------------------
+// Gate 6: Injection provenance (pure, no SDK)
+// ---------------------------------------------------------------------------
+
+export interface ProvenanceResult {
+  requiresConfirm: boolean;
+  blocked: boolean;
+  reason?: string;
+}
+
+export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
+  const { argProvenance, amountInNative, recipientAddress, walletAddress } = proposal;
+
+  const hasDerivedArg =
+    argProvenance.recipient === "derived" ||
+    argProvenance.amount === "derived" ||
+    argProvenance.coinType === "derived";
+
+  // Hard block: derived recipient on a value-moving transfer to a third party
+  const untracedRecipientWithValue =
+    proposal.actionType === "transfer" &&
+    argProvenance.recipient === "derived" &&
+    amountInNative > 0n &&
+    recipientAddress !== walletAddress;
+
+  if (untracedRecipientWithValue) {
+    return {
+      requiresConfirm: false,
+      blocked: true,
+      reason:
+        `Transfer recipient "${recipientAddress}" was not provided in the current user message — ` +
+        "it appears to come from memory or injected pool data. " +
+        "Blocking: injection provenance gate. Please retype the recipient explicitly.",
+    };
+  }
+
+  return {
+    requiresConfirm: hasDerivedArg,
+    blocked: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gate 8: SuiNS lookalike (pure, no SDK)
+// ---------------------------------------------------------------------------
+
+export interface LookalikeResult {
+  suspect: boolean;
+  similarTo: string | null;
+}
+
+export function checkSuiNSLookalike(
+  inputName: string,
+  verifiedContacts: string[],
+): LookalikeResult {
+  const normalizedInput = normalizeHomoglyphs(
+    inputName.toLowerCase().replace(/\.sui$/, ""),
+  );
+
+  for (const contact of verifiedContacts) {
+    const normalizedContact = normalizeHomoglyphs(
+      contact.toLowerCase().replace(/\.sui$/, ""),
+    );
+    if (normalizedInput === normalizedContact) continue; // exact match = not lookalike
+    const dist = editDistance(normalizedInput, normalizedContact);
+    if (dist <= LOOKALIKE_EDIT_DISTANCE_THRESHOLD) {
+      return { suspect: true, similarTo: contact };
+    }
+  }
+  return { suspect: false, similarTo: null };
+}

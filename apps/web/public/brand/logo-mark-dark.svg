@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 88" width="76" height="88" fill="none" role="img" aria-label="Dewlock">
+  <g transform="translate(38 44) scale(0.88)">
+    <path d="M0 -36 C5 -30,35 -16,35 8 A35 35 0 1 1 -35 8 C-35 -16,-5 -30,0 -36 Z" fill="#0c89e9"/>
+    <circle cx="0" cy="6" r="8.7" fill="#f2f5f7"/>
+    <path d="M-4.3 6 L4.3 6 L2.8 30 L-2.8 30 Z" fill="#f2f5f7"/>
+    <circle cx="-13" cy="-5" r="5.3" fill="#6ebef7"/>
+  </g>
+</svg>

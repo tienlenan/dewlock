@@ -1,0 +1,30 @@
+{
+  "name": "@dewlock/agent",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./allowlist": "./dist/allowlist.js",
+    "./guardian": "./dist/guardian.js",
+    "./tools/prepare-trade": "./dist/tools/prepare-trade.js",
+    "./tools/get-portfolio": "./dist/tools/get-portfolio.js"
+  },
+  "scripts": {
+    "build": "tsc --noCheck",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+  },
+  "dependencies": {
+    "@ai-sdk/gateway": "^1.0.0",
+    "@cetusprotocol/cetus-sui-clmm-sdk": "5.4.0",
+    "@dewlock/sui": "workspace:*",
+    "@mastra/core": "^1.42.0",
+    "@mysten/sui": "2.18.0",
+    "@mysten/suins": "1.2.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "typescript": "^5.6.3"
+  }
+}

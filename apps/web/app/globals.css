@@ -1,0 +1,692 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   Dewlock Design System — Light-default pastel multi-color gradient
+   Aesthetic: cool near-white canvas · sky-blue primary · pastel tints
+   (periwinkle / sky / peach / mint / blush) · Plus Jakarta Sans display ·
+   JetBrains Mono for addresses · radius 0.25rem · aurora hero backdrop.
+
+   Token architecture:
+   - Light (default): warm near-white canvas, ink text, sky-blue primary
+   - Dark (.dark): cool slate ink + lifted sky-blue (same token names flip)
+   - Always-dark panels (--bg-dark, --bg-ink, --border-dark) stay dark in
+     both themes — hero, security, blockTeaser, cta, footer all use these.
+     --fg-inverse is the text color on always-dark panels (always light).
+   ========================================================================== */
+
+:root {
+    /* --- fonts (wired via <html> className in layout.tsx) --- */
+    --font-sans: var(--font-jakarta);
+    --font-mono: var(--font-jetbrains);
+
+    /* --- Dewlock split tokens (light-default) --- */
+    --bg: hsl(205 38% 99%);            /* cool near-white canvas */
+    --bg-sub: hsl(205 30% 96%);
+    --bg-subtle: hsl(205 30% 96%);
+    --bg-elev: hsl(0 0% 100%);
+
+    /* Always-dark stage — water-ink panels stay dark in both themes */
+    --bg-dark: hsl(215 40% 8%);
+    --bg-ink:  hsl(217 38% 11%);
+
+    --fg: hsl(213 24% 13%);            /* ink text on canvas */
+    --fg-muted: hsl(212 12% 46%);
+    --fg-subtle: hsl(212 12% 55%);
+    --fg-faint: hsl(212 10% 68%);
+    --fg-inverse: hsl(205 25% 96%);    /* text on always-dark panels */
+
+    --border: hsl(205 24% 90%);
+    --border-strong: hsl(205 20% 82%);
+    --border-dark: hsl(217 28% 18%);   /* border inside always-dark panels */
+
+    /* Sky-blue primary (Sui-appropriate, AA on white) */
+    --accent: hsl(206 90% 48%);
+    --accent-hover: hsl(206 88% 40%);
+    --accent-ink: hsl(206 85% 36%);    /* AA on white */
+    --accent-soft: hsl(205 100% 95%);  /* sky tint */
+    --accent-2: hsl(205 90% 70%);      /* periwinkle highlight */
+
+    /* Pastel multi-color accent tints — sky / periwinkle / blush / peach / mint */
+    --tint-sky: hsl(205 100% 95%);
+    --tint-periwinkle: hsl(205 90% 70%);
+    --tint-blush: hsl(10 60% 96%);
+    --tint-peach: hsl(28 100% 95%);
+    --tint-mint: hsl(150 52% 96%);
+
+    /* Grid lines — visible on canvas and dark panels */
+    --grid-line: rgba(10, 30, 60, 0.05);
+    --grid-line-strong: rgba(10, 30, 60, 0.10);
+
+    /* --- shadcn tokens --- */
+    --background: hsl(205 38% 99%);
+    --foreground: hsl(213 24% 13%);
+    --card: hsl(0 0% 100%);
+    --card-foreground: hsl(213 24% 13%);
+    --popover: hsl(0 0% 100%);
+    --popover-foreground: hsl(213 24% 13%);
+    --primary: hsl(206 90% 48%);
+    --primary-foreground: hsl(0 0% 100%);
+    --secondary: hsl(205 30% 96%);
+    --secondary-foreground: hsl(213 24% 16%);
+    --muted: hsl(205 30% 96%);
+    --muted-foreground: hsl(212 12% 46%);
+    --accent-foreground: hsl(206 85% 36%);
+    --destructive: hsl(2 64% 50%);
+    --input: hsl(205 24% 88%);
+    --ring: hsl(206 90% 48%);
+    --radius: 0.25rem;                 /* small uniform rounding, not flat-0 */
+
+    /* Semantic status — reserved for balance delta display only */
+    --success: hsl(143 72% 35%);
+    --warning: hsl(38 92% 44%);
+
+    /* Chart */
+    --chart-1: hsl(206 90% 48%);
+    --chart-2: hsl(213 24% 13%);
+    --chart-3: hsl(205 90% 70%);
+    --chart-4: hsl(143 72% 35%);
+    --chart-5: hsl(270 68% 58%);
+
+    /* Custom aliases */
+    --primary-soft: hsl(205 100% 95%);
+    --primary-hover: hsl(206 88% 40%);
+
+    /* Sidebar */
+    --sidebar: hsl(205 30% 96%);
+    --sidebar-foreground: hsl(213 24% 13%);
+    --sidebar-primary: hsl(206 90% 48%);
+    --sidebar-primary-foreground: hsl(0 0% 100%);
+    --sidebar-accent: hsl(205 100% 95%);
+    --sidebar-accent-foreground: hsl(206 85% 36%);
+    --sidebar-border: hsl(205 24% 90%);
+    --sidebar-ring: hsl(206 90% 48%);
+
+    /* --- Shadows — cool sky-tinted, not pure black --- */
+    --shadow-sm: 0 1px 2px rgba(20, 50, 100, 0.04), 0 1px 4px rgba(20, 50, 100, 0.06);
+    --shadow-md: 0 1px 2px rgba(20, 50, 100, 0.04), 0 8px 24px -8px rgba(30, 90, 170, 0.14);
+    --shadow-lg: 0 1px 2px rgba(20, 50, 100, 0.04), 0 16px 48px -16px rgba(30, 90, 170, 0.20);
+    --shadow-aqua: 0 0 0 3px rgba(30, 130, 240, 0.22);
+
+    /* --- Radius helpers --- */
+    --radius-0: 0px;
+    --radius-1: 0.25rem;
+    --radius-card: 1rem;      /* sales-ai card rounding — big soft-rounded */
+    --radius-pill: 9999px;
+    --radius-full: 9999px;
+
+    /* --- Spacing scale (4px base) --- */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 64px;
+    --space-9: 96px;
+    --space-10: 128px;
+
+    /* --- Type scale — tight, matching the mockup ramp --- */
+    /* Labels / mono captions */
+    --text-2xs: 10px;
+    --text-xs: 10.5px;
+    --text-sm: 12px;
+    /* Body ramp */
+    --text-base: 13px;
+    --text-md: 14px;
+    --text-body: 16px;
+    --text-body-lg: 17px;
+    /* UI titles */
+    --text-card: 20px;
+    --text-section: 30px;
+    /* Display — clamp so it scales with viewport */
+    --text-display: clamp(30px, 4.4vw, 46px);
+
+    /* Line-height companions */
+    --lh-display: 1.04;   /* tight, punchy headlines */
+    --lh-heading: 1.05;
+    --lh-body: 1.55;      /* comfortable reading */
+    --lh-body-lg: 1.6;
+    --lh-mono: 1.7;       /* code / address rows breathe a bit */
+
+    /* --- Motion tokens --- */
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+    --dur-fast: 120ms;
+    --dur-med: 240ms;
+    --dur-slow: 600ms;
+
+    /* --- Aurora gradient — pastel multi-color hero backdrop --- */
+    --aurora-colors:
+        repeating-linear-gradient(
+            100deg,
+            hsl(205 100% 95%) 0%,
+            hsl(205 90% 85%) 7%,
+            hsl(205 90% 70%) 14%,
+            hsl(28 100% 93%) 21%,
+            hsl(150 52% 90%) 28%,
+            hsl(205 100% 95%) 35%
+        );
+    --aurora-overlay:
+        repeating-linear-gradient(
+            100deg,
+            transparent 0%,
+            hsl(205 90% 70% / 0.08) 7%,
+            hsl(28 80% 75% / 0.06) 14%,
+            hsl(150 60% 70% / 0.06) 21%,
+            transparent 35%
+        );
+}
+
+/* Dark theme — cool slate ink + lifted sky-blue primary */
+.dark {
+    --bg: hsl(213 26% 9%);
+    --bg-sub: hsl(213 22% 12%);
+    --bg-subtle: hsl(213 22% 12%);
+    --bg-elev: hsl(213 20% 14%);
+
+    /* Always-dark panels get slightly deeper in dark mode */
+    --bg-dark: hsl(217 40% 5%);
+    --bg-ink:  hsl(217 38% 8%);
+
+    --fg: hsl(205 25% 96%);
+    --fg-muted: hsl(210 12% 62%);
+    --fg-subtle: hsl(210 10% 52%);
+    --fg-faint: hsl(213 10% 38%);
+    --fg-inverse: hsl(205 25% 96%);
+
+    --border: hsl(213 16% 20%);
+    --border-strong: hsl(213 16% 28%);
+    --border-dark: hsl(217 28% 14%);
+
+    --accent: hsl(205 90% 60%);
+    --accent-hover: hsl(205 90% 68%);
+    --accent-ink: hsl(205 90% 68%);
+    --accent-soft: hsl(205 35% 20%);
+    --accent-2: hsl(205 80% 72%);
+
+    --tint-sky: hsl(205 30% 18%);
+    --tint-periwinkle: hsl(218 40% 22%);
+    --tint-blush: hsl(10 16% 14%);
+    --tint-peach: hsl(24 26% 18%);
+    --tint-mint: hsl(150 18% 15%);
+
+    --grid-line: rgba(59, 158, 255, 0.05);
+    --grid-line-strong: rgba(59, 158, 255, 0.10);
+
+    --background: hsl(213 26% 9%);
+    --foreground: hsl(205 25% 96%);
+    --card: hsl(213 22% 12%);
+    --card-foreground: hsl(205 25% 96%);
+    --popover: hsl(213 22% 12%);
+    --popover-foreground: hsl(205 25% 96%);
+    --primary: hsl(205 90% 60%);
+    --primary-foreground: hsl(213 40% 9%);
+    --secondary: hsl(213 18% 17%);
+    --secondary-foreground: hsl(205 25% 96%);
+    --muted: hsl(213 18% 17%);
+    --muted-foreground: hsl(210 12% 62%);
+    --accent-foreground: hsl(205 25% 96%);
+    --destructive: hsl(2 70% 60%);
+    --input: hsl(213 16% 23%);
+    --ring: hsl(205 90% 60%);
+
+    --chart-1: hsl(205 90% 60%);
+    --chart-2: hsl(205 25% 96%);
+    --chart-3: hsl(205 80% 72%);
+    --chart-4: hsl(143 60% 48%);
+    --chart-5: hsl(270 60% 68%);
+
+    --primary-soft: hsl(205 35% 20%);
+    --primary-hover: hsl(205 90% 68%);
+    --success: hsl(143 60% 48%);
+    --warning: hsl(38 88% 58%);
+
+    --sidebar: hsl(213 22% 12%);
+    --sidebar-foreground: hsl(205 25% 96%);
+    --sidebar-primary: hsl(205 90% 60%);
+    --sidebar-primary-foreground: hsl(213 40% 9%);
+    --sidebar-accent: hsl(205 35% 20%);
+    --sidebar-accent-foreground: hsl(205 25% 96%);
+    --sidebar-border: hsl(213 16% 20%);
+    --sidebar-ring: hsl(205 90% 60%);
+
+    --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 2px 0 rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+    --shadow-lg: 0 4px 0 rgba(0, 0, 0, 0.4), 0 16px 48px -16px rgba(0, 0, 0, 0.7);
+    --shadow-aqua: 0 0 0 3px rgba(91, 173, 255, 0.30);
+
+    /* Aurora: muted deep-sky version for dark backgrounds */
+    --aurora-colors:
+        repeating-linear-gradient(
+            100deg,
+            hsl(217 38% 8%) 0%,
+            hsl(218 50% 16%) 7%,
+            hsl(205 60% 20%) 14%,
+            hsl(220 40% 12%) 21%,
+            hsl(150 24% 12%) 28%,
+            hsl(217 38% 8%) 35%
+        );
+    --aurora-overlay:
+        repeating-linear-gradient(
+            100deg,
+            transparent 0%,
+            hsl(205 90% 60% / 0.05) 7%,
+            hsl(28 80% 60% / 0.03) 14%,
+            hsl(150 60% 50% / 0.03) 21%,
+            transparent 35%
+        );
+}
+
+@theme inline {
+    --font-sans: var(--font-sans);
+    --font-heading: var(--font-sans);
+    --font-mono: var(--font-mono);
+    /* font-display utility → Plus Jakarta Sans (mirrors sales-ai pattern) */
+    --font-display: var(--font-sans);
+
+    /* Expose all design tokens as Tailwind utilities */
+    --color-bg: var(--bg);
+    --color-bg-sub: var(--bg-sub);
+    --color-bg-elev: var(--bg-elev);
+    --color-bg-dark: var(--bg-dark);
+    --color-bg-ink: var(--bg-ink);
+    --color-fg: var(--fg);
+    --color-fg-muted: var(--fg-muted);
+    --color-fg-subtle: var(--fg-subtle);
+    --color-fg-faint: var(--fg-faint);
+    --color-fg-inverse: var(--fg-inverse);
+    --color-border-strong: var(--border-strong);
+    --color-border-dark: var(--border-dark);
+    --color-accent: var(--accent);
+    --color-accent-2: var(--accent-2);
+    --color-accent-ink: var(--accent-ink);
+    --color-accent-soft: var(--accent-soft);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+    --color-tint-sky: var(--tint-sky);
+    --color-tint-periwinkle: var(--tint-periwinkle);
+    --color-tint-blush: var(--tint-blush);
+    --color-tint-peach: var(--tint-peach);
+    --color-tint-mint: var(--tint-mint);
+
+    /* shadcn token bridge */
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-primary-soft: var(--primary-soft);
+    --color-primary-hover: var(--primary-hover);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    /* Radius — small uniform rounding */
+    --radius-sm: 0.25rem;
+    --radius-md: 0.25rem;
+    --radius-lg: 0.25rem;
+    --radius-xl: 0.25rem;
+    --radius-2xl: 0.375rem;
+    --radius-3xl: 0.5rem;
+
+    /* Aurora animation — 60s slow loop for hero backdrop */
+    --animate-aurora: aurora 60s linear infinite;
+
+    @keyframes aurora {
+        from { background-position: 50% 50%, 50% 50%; }
+        to   { background-position: 350% 50%, 350% 50%; }
+    }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    /* Plus Jakarta Sans feature flags */
+    font-feature-settings: "ss01" 1, "calt" 1;
+    letter-spacing: -0.01em;
+  }
+  html {
+    font-family: var(--font-sans), 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    scroll-behavior: smooth;
+    scroll-padding-top: 4.5rem;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-sans), 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  /* Monospace reserved for addresses, amounts, digests, small technical labels */
+  .mono, code, pre, [data-mono] {
+    font-family: var(--font-mono), 'JetBrains Mono', ui-monospace, monospace;
+  }
+  *:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--accent);
+    color: #ffffff;
+  }
+}
+
+/* Lenis smooth scroll integration */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+.lenis.lenis-stopped { overflow: hidden; }
+.lenis.lenis-smooth iframe { pointer-events: none; }
+
+/* ==========================================================================
+   DEWLOCK LAYOUT HELPERS
+   ========================================================================== */
+
+/* Display heading utility — Plus Jakarta Sans, tightest tracking.
+   Used in sales-ai pattern for hero headlines and section titles. */
+.font-display {
+  font-family: var(--font-sans), 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+
+/* Split-mono label style — network badges, addresses, amounts */
+.split-mono {
+  font-family: var(--font-mono), 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+/* Display heading style */
+.split-display {
+  font-family: var(--font-sans), 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 0.97;
+}
+
+/* Centered max-width container */
+.split-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding-left: clamp(20px, 5vw, 56px);
+  padding-right: clamp(20px, 5vw, 56px);
+}
+
+/* Grid pattern background — used on always-dark panels */
+.grid-pattern {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Aurora backdrop — pastel multi-color animated gradient for hero section.
+   z-index: -1 ensures it sits BEHIND all hero content in the hero's own
+   stacking context (the section is position:relative). Without this the
+   aurora div paints at z-index:auto and can visually dim text above it
+   when both share the same stacking context.
+   Respects prefers-reduced-motion by pausing the animation entirely. */
+.aurora-bg {
+  position: absolute;
+  inset: -40% -20%;
+  z-index: -1;                  /* always behind hero content — hero-dimming fix */
+  background-image: var(--aurora-colors), var(--aurora-overlay);
+  background-size: 200% 200%;
+  background-attachment: fixed;
+  mix-blend-mode: normal;
+  opacity: 0.45;                /* reduced from 0.55 — less wash, crisper hero text */
+  filter: blur(32px) saturate(0.9);
+  animation: var(--animate-aurora);
+  pointer-events: none;
+  will-change: background-position;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-bg {
+    animation: none;
+    /* Keep static gradient visible but don't animate */
+    background-position: 50% 50%, 50% 50%;
+  }
+}
+
+/* Aqua/sky radial glow — decorative spotlight */
+.split-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(90% 80% at 50% -15%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%);
+}
+.split-glow.glow-corner {
+  background: radial-gradient(70% 90% at 100% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 58%);
+}
+.split-glow.glow-soft {
+  background: radial-gradient(80% 60% at 50% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%);
+}
+
+/* Multi-color pastel text gradient — sky → peach → mint */
+.text-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(100deg, hsl(206 90% 48%), hsl(28 95% 56%) 60%, hsl(150 60% 44%));
+}
+
+/* Premium soft elevation — matches sales-ai shadow-card */
+.shadow-card {
+  box-shadow: 0 1px 2px rgba(20, 40, 70, 0.04), 0 14px 40px -16px rgba(30, 90, 170, 0.16);
+}
+
+/* Floating nav pill shadow */
+.shadow-nav {
+  box-shadow: 0 10px 34px -14px rgba(30, 90, 170, 0.22);
+}
+
+/* Tinted card fills — REMOVED in favour of monochrome default + card-hover accent.
+   Kept as no-op stubs so existing class references compile without error.
+   All color tinting now lives in the .card-hover rule below. */
+.card-sky-tint,
+.card-peach-tint,
+.card-mint-tint,
+.card-neutral-tint {
+  /* neutral surface — no tint by default */
+  background-image: none;
+  border-color: var(--border);
+}
+
+/* card-hover — pastel sky-blue reveal on pointer over.
+   Applied in addition to the base border-border class.
+   Lift + sky gradient background + accent border on hover.
+   Use on any card grid that should respond to interaction. */
+.card-hover {
+  transition: transform 240ms var(--ease-out-expo),
+              box-shadow 240ms var(--ease-out-expo),
+              background-image 240ms ease,
+              border-color 240ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 24px -8px rgba(30, 130, 240, 0.18);
+  background-image: linear-gradient(
+    160deg,
+    hsl(205 100% 95% / 0.55) 0%,
+    hsl(205 96% 88% / 0.22) 55%,
+    transparent 100%
+  );
+  border-color: hsl(205 90% 68% / 0.4);
+}
+/* Dark-mode card-hover — deeper sky tint so it stays visible on dark surfaces */
+.dark .card-hover:hover {
+  background-image: linear-gradient(
+    160deg,
+    hsl(205 50% 28% / 0.50) 0%,
+    hsl(205 40% 22% / 0.25) 55%,
+    transparent 100%
+  );
+  border-color: hsl(205 80% 55% / 0.38);
+  box-shadow: 0 4px 24px -8px rgba(60, 150, 255, 0.20);
+}
+
+/* Cell grid — 1px separators, single-column on mobile */
+.split-cells {
+  display: grid;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  overflow: hidden;
+}
+.split-cells > * { background: var(--bg); }
+.split-cells.cells-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.split-cells.cells-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .split-cells.cells-2,
+  .split-cells.cells-3 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* De-double adjacent section borders */
+main > section + section,
+main > section + article,
+main > article + section { margin-top: -1px; }
+
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Corner tick mark (decorative indicator) */
+.split-corner {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 1px;
+  background: var(--bg);
+}
+
+/* ==========================================================================
+   TIGHT SIZING / SPACING UTILITIES — matching the mockup cadence
+   ========================================================================== */
+
+/* Section-level breathing room: generous top/bottom, tighter sides on mobile */
+.section-pad {
+  padding: clamp(56px, 8vw, 112px) clamp(20px, 5vw, 48px);
+}
+
+/* Card internal padding: compact but not cramped */
+.card-pad {
+  padding: clamp(22px, 2.5vw, 26px);
+}
+
+/* Tight inner gap used in component grids / flex rows */
+.gap-tight {
+  gap: clamp(9px, 1.2vw, 12px);
+}
+
+/* ==========================================================================
+   APP COPILOT ANIMATIONS
+   ========================================================================== */
+
+/* Message fade-up — used by ChatThread bubbles and cards */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Guardian BLOCKED stamp — rotate in with overshoot, matches mockup */
+@keyframes stampIn {
+  0%   { opacity: 0; transform: scale(1.15) rotate(-3deg); }
+  60%  { opacity: 1; transform: scale(0.96) rotate(-3deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-3deg); }
+}
+
+/* Sidebar network dot pulse */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ==========================================================================
+   DARK LANDING COHERENCE
+   In dark mode the landing uses --bg / --bg-sub as section surfaces.
+   Sections with bg-transparent pick up the body background (--bg) which
+   is the dark slate — that's correct and cohesive.
+   Sections with bg-bg-sub get a slightly elevated dark slate.
+   This block ensures the page-wide fixed pastel-wash (page.tsx) is toned
+   down in dark mode so it doesn't create jarring brightness patches.
+   ========================================================================== */
+
+/* Page-wide fixed pastel wash (data-pastel-wash attribute, page.tsx).
+   In dark mode reduce opacity so warm-hue blobs don't bleed through the
+   dark-slate canvas and create jarring light patches between sections. */
+.dark [data-pastel-wash] {
+  opacity: 0.18;
+}
+
+/* ==========================================================================
+   DARK LANDING SURFACE COHESION — mirrors /app dark card recipe
+   Landing feature cards (not shadcn primitives) should match the /app
+   surface hierarchy: --bg-elev for cards, --border hairlines, --shadow-md.
+   Applied via .landing-card utility so landing cards match the /app look
+   in dark mode without touching light-theme card styling.
+   ========================================================================== */
+
+/* Landing feature card — elevated surface in dark, white card in light.
+   Use on any landing card grid that should match the /app card aesthetic. */
+.landing-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+/* In light mode, landing cards use the same white card surface as before */
+:root .landing-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+/* Dark landing section that should read as the deepest page canvas */
+.dark .landing-section-canvas {
+  background: var(--bg);
+}
+
+/* Dark landing section slightly elevated (sidebar-equivalent offset) */
+.dark .landing-section-sub {
+  background: var(--bg-sub);
+}
+
+/* Dark card-hover override already wired in .dark .card-hover:hover above.
+   This ensures tinted landing cards (why-sui, deepbook) also get the dark
+   pastel-sky hover gradient — no additional rules needed since card-hover
+   is applied to those elements already. */

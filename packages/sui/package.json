@@ -1,0 +1,34 @@
+{
+  "name": "@dewlock/sui",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./allowlist": "./dist/allowlist.js",
+    "./dry-run": "./dist/dry-run.js",
+    "./quotes-source": "./dist/quotes-source.js",
+    "./client": "./dist/client.js",
+    "./build-transfer": "./dist/build-transfer.js",
+    "./build-swap": "./dist/build-swap.js",
+    "./build-limit-order": "./dist/deepbook/build-limit-order.js",
+    "./sign": "./dist/sign.js",
+    "./suins-resolver": "./dist/suins-resolver.js"
+  },
+  "scripts": {
+    "build": "tsc --noCheck",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+  },
+  "dependencies": {
+    "@cetusprotocol/cetus-sui-clmm-sdk": "5.4.0",
+    "@mysten/deepbook-v3": "1.4.1",
+    "@mysten/dapp-kit": "^1.0.0",
+    "@mysten/sui": "2.18.0",
+    "@mysten/suins": "1.2.0",
+    "bn.js": "^5.2.3"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.2.0",
+    "typescript": "^5.6.3"
+  }
+}

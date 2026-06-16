@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --font-sans:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  --bg:hsl(205 38% 99%); --bg-sub:hsl(205 30% 96%); --bg-elev:hsl(0 0% 100%);
+  --bg-dark:hsl(215 40% 8%); --bg-ink:hsl(217 38% 11%);
+  --fg:hsl(213 24% 13%); --fg-muted:hsl(212 12% 46%); --fg-subtle:hsl(212 12% 55%); --fg-faint:hsl(212 10% 68%); --fg-inverse:hsl(205 25% 96%);
+  --border:hsl(205 24% 90%); --border-strong:hsl(205 20% 82%); --border-dark:hsl(217 28% 18%);
+  --accent:hsl(206 90% 48%); --accent-hover:hsl(206 88% 40%); --accent-ink:hsl(206 85% 36%); --accent-soft:hsl(205 100% 95%); --accent-2:hsl(205 90% 70%);
+  --tint-sky:hsl(205 100% 95%); --tint-periwinkle:hsl(205 90% 70%); --tint-blush:hsl(10 60% 96%); --tint-peach:hsl(28 100% 95%); --tint-mint:hsl(150 52% 96%);
+  --grid-line:rgba(10,30,60,0.05); --grid-line-dark:rgba(120,170,255,0.07);
+  --success:hsl(143 72% 35%); --warning:hsl(38 92% 44%); --destructive:hsl(2 64% 50%);
+  --radius:0.25rem;
+  --shadow-sm:0 1px 2px rgba(20,50,100,.04),0 1px 4px rgba(20,50,100,.06);
+  --shadow-md:0 1px 2px rgba(20,50,100,.04),0 8px 24px -8px rgba(30,90,170,.14);
+  --shadow-lg:0 1px 2px rgba(20,50,100,.04),0 16px 48px -16px rgba(30,90,170,.20);
+  --shadow-card:0 1px 2px rgba(20,50,100,.04),0 14px 40px -16px rgba(30,90,170,.14);
+  --shadow-aqua:0 0 0 3px rgba(30,130,240,.22);
+  --ease-out-expo:cubic-bezier(.16,1,.3,1);
+  --aurora-colors:repeating-linear-gradient(100deg,hsl(205 100% 95%) 0%,hsl(205 90% 85%) 7%,hsl(205 90% 70%) 14%,hsl(28 100% 93%) 21%,hsl(150 52% 90%) 28%,hsl(205 100% 95%) 35%);
+  --aurora-overlay:repeating-linear-gradient(100deg,transparent 0%,hsl(205 90% 70% / .08) 7%,hsl(28 80% 75% / .06) 14%,hsl(150 60% 70% / .06) 21%,transparent 35%);
+}
+.dark{
+  --bg:hsl(213 26% 9%); --bg-sub:hsl(213 22% 12%); --bg-elev:hsl(213 20% 14%);
+  --bg-dark:hsl(217 40% 5%); --bg-ink:hsl(217 38% 8%);
+  --fg:hsl(205 25% 96%); --fg-muted:hsl(210 12% 62%); --fg-subtle:hsl(210 10% 52%); --fg-faint:hsl(213 10% 38%); --fg-inverse:hsl(205 25% 96%);
+  --border:hsl(213 16% 20%); --border-strong:hsl(213 16% 28%); --border-dark:hsl(217 28% 14%);
+  --accent:hsl(205 90% 60%); --accent-hover:hsl(205 90% 68%); --accent-ink:hsl(205 90% 68%); --accent-soft:hsl(205 35% 20%); --accent-2:hsl(205 80% 72%);
+  --tint-sky:hsl(205 30% 18%); --tint-periwinkle:hsl(218 40% 22%); --tint-blush:hsl(10 16% 14%); --tint-peach:hsl(24 26% 18%); --tint-mint:hsl(150 18% 15%);
+  --grid-line:rgba(59,158,255,.05);
+  --success:hsl(143 60% 48%); --warning:hsl(38 88% 58%); --destructive:hsl(2 70% 60%);
+  --shadow-md:0 2px 0 rgba(0,0,0,.4),0 8px 24px -8px rgba(0,0,0,.6);
+  --shadow-lg:0 4px 0 rgba(0,0,0,.4),0 16px 48px -16px rgba(0,0,0,.7);
+  --shadow-card:0 2px 0 rgba(0,0,0,.3),0 16px 40px -18px rgba(0,0,0,.6);
+  --aurora-colors:repeating-linear-gradient(100deg,hsl(217 38% 8%) 0%,hsl(218 50% 16%) 7%,hsl(205 60% 20%) 14%,hsl(220 40% 12%) 21%,hsl(150 24% 12%) 28%,hsl(217 38% 8%) 35%);
+  --aurora-overlay:repeating-linear-gradient(100deg,transparent 0%,hsl(205 90% 60% / .05) 7%,hsl(28 80% 60% / .03) 14%,hsl(150 60% 50% / .03) 21%,transparent 35%);
+}
+*{box-sizing:border-box}
+body{margin:0}
+@keyframes aurora{from{background-position:50% 50%,50% 50%}to{background-position:350% 50%,350% 50%}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes stampIn{0%{opacity:0;transform:scale(1.18) rotate(-4deg)}60%{opacity:1;transform:scale(.95) rotate(-4deg)}100%{opacity:1;transform:scale(1) rotate(-4deg)}}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.aurora{animation:none!important}}
+nav[data-nav]{display:none}
+@media (min-width:880px){nav[data-nav]{display:flex!important}}
+</style>
+</helmet>
+
+<div class="{{ rootClass }}" style="background:var(--bg);color:var(--fg);min-height:100vh;font-family:var(--font-sans);letter-spacing:-0.01em;-webkit-font-smoothing:antialiased">
+
+<!-- ===== NAV ===== -->
+<header style="position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:color-mix(in srgb, var(--bg) 80%, transparent);border-bottom:1px solid var(--border)">
+  <div style="max-width:1200px;margin:0 auto;padding:0 clamp(20px,5vw,48px);height:64px;display:flex;align-items:center;gap:24px">
+    <a href="#top" style="display:flex;align-items:center;gap:10px;text-decoration:none">
+      <svg width="17" height="28" viewBox="0 0 16 26" fill="none" aria-label="Dewlock">
+        <path d="M8 2C8 2 2 8.5 2 13a6 6 0 0 0 12 0C14 8.5 8 2 8 2Z" fill="var(--accent)"></path>
+        <rect x="5" y="15" width="6" height="6" rx="1.2" fill="var(--bg-dark)" stroke="var(--accent)" stroke-width="1.5"></rect>
+        <circle cx="8" cy="17.8" r="1" fill="var(--accent-2)"></circle>
+      </svg>
+      <span style="font-weight:700;font-size:18px;letter-spacing:-0.03em;color:var(--fg)">dew<span style="color:var(--accent)">lock</span></span>
+    </a>
+    <nav style="display:none;gap:2px;margin-left:6px" data-nav>
+      <a href="#how" style="padding:8px 12px;font-size:13.5px;font-weight:500;color:var(--fg-muted);text-decoration:none;border-radius:6px">How it works</a>
+      <a href="#security" style="padding:8px 12px;font-size:13.5px;font-weight:500;color:var(--fg-muted);text-decoration:none;border-radius:6px">Security</a>
+      <a href="#deepbook" style="padding:8px 12px;font-size:13.5px;font-weight:500;color:var(--fg-muted);text-decoration:none;border-radius:6px">DeepBook</a>
+      <a href="#receipts" style="padding:8px 12px;font-size:13.5px;font-weight:500;color:var(--fg-muted);text-decoration:none;border-radius:6px">Receipts</a>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+      <span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-muted)">
+        <span style="width:6px;height:6px;border-radius:99px;background:var(--success);animation:pulseDot 2.4s ease-in-out infinite"></span>sui:mainnet
+      </span>
+      <button onClick="{{ toggleTheme }}" aria-label="Toggle theme" style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:8px;background:var(--bg-elev);color:var(--fg-muted);cursor:pointer;font-size:14px">{{ themeIcon }}</button>
+      <a href="#cta" style="display:inline-flex;align-items:center;height:36px;padding:0 16px;background:var(--accent);color:#fff;font-size:13.5px;font-weight:600;text-decoration:none;border-radius:8px;box-shadow:var(--shadow-aqua)">Launch app</a>
+    </div>
+  </div>
+</header>
+
+<a id="top"></a>
+
+<!-- ===== HERO A — AQUA CALM ===== -->
+<sc-if value="{{ heroA }}" hint-placeholder-val="{{ true }}">
+<section style="position:relative;overflow:hidden;border-bottom:1px solid var(--border)">
+  <div class="aurora" style="position:absolute;inset:-45% -20%;background-image:var(--aurora-colors),var(--aurora-overlay);background-size:200% 200%;opacity:.6;filter:blur(34px) saturate(.92);animation:aurora 60s linear infinite;pointer-events:none"></div>
+  <div style="position:relative;max-width:1200px;margin:0 auto;padding:clamp(52px,8vw,104px) clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;gap:clamp(32px,5vw,56px);align-items:center">
+    <div style="flex:1 1 440px;min-width:300px">
+      <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border:1px solid var(--border);background:color-mix(in srgb,var(--bg-elev) 70%,transparent);border-radius:999px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)">
+        <span style="width:5px;height:5px;border-radius:99px;background:var(--accent)"></span>Sui DeFi Intent Firewall
+      </span>
+      <h1 style="margin:22px 0 0;font-size:clamp(40px,6vw,68px);font-weight:800;letter-spacing:-0.035em;line-height:0.98;color:var(--fg)">Every transaction,<br><span style="background-clip:text;-webkit-background-clip:text;color:transparent;background-image:linear-gradient(100deg,hsl(206 90% 48%),hsl(28 95% 56%) 58%,hsl(150 60% 44%))">sealed</span> before you sign.</h1>
+      <p style="margin:22px 0 0;font-size:17px;line-height:1.6;color:var(--fg-muted);max-width:30em">State your intent in plain language. Dewlock builds one unsigned transaction, re-derives the math, dry-runs the outcome — then your wallet signs the exact artifact you reviewed.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:30px">
+        <a href="#cta" style="display:inline-flex;align-items:center;height:46px;padding:0 22px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;text-decoration:none;border-radius:10px;box-shadow:var(--shadow-aqua)">Launch app</a>
+        <a href="#block" style="display:inline-flex;align-items:center;height:46px;padding:0 20px;background:var(--bg-elev);color:var(--fg);font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--border-strong);border-radius:10px">See the BLOCK ↓</a>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-top:40px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-width:560px">
+        <div style="background:var(--bg-elev);padding:16px 16px"><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink)">Intent firewall</div><div style="margin-top:6px;font-size:12.5px;color:var(--fg-muted);line-height:1.35">NL → unsigned PTB → you sign</div></div>
+        <div style="background:var(--bg-elev);padding:16px 16px"><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink)">Dry-run preview</div><div style="margin-top:6px;font-size:12.5px;color:var(--fg-muted);line-height:1.35">Effects visible before confirm</div></div>
+        <div style="background:var(--bg-elev);padding:16px 16px"><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink)">Walrus receipts</div><div style="margin-top:6px;font-size:12.5px;color:var(--fg-muted);line-height:1.35">Content-addressed log</div></div>
+      </div>
+    </div>
+    <!-- soft tx-preview glass card -->
+    <div style="flex:1 1 360px;min-width:300px;display:flex;justify-content:center">
+      <div style="width:100%;max-width:400px;background:color-mix(in srgb,var(--bg-elev) 88%,transparent);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-card);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
+          <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-muted)">Tx preview · swap</span>
+          <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--success)">dry-run ✓</span>
+        </div>
+        <div style="padding:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--bg-sub);border:1px solid var(--border);border-radius:10px">
+            <div><div style="font-size:11px;color:var(--fg-faint);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.1em">You pay</div><div style="font-size:22px;font-weight:700;margin-top:3px;color:var(--fg)">10.0 <span style="font-size:13px;color:var(--fg-muted);font-weight:600">SUI</span></div></div>
+            <div style="width:30px;height:30px;border-radius:99px;display:flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent-ink);font-size:15px">↓</div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--bg-sub);border:1px solid var(--border);border-radius:10px;margin-top:8px">
+            <div><div style="font-size:11px;color:var(--fg-faint);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.1em">You receive</div><div style="font-size:22px;font-weight:700;margin-top:3px;color:var(--fg)">~38.42 <span style="font-size:13px;color:var(--fg-muted);font-weight:600">USDC</span></div></div>
+            <div style="font-size:11px;font-family:var(--font-mono);color:var(--success)">+38.42</div>
+          </div>
+          <div style="margin-top:16px;display:grid;gap:9px">
+            <div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--fg-muted)">Min received</span><span style="font-family:var(--font-mono);color:var(--fg)">38.04 USDC</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--fg-muted)">Destination</span><span style="font-family:var(--font-mono);color:var(--fg)">0x9c2a…f41b</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--fg-muted)">Network gas</span><span style="font-family:var(--font-mono);color:var(--fg)">0.0021 SUI</span></div>
+          </div>
+          <button style="margin-top:18px;width:100%;height:44px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14.5px;font-weight:600;font-family:var(--font-sans);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5 8l2 2 4-5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>Confirm &amp; Sign in wallet
+          </button>
+          <p style="margin:11px 0 0;text-align:center;font-size:11px;color:var(--fg-faint)">You sign the exact artifact shown above.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</sc-if>
+
+<!-- ===== HERO B — GUARDIAN VAULT ===== -->
+<sc-if value="{{ heroB }}" hint-placeholder-val="{{ true }}">
+<section style="position:relative;overflow:hidden;background:var(--bg-dark);color:var(--fg-inverse);border-bottom:1px solid var(--border-dark)">
+  <div style="position:absolute;inset:0;background:radial-gradient(100% 65% at 50% -8%,rgba(40,130,240,.12),transparent 66%);pointer-events:none"></div>
+  <div style="position:absolute;inset:0;background:radial-gradient(80% 70% at 78% -5%,rgba(40,130,240,.22),transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;max-width:1200px;margin:0 auto;padding:clamp(52px,8vw,104px) clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;gap:clamp(32px,5vw,56px);align-items:center">
+    <div style="flex:1 1 440px;min-width:300px">
+      <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border:1px solid var(--border-dark);background:rgba(255,255,255,.03);border-radius:999px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-2)">
+        <span style="width:5px;height:5px;border-radius:99px;background:var(--accent-2)"></span>Fail-closed Intent Firewall
+      </span>
+      <h1 style="margin:22px 0 0;font-size:clamp(40px,6vw,68px);font-weight:800;letter-spacing:-0.035em;line-height:0.98;color:#fff">Every transaction,<br><span style="color:var(--accent-2)">sealed</span> before you sign.</h1>
+      <p style="margin:22px 0 0;font-size:17px;line-height:1.6;color:hsl(210 16% 72%);max-width:30em">A deterministic Guardian re-derives the math and dry-runs the bundle before your wallet ever sees it. Any mismatch is a hard stop — not a warning.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:30px">
+        <a href="#cta" style="display:inline-flex;align-items:center;height:46px;padding:0 22px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;text-decoration:none;border-radius:10px;box-shadow:var(--shadow-aqua)">Launch app</a>
+        <a href="#block" style="display:inline-flex;align-items:center;height:46px;padding:0 20px;background:rgba(255,255,255,.05);color:#fff;font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--border-dark);border-radius:10px">See it run ↓</a>
+      </div>
+      <div style="display:flex;gap:26px;margin-top:38px;flex-wrap:wrap">
+        <div><div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.02em">0</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:hsl(210 12% 56%);margin-top:2px">user keys server-side</div></div>
+        <div style="width:1px;background:var(--border-dark)"></div>
+        <div><div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.02em">1</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:hsl(210 12% 56%);margin-top:2px">signature, yours</div></div>
+        <div style="width:1px;background:var(--border-dark)"></div>
+        <div><div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.02em">∞</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:hsl(210 12% 56%);margin-top:2px">immutable receipts</div></div>
+      </div>
+    </div>
+    <!-- static BLOCKED stamp centerpiece -->
+    <div style="flex:1 1 360px;min-width:300px;display:flex;justify-content:center">
+      <div style="position:relative;width:100%;max-width:400px;background:var(--bg-ink);border:1px solid var(--border-dark);border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;font-family:var(--font-mono)">
+        <div style="position:relative;padding:22px">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:hsl(210 12% 56%)">guardian · dry-run</span><span style="font-size:10px;color:var(--accent-2)">re-derive</span></div>
+          <div style="margin-top:18px;display:inline-block;padding:9px 18px;border:2px solid var(--destructive);border-radius:8px;transform:rotate(-4deg);color:var(--destructive);font-weight:700;font-size:22px;letter-spacing:.06em">BLOCKED</div>
+          <div style="margin-top:22px;display:grid;gap:11px;font-size:12.5px">
+            <div style="display:flex;justify-content:space-between;gap:10px"><span style="color:hsl(210 12% 56%)">You typed</span><span style="color:#fff">888.sui</span></div>
+            <div style="display:flex;justify-content:space-between;gap:10px"><span style="color:hsl(210 12% 56%)">SuiNS resolved</span><span style="color:#fff">0x3a4f…c912</span></div>
+            <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 10px;background:color-mix(in srgb,var(--destructive) 14%,transparent);border:1px solid color-mix(in srgb,var(--destructive) 45%,transparent);border-radius:7px"><span style="color:var(--destructive)">Guardian detected</span><span style="color:var(--destructive);font-weight:600">0x3a4f…c913</span></div>
+          </div>
+          <p style="margin:18px 0 0;font-size:12px;line-height:1.5;color:hsl(210 14% 64%)">Lookalike <span style="color:#fff">888-l.sui</span> resolved to a different address. Refused before signature — no wallet prompt, no fee.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</sc-if>
+
+<!-- ===== BLOCK — interactive Guardian console ===== -->
+<a id="block"></a>
+<section style="border-bottom:1px solid var(--border)">
+  <div style="max-width:1200px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;gap:clamp(32px,5vw,56px);align-items:center">
+    <div style="flex:1 1 380px;min-width:300px">
+      <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)">Fail-closed by design</span>
+      <h2 style="margin:14px 0 0;font-size:clamp(30px,4.4vw,46px);font-weight:700;letter-spacing:-0.03em;line-height:1.04;color:var(--fg)">Proof a <span style="color:var(--destructive)">BLOCK</span> happened.</h2>
+      <p style="margin:18px 0 0;font-size:16px;line-height:1.6;color:var(--fg-muted);max-width:32em">When the Guardian detects a lookalike address or a min-out that doesn't match the re-derived math, it refuses to build the transaction. Not a warning — a hard stop before your wallet ever sees the request.</p>
+      <div style="margin-top:26px;display:grid;gap:12px;max-width:30em">
+        <div style="display:flex;gap:12px;align-items:flex-start"><span style="flex:none;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">1</span><span style="font-size:14px;color:var(--fg-muted);line-height:1.45"><b style="color:var(--fg);font-weight:600">Independently checkable.</b> The raw 0x mismatch is shown so anyone can verify the block was real.</span></div>
+        <div style="display:flex;gap:12px;align-items:flex-start"><span style="flex:none;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">2</span><span style="font-size:14px;color:var(--fg-muted);line-height:1.45"><b style="color:var(--fg);font-weight:600">Anchored on-chain.</b> An immutable Walrus near-miss receipt is written async — never blocking the red flash.</span></div>
+      </div>
+    </div>
+    <!-- console -->
+    <div style="flex:1 1 380px;min-width:300px;display:flex;justify-content:center">
+      <div style="width:100%;max-width:440px;background:var(--bg-ink);border:1px solid var(--border-dark);border-radius:14px;box-shadow:var(--shadow-lg);overflow:hidden;font-family:var(--font-mono)">
+        <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-dark)">
+          <span style="width:10px;height:10px;border-radius:99px;background:#ff5f57"></span><span style="width:10px;height:10px;border-radius:99px;background:#febc2e"></span><span style="width:10px;height:10px;border-radius:99px;background:#28c840"></span>
+          <span style="margin-left:6px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:hsl(210 12% 56%)">guardian · dry-run</span>
+          <span style="margin-left:auto;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-2)">re-derive on</span>
+        </div>
+        <div style="padding:18px;min-height:288px;color:hsl(205 18% 86%);font-size:12.5px;line-height:1.5">
+          <div style="color:hsl(210 12% 56%)"><span style="color:var(--accent-2)">intent ›</span> swap 10 SUI → USDC, send to 888.sui</div>
+
+          <sc-if value="{{ s1 }}"><div style="margin-top:14px;display:flex;gap:9px;animation:fadeUp .3s var(--ease-out-expo) both"><span style="color:var(--success)">✓</span><span>parse intent — 1 swap · 1 transfer leg</span></div></sc-if>
+          <sc-if value="{{ s2 }}"><div style="margin-top:8px;display:flex;gap:9px;animation:fadeUp .3s var(--ease-out-expo) both"><span style="color:var(--success)">✓</span><span>resolve SuiNS — <span style="color:#fff">888.sui</span> → 0x3a4f…c912</span></div></sc-if>
+          <sc-if value="{{ s3 }}"><div style="margin-top:8px;display:flex;gap:9px;animation:fadeUp .3s var(--ease-out-expo) both"><span style="color:var(--warning)">!</span><span style="color:var(--warning)">lookalike — 888-l.sui → 0x3a4f…c91<span style="text-decoration:underline">3</span> (≠ resolved)</span></div></sc-if>
+          <sc-if value="{{ s4 }}"><div style="margin-top:8px;display:flex;gap:9px;animation:fadeUp .3s var(--ease-out-expo) both"><span style="color:var(--destructive)">✕</span><span style="color:var(--destructive)">min-out re-derived 9,847 vs <span style="color:#fff">847</span> USDC · 90% slippage</span></div></sc-if>
+
+          <sc-if value="{{ s4 }}">
+            <div style="margin-top:16px;display:flex;align-items:center;gap:14px;animation:stampIn .45s var(--ease-out-expo) both">
+              <span style="display:inline-block;padding:7px 15px;border:2px solid var(--destructive);border-radius:7px;transform:rotate(-4deg);color:var(--destructive);font-weight:700;font-size:18px;letter-spacing:.06em">BLOCKED</span>
+              <span style="font-size:11px;line-height:1.4;color:hsl(210 14% 64%)">Transaction refused.<br>No wallet prompt. No fee.</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ s5 }}">
+            <div style="margin-top:16px;padding:10px 12px;border:1px dashed var(--border-dark);border-radius:8px;font-size:11px;color:hsl(210 14% 64%);animation:fadeUp .3s var(--ease-out-expo) both">
+              <span style="color:var(--accent-2)">near-miss receipt →</span> walrus <span style="color:#fff">3vK…x9q2</span> · sui obj <span style="color:#fff">0x7f1a…b3c4</span>
+              <div style="margin-top:3px;color:hsl(210 10% 48%)">written async · the block never waits on Walrus</div>
+            </div>
+          </sc-if>
+        </div>
+        <div style="padding:14px 16px;border-top:1px solid var(--border-dark)">
+          <button onClick="{{ runBlock }}" style="width:100%;height:42px;border:1px solid var(--border-dark);border-radius:9px;background:{{ runBtnBg }};color:#fff;font-family:var(--font-sans);font-size:13.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">{{ btnLabel }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== HOW IT WORKS ===== -->
+<a id="how"></a>
+<section style="border-bottom:1px solid var(--border);background:var(--bg-sub)">
+  <div style="max-width:1200px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,5vw,48px)">
+    <div style="max-width:620px">
+      <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)">How it works</span>
+      <h2 style="margin:14px 0 0;font-size:clamp(30px,4.4vw,46px);font-weight:700;letter-spacing:-0.03em;line-height:1.04;color:var(--fg)">Four steps. You sign once.</h2>
+      <p style="margin:16px 0 0;font-size:16px;line-height:1.6;color:var(--fg-muted)">The agent does the heavy lifting; your wallet is the only key that matters.</p>
+    </div>
+    <div style="margin-top:40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+      <div style="background:var(--bg-elev);padding:26px 22px"><div style="font-family:var(--font-mono);font-size:30px;font-weight:600;color:var(--accent-2);letter-spacing:-0.02em">01</div><div style="margin-top:14px;font-size:16px;font-weight:600;color:var(--fg)">State your intent</div><p style="margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--fg-muted)">Tell Dewlock what you want in plain language: "swap 10 SUI to USDC" or "limit buy DEEP at 0.0031".</p></div>
+      <div style="background:var(--bg-elev);padding:26px 22px"><div style="font-family:var(--font-mono);font-size:30px;font-weight:600;color:var(--accent-2);letter-spacing:-0.02em">02</div><div style="margin-top:14px;font-size:16px;font-weight:600;color:var(--fg)">Agent builds one PTB</div><p style="margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--fg-muted)">One unsigned programmable transaction block — the complete atomic payload, built without touching your keys.</p></div>
+      <div style="background:var(--bg-elev);padding:26px 22px"><div style="font-family:var(--font-mono);font-size:30px;font-weight:600;color:var(--accent-2);letter-spacing:-0.02em">03</div><div style="margin-top:14px;font-size:16px;font-weight:600;color:var(--fg)">Guardian re-derives + dry-runs</div><p style="margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--fg-muted)">A deterministic fail-closed Guardian re-checks the math and dry-runs on-chain. Any mismatch → hard block.</p></div>
+      <div style="background:var(--bg-elev);padding:26px 22px"><div style="font-family:var(--font-mono);font-size:30px;font-weight:600;color:var(--accent-2);letter-spacing:-0.02em">04</div><div style="margin-top:14px;font-size:16px;font-weight:600;color:var(--fg)">You sign. Walrus logs.</div><p style="margin:8px 0 0;font-size:13.5px;line-height:1.5;color:var(--fg-muted)">Your wallet receives the exact PTB you reviewed. On success, an immutable Walrus receipt anchored to a Sui object records it.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DEEPBOOK ===== -->
+<a id="deepbook"></a>
+<section style="border-bottom:1px solid var(--border)">
+  <div style="max-width:1200px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;gap:clamp(32px,5vw,56px)">
+    <div style="flex:1 1 380px;min-width:300px">
+      <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)">DeepBook limit orders</span>
+      <h2 style="margin:14px 0 0;font-size:clamp(30px,4.4vw,46px);font-weight:700;letter-spacing:-0.03em;line-height:1.04;color:var(--fg)">Wait at your price.<br>Don't market-buy.</h2>
+      <p style="margin:18px 0 0;font-size:16px;line-height:1.6;color:var(--fg-muted);max-width:32em">AMMs have no order book — your only option is to over-pay or miss the trade. Dewlock posts a POST_ONLY order on DeepBook's central limit order book: get filled at the price you set, or not at all.</p>
+      <div style="margin-top:24px;background:var(--bg-ink);border:1px solid var(--border-dark);border-radius:12px;padding:18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;color:hsl(205 18% 86%)">
+        <div style="color:hsl(210 12% 56%)"><span style="color:var(--accent-2)">intent ›</span> "buy 500 DEEP at 0.0031 USDC"</div>
+        <div style="margin-top:6px">→ POST_ONLY placeLimitOrder PTB</div>
+        <div>→ Guardian: tick <span style="color:var(--success)">✓</span>  lot <span style="color:var(--success)">✓</span>  self-match <span style="color:var(--destructive)">✕ block</span></div>
+        <div>→ wallet signs</div>
+        <div>→ <span style="color:var(--accent-2)">fill or resting order</span></div>
+      </div>
+    </div>
+    <div style="flex:1 1 320px;min-width:280px;display:flex;flex-direction:column;gap:14px;justify-content:center">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:20px;background:var(--bg-elev)">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:15px;font-weight:600;color:var(--fg)">AMM swap</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--destructive);padding:3px 8px;background:color-mix(in srgb,var(--destructive) 12%,transparent);border-radius:99px">market price + slippage</span></div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:var(--fg-muted)">Price set by current pool ratio. Slippage taken at execution. No limit, no waiting.</p>
+      </div>
+      <div style="border:1px solid var(--accent);border-radius:12px;padding:20px;background:var(--accent-soft)">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:15px;font-weight:600;color:var(--fg)">DeepBook limit order</span><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);padding:3px 8px;background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:99px">your price or no trade</span></div>
+        <p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:var(--fg-muted)">Unsigned PTB posts POST_ONLY at your price. Guardian enforces tick/lot rules. Fill or stay on book.</p>
+        <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-ink)">Impossible on an AMM · native to DeepBook</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SECURITY ===== -->
+<a id="security"></a>
+<section style="border-bottom:1px solid var(--border-dark);background:var(--bg-dark);color:var(--fg-inverse);position:relative;overflow:hidden">
+  <div style="position:absolute;inset:0;background:radial-gradient(100% 65% at 50% -8%,rgba(40,130,240,.12),transparent 66%);pointer-events:none"></div>
+  <div style="position:relative;max-width:1200px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,5vw,48px)">
+    <div style="max-width:640px">
+      <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-2)">Security model</span>
+      <h2 style="margin:14px 0 0;font-size:clamp(30px,4.4vw,46px);font-weight:700;letter-spacing:-0.03em;line-height:1.04;color:#fff">Fail-closed. Not trust-me.</h2>
+      <p style="margin:16px 0 0;font-size:16px;line-height:1.6;color:hsl(210 16% 72%)">The Guardian re-derives every critical value independently — never relying on what the agent computed. Any ambiguity, simulation failure, or parse error closes the gate.</p>
+    </div>
+    <div style="margin-top:40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1px;background:var(--border-dark);border:1px solid var(--border-dark);border-radius:12px;overflow:hidden">
+      <div style="background:var(--bg-ink);padding:24px 22px"><div style="display:flex;align-items:center;gap:10px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1.5" stroke="var(--accent-2)" stroke-width="1.4"></rect><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="var(--accent-2)" stroke-width="1.4"></path></svg><span style="font-size:15px;font-weight:600;color:#fff">Zero user keys server-side</span></div><p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:hsl(210 14% 66%)">The agent builds unsigned PTBs only. Your private key never leaves your wallet.</p></div>
+      <div style="background:var(--bg-ink);padding:24px 22px"><div style="display:flex;align-items:center;gap:10px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-4 2 8 2-4h3" stroke="var(--accent-2)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font-size:15px;font-weight:600;color:#fff">Min-out re-derivation</span></div><p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:hsl(210 14% 66%)">Re-fetches the live Cetus quote and re-calculates minimum received from scratch. Diverges past slippage → block.</p></div>
+      <div style="background:var(--bg-ink);padding:24px 22px"><div style="display:flex;align-items:center;gap:10px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="var(--accent-2)" stroke-width="1.4"></circle><path d="M8 5v3l2 1.5" stroke="var(--accent-2)" stroke-width="1.4" stroke-linecap="round"></path></svg><span style="font-size:15px;font-weight:600;color:#fff">Coin-type gate, not symbol</span></div><p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:hsl(210 14% 66%)">Assets identified by full on-chain Move type (0x2::sui::SUI), not ticker. Spoofed USDC → blocked.</p></div>
+      <div style="background:var(--bg-ink);padding:24px 22px"><div style="display:flex;align-items:center;gap:10px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4l5-2Z" stroke="var(--accent-2)" stroke-width="1.4" stroke-linejoin="round"></path></svg><span style="font-size:15px;font-weight:600;color:#fff">SuiNS lookalike guard</span></div><p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:hsl(210 14% 66%)">Resolved 0x is pinned at parse time. A lookalike .sui resolving elsewhere is a hard block before the PTB is built.</p></div>
+      <div style="background:var(--bg-ink);padding:24px 22px"><div style="display:flex;align-items:center;gap:10px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="var(--accent-2)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font-size:15px;font-weight:600;color:#fff">Deterministic fail-closed</span></div><p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:hsl(210 14% 66%)">Simulation failure, parse error, RPC timeout → the Guardian blocks, not degrades. No silent fallbacks.</p></div>
+      <div style="background:var(--bg-ink);padding:24px 22px"><div style="display:flex;align-items:center;gap:10px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="var(--accent-2)" stroke-width="1.4"></rect><path d="M2.5 6.5h11" stroke="var(--accent-2)" stroke-width="1.4"></path></svg><span style="font-size:15px;font-weight:600;color:#fff">Allowlist + BalanceManager cap</span></div><p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:hsl(210 14% 66%)">Only whitelisted contracts can be called. A hard cap limits per-trade and daily spend.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== WALRUS RECEIPTS ===== -->
+<a id="receipts"></a>
+<section style="border-bottom:1px solid var(--border)">
+  <div style="max-width:1200px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;gap:clamp(32px,5vw,56px);align-items:center">
+    <div style="flex:1 1 380px;min-width:300px">
+      <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)">Walrus receipts</span>
+      <h2 style="margin:14px 0 0;font-size:clamp(30px,4.4vw,46px);font-weight:700;letter-spacing:-0.03em;line-height:1.04;color:var(--fg)">Content-addressed.<br>On-chain anchored.</h2>
+      <p style="margin:18px 0 0;font-size:16px;line-height:1.6;color:var(--fg-muted);max-width:32em">Every executed or blocked transaction produces an immutable Walrus blob receipt — the full payload, Guardian verdict, dry-run deltas, and reasoning — with its blob ID pinned by a Sui object.</p>
+      <div style="margin-top:24px;display:grid;gap:14px;max-width:30em">
+        <div style="display:flex;gap:12px"><span style="flex:none;font-family:var(--font-mono);font-size:11px;color:var(--accent-ink);padding-top:2px">01</span><div><div style="font-size:14px;font-weight:600;color:var(--fg)">Blob ID</div><div style="font-size:13px;color:var(--fg-muted);line-height:1.45">SHA-256 content address — immutable by construction on Walrus.</div></div></div>
+        <div style="display:flex;gap:12px"><span style="flex:none;font-family:var(--font-mono);font-size:11px;color:var(--accent-ink);padding-top:2px">02</span><div><div style="font-size:14px;font-weight:600;color:var(--fg)">Sui object anchor</div><div style="font-size:13px;color:var(--fg-muted);line-height:1.45">On-chain pointer to the latest blob ID for each wallet + action.</div></div></div>
+        <div style="display:flex;gap:12px"><span style="flex:none;font-family:var(--font-mono);font-size:11px;color:var(--accent-ink);padding-top:2px">03</span><div><div style="font-size:14px;font-weight:600;color:var(--fg)">Full payload</div><div style="font-size:13px;color:var(--fg-muted);line-height:1.45">PTB bytes, Guardian verdict, dry-run deltas, agent chain-of-thought.</div></div></div>
+      </div>
+    </div>
+    <div style="flex:1 1 360px;min-width:300px;display:flex;justify-content:center">
+      <div style="width:100%;max-width:400px;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);box-shadow:var(--shadow-card);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
+          <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-muted)">Near-miss receipt</span>
+          <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--destructive);padding:3px 9px;background:color-mix(in srgb,var(--destructive) 12%,transparent);border-radius:99px">BLOCKED</span>
+        </div>
+        <div style="padding:18px;display:grid;gap:11px;font-size:12.5px;font-family:var(--font-mono)">
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:var(--fg-muted)">blob id</span><span style="display:inline-flex;align-items:center;gap:7px;color:var(--fg)">3vK…x9q2 <span style="color:var(--accent-ink);cursor:pointer">⧉</span></span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:var(--fg-muted)">sui object</span><span style="display:inline-flex;align-items:center;gap:7px;color:var(--fg)">0x7f1a…b3c4 <span style="color:var(--accent-ink);cursor:pointer">⧉</span></span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--fg-muted)">verdict</span><span style="color:var(--destructive);text-align:right;max-width:60%">min-out mismatch · 90% slippage</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--fg-muted)">timestamp</span><span style="color:var(--fg)">2026-06-16T04:12:33Z</span></div>
+        </div>
+        <div style="padding:13px 18px;border-top:1px solid var(--border);background:var(--bg-sub);font-size:11px;line-height:1.5;color:var(--fg-subtle)">Walrus blob = immutable proof. Sui object = mutable HEAD pointer. memwal (agent memory) is a separate mutable layer — not part of the tamper-evident record.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== WHY SUI ===== -->
+<a id="whysui"></a>
+<section style="border-bottom:1px solid var(--border);background:var(--bg-sub)">
+  <div style="max-width:1200px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,5vw,48px)">
+    <div style="max-width:640px">
+      <span style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)">Built on Sui</span>
+      <h2 style="margin:14px 0 0;font-size:clamp(30px,4.4vw,46px);font-weight:700;letter-spacing:-0.03em;line-height:1.04;color:var(--fg)">The stack that makes this possible.</h2>
+      <p style="margin:16px 0 0;font-size:16px;line-height:1.6;color:var(--fg-muted)">Dewlock isn't a thin wrapper — it relies on four Sui-native capabilities that have no direct equivalent elsewhere.</p>
+    </div>
+    <div style="margin-top:40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px">
+      <div style="border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);overflow:hidden;box-shadow:var(--shadow-sm)">
+        <div style="height:5px;background:var(--accent)"></div>
+        <div style="padding:22px;background-image:linear-gradient(180deg,color-mix(in srgb,var(--tint-sky) 60%,transparent) 0%,transparent 46%)">
+          <div style="font-size:16px;font-weight:600;color:var(--fg)">DeFi &amp; Payments</div>
+          <div style="margin-top:6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--accent-ink)">Cetus AMM · SuiNS · PTB composition</div>
+          <p style="margin:12px 0 0;font-size:13px;line-height:1.55;color:var(--fg-muted)">Atomic multi-protocol bundles. SuiNS name resolution with anti-lookalike guard. Min-out re-derivation against the Cetus math library — the same failure class behind the Cetus exploit.</p>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);overflow:hidden;box-shadow:var(--shadow-sm)">
+        <div style="height:5px;background:var(--tint-periwinkle)"></div>
+        <div style="padding:22px;background-image:linear-gradient(180deg,color-mix(in srgb,var(--tint-periwinkle) 26%,transparent) 0%,transparent 46%)">
+          <div style="font-size:16px;font-weight:600;color:var(--fg)">DeepBook</div>
+          <div style="margin-top:6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--accent-ink)">@mysten/deepbook-v3 · BalanceManager</div>
+          <p style="margin:12px 0 0;font-size:13px;line-height:1.55;color:var(--fg-muted)">Real central limit order book on Sui mainnet. POST_ONLY limit orders. Hard spending cap via BalanceManager. The only venue where "wait at my price" is a native primitive.</p>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);overflow:hidden;box-shadow:var(--shadow-sm)">
+        <div style="height:5px;background:hsl(28 90% 62%)"></div>
+        <div style="padding:22px;background-image:linear-gradient(180deg,color-mix(in srgb,var(--tint-peach) 60%,transparent) 0%,transparent 46%)">
+          <div style="font-size:16px;font-weight:600;color:var(--fg)">Walrus</div>
+          <div style="margin-top:6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--accent-ink)">Walrus blob storage · Sui object anchor</div>
+          <p style="margin:12px 0 0;font-size:13px;line-height:1.55;color:var(--fg-muted)">Content-addressed immutable receipts for every action — executed or blocked. The blob is the proof; the Sui object is the discoverable pointer.</p>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);overflow:hidden;box-shadow:var(--shadow-sm)">
+        <div style="height:5px;background:hsl(150 50% 50%)"></div>
+        <div style="padding:22px;background-image:linear-gradient(180deg,color-mix(in srgb,var(--tint-mint) 60%,transparent) 0%,transparent 46%)">
+          <div style="font-size:16px;font-weight:600;color:var(--fg)">Agentic Web</div>
+          <div style="margin-top:6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--accent-ink)">Mastra agent · unsigned PTBs only</div>
+          <p style="margin:12px 0 0;font-size:13px;line-height:1.55;color:var(--fg-muted)">Natural language to on-chain action with human-in-the-loop signing. The agent builds; you authorize. Zero agent custody. Demonstrably keyless server-side.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CTA ===== -->
+<a id="cta"></a>
+<section style="position:relative;overflow:hidden;background:var(--bg-dark);color:var(--fg-inverse);border-bottom:1px solid var(--border-dark)">
+  <div style="position:absolute;inset:0;background:radial-gradient(70% 90% at 50% 0%,rgba(40,130,240,.22),transparent 62%);pointer-events:none"></div>
+  <div style="position:relative;max-width:760px;margin:0 auto;padding:clamp(64px,9vw,120px) clamp(20px,5vw,48px);text-align:center">
+    <svg width="40" height="50" viewBox="0 0 16 26" fill="none" style="margin:0 auto;display:block"><path d="M8 2C8 2 2 8.5 2 13a6 6 0 0 0 12 0C14 8.5 8 2 8 2Z" fill="var(--accent-2)"></path><rect x="5" y="15" width="6" height="6" rx="1.2" fill="var(--bg-dark)" stroke="var(--accent-2)" stroke-width="1.5"></rect><circle cx="8" cy="17.8" r="1" fill="#fff"></circle></svg>
+    <h2 style="margin:24px 0 0;font-size:clamp(32px,5vw,52px);font-weight:800;letter-spacing:-0.035em;line-height:1.0;color:#fff">Ready to sign with confidence?</h2>
+    <p style="margin:18px auto 0;max-width:34em;font-size:16.5px;line-height:1.6;color:hsl(210 16% 72%)">Dewlock is live on Sui mainnet. Connect your wallet, state your intent, review the preview — sign only what you approved.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:13px;justify-content:center;margin-top:32px">
+      <a href="#top" style="display:inline-flex;align-items:center;height:48px;padding:0 24px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;text-decoration:none;border-radius:10px;box-shadow:var(--shadow-aqua)">Launch app →</a>
+      <a href="#top" style="display:inline-flex;align-items:center;height:48px;padding:0 22px;background:rgba(255,255,255,.05);color:#fff;font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--border-dark);border-radius:10px">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer style="background:var(--bg-sub)">
+  <div style="max-width:1200px;margin:0 auto;padding:48px clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start;justify-content:space-between">
+    <div style="max-width:320px">
+      <div style="display:flex;align-items:center;gap:10px"><svg width="16" height="26" viewBox="0 0 16 26" fill="none"><path d="M8 2C8 2 2 8.5 2 13a6 6 0 0 0 12 0C14 8.5 8 2 8 2Z" fill="var(--accent)"></path><rect x="5" y="15" width="6" height="6" rx="1.2" fill="var(--bg-dark)" stroke="var(--accent)" stroke-width="1.5"></rect><circle cx="8" cy="17.8" r="1" fill="var(--accent-2)"></circle></svg><span style="font-weight:700;font-size:16px;letter-spacing:-0.03em;color:var(--fg)">dew<span style="color:var(--accent)">lock</span></span></div>
+      <p style="margin:14px 0 0;font-size:14px;color:var(--fg-muted);line-height:1.5">Every transaction, sealed before you sign.</p>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-faint)">sui:mainnet · devnet-preview isolated</div>
+    </div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:10px"><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint)">Product</span><a href="#how" style="font-size:13.5px;color:var(--fg-muted);text-decoration:none">How it works</a><a href="#security" style="font-size:13.5px;color:var(--fg-muted);text-decoration:none">Security</a><a href="#deepbook" style="font-size:13.5px;color:var(--fg-muted);text-decoration:none">DeepBook</a></div>
+      <div style="display:flex;flex-direction:column;gap:10px"><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint)">Resources</span><a href="#" style="font-size:13.5px;color:var(--fg-muted);text-decoration:none">GitHub</a><a href="#" style="font-size:13.5px;color:var(--fg-muted);text-decoration:none">Docs</a><a href="#" style="font-size:13.5px;color:var(--fg-muted);text-decoration:none">Sui Explorer</a></div>
+    </div>
+  </div>
+  <div style="border-top:1px solid var(--border)"><div style="max-width:1200px;margin:0 auto;padding:16px clamp(20px,5vw,48px)"><p style="margin:0;font-size:12px;color:var(--fg-faint);line-height:1.5">Hackathon preview — unaudited. Use small amounts. Devnet tab isolated from mainnet.</p></div></div>
+</footer>
+
+<!-- ===== DESIGN CONTROLS ===== -->
+<sc-if value="{{ showControls }}" hint-placeholder-val="{{ true }}">
+<div style="position:fixed;bottom:18px;right:18px;z-index:70;background:var(--bg-elev);border:1px solid var(--border-strong);border-radius:12px;padding:11px 12px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:9px;min-width:182px">
+  <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-faint)">Design controls</div>
+  <div style="display:flex;gap:4px;background:var(--bg-sub);border-radius:8px;padding:3px">
+    <button onClick="{{ setLight }}" style="{{ themeLightStyle }}">Light</button>
+    <button onClick="{{ setDark }}" style="{{ themeDarkStyle }}">Dark</button>
+  </div>
+  <div style="display:flex;gap:4px;background:var(--bg-sub);border-radius:8px;padding:3px">
+    <button onClick="{{ setHeroA }}" style="{{ heroAStyle }}">Hero · Aqua</button>
+    <button onClick="{{ setHeroB }}" style="{{ heroBStyle }}">Hero · Vault</button>
+  </div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;light&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;defaultHero&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;A&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;tsType&quot;:&quot;'A'|'B'&quot;},&quot;showDesignControls&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { theme: null, heroDir: null, step: 0 };
+  timers = [];
+
+  componentWillUnmount() { this.timers.forEach(clearTimeout); }
+
+  setTheme = (t) => this.setState({ theme: t });
+  toggleTheme = () => this.setState(s => ({ theme: (s.theme ?? (this.props.defaultTheme || 'light')) === 'light' ? 'dark' : 'light' }));
+  setHero = (h) => this.setState({ heroDir: h });
+
+  runBlock = () => {
+    this.timers.forEach(clearTimeout); this.timers = [];
+    this.setState({ step: 0 });
+    const at = (ms, step) => this.timers.push(setTimeout(() => this.setState({ step }), ms));
+    at(140, 1); at(820, 2); at(1560, 3); at(2360, 4); at(3260, 5);
+  };
+
+  renderVals() {
+    const theme = this.state.theme ?? (this.props.defaultTheme || 'light');
+    const heroDir = this.state.heroDir ?? (this.props.defaultHero || 'A');
+    const step = this.state.step;
+    const running = step > 0 && step < 4;
+    const seg = (active) => active
+      ? 'flex:1;padding:7px 8px;border:none;border-radius:6px;font:600 11.5px/1 var(--font-sans);cursor:pointer;background:var(--accent);color:#fff'
+      : 'flex:1;padding:7px 8px;border:none;border-radius:6px;font:600 11.5px/1 var(--font-sans);cursor:pointer;background:transparent;color:var(--fg-muted)';
+    return {
+      rootClass: theme === 'dark' ? 'dark' : '',
+      themeIcon: theme === 'dark' ? '☾' : '☀',
+      heroA: heroDir === 'A',
+      heroB: heroDir === 'B',
+      toggleTheme: this.toggleTheme,
+      setLight: () => this.setTheme('light'),
+      setDark: () => this.setTheme('dark'),
+      setHeroA: () => this.setHero('A'),
+      setHeroB: () => this.setHero('B'),
+      runBlock: this.runBlock,
+      btnLabel: step === 0 ? 'Run Guardian check' : (running ? 'Checking…' : 'Replay check ↻'),
+      runBtnBg: running ? 'rgba(255,255,255,.06)' : (step >= 4 ? 'var(--destructive)' : 'var(--accent)'),
+      s1: step >= 1, s2: step >= 2, s3: step >= 3, s4: step >= 4, s5: step >= 5,
+      showControls: this.props.showDesignControls ?? true,
+      themeLightStyle: seg(theme === 'light'),
+      themeDarkStyle: seg(theme === 'dark'),
+      heroAStyle: seg(heroDir === 'A'),
+      heroBStyle: seg(heroDir === 'B'),
+    };
+  }
+}
+</script>
+</body>
+</html>

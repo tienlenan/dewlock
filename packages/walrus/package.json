@@ -1,0 +1,31 @@
+{
+  "name": "@dewlock/walrus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./receipt": {
+      "import": "./dist/receipt.js",
+      "types": "./dist/receipt.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --noCheck",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+  },
+  "dependencies": {
+    "@mysten-incubation/memwal": "0.0.7",
+    "@mysten/sui": "2.18.0",
+    "@mysten/walrus": "1.1.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.21",
+    "typescript": "^5.6.3"
+  }
+}

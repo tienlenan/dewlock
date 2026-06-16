@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/mpdh/Desktop/R-AI-Services/R-AI-Products/sui-overflow-2026-hackathon/**)",
+      "Bash(ck --version)",
+      "Bash(ck plan *)",
+      "Bash(echo \"---EXIT $?---\")"
+    ]
+  }
+}
