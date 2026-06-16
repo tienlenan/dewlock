@@ -1179,75 +1179,57 @@ function countDecimals(n: number): number {
  *
  * If parsing fails → block (fail-closed: unknown content is always blocked).
  */
-function checkPostOnlyInPtb(txBytesB64: string): { ok: boolean; reason: string } {
+export function checkPostOnlyInPtb(txBytesB64: string): { ok: boolean; reason: string } {
   const PLACE_LIMIT_ORDER_FN = "place_limit_order";
   const POST_ONLY_VALUE = 3;
+
+  // DeepBook `pool::place_limit_order` argument layout (verified against
+  // @mysten/deepbook-v3 DeepBookContract.placeLimitOrder source):
+  //   [0] pool (object)        [6] price (u64)
+  //   [1] balanceManager (obj) [7] quantity (u64)
+  //   [2] tradeProof (result)  [8] isBid (bool)
+  //   [3] clientOrderId (u64)  [9] payWithDeep (bool)
+  //   [4] orderType (u8)  ◄    [10] expiration (u64)
+  //   [5] selfMatchingOption   [11] clock (object)
+  // We bind to index 4 and assert u8 == 3. The previous "scan every 1-byte Pure"
+  // approach false-rejected valid orders (selfMatchingOption=1 / isBid/payWithDeep
+  // bools are also 1-byte) and could false-pass if a stray u8 happened to be 3.
+  const ORDER_TYPE_ARG_INDEX = 4;
 
   try {
     const bytes = Buffer.from(txBytesB64, "base64");
     const tx = Transaction.from(bytes);
     const data = tx.getData();
     const commands = data.commands ?? [];
+    const inputs = (data.inputs ?? []) as unknown[];
 
-    let foundOrderCall = false;
     for (const cmd of commands) {
       if (!("MoveCall" in cmd) || !cmd.MoveCall) continue;
       const mc = cmd.MoveCall;
       if (mc.function !== PLACE_LIMIT_ORDER_FN) continue;
 
-      foundOrderCall = true;
-
-      // The SDK passes arguments in order: poolObj, balanceManagerObj, clientOrderId,
-      // price, quantity, isBid, orderType (u8), selfMatchingOption (u8), expiration, payWithDeep.
-      // orderType is the 7th argument (index 6, 0-based).
-      // We look for a Pure input with value 3 among the call's arguments.
-      // Since exact arg index position may vary by SDK version, we scan all Pure inputs
-      // for the presence of POST_ONLY=3 and absence of any taker order type (0,1,2).
       const args = mc.arguments ?? [];
-      const pureValues: number[] = [];
+      const orderTypeU8 = resolvePureU8(args[ORDER_TYPE_ARG_INDEX], inputs);
 
-      for (const arg of args) {
-        if (arg && typeof arg === "object" && "Pure" in arg) {
-          const pureArg = arg.Pure as { bytes?: string } | undefined;
-          if (pureArg?.bytes) {
-            // Decode base64 single-byte pure arg (u8)
-            const decoded = Buffer.from(pureArg.bytes, "base64");
-            if (decoded.length === 1) {
-              pureValues.push(decoded[0]);
-            }
-          }
-        }
-      }
-
-      // Must find POST_ONLY (3) among the pure u8 values
-      const hasPostOnly = pureValues.includes(POST_ONLY_VALUE);
-      // Must not find taker order types (0=no restriction, 1=immediate_or_cancel, 2=fill_or_kill)
-      const hasTakerType = pureValues.some((v) => v === 0 || v === 1 || v === 2);
-
-      if (!hasPostOnly) {
+      if (orderTypeU8 === undefined) {
         return {
           ok: false,
           reason:
-            `place_limit_order call does not encode POST_ONLY order type (expected u8=3). ` +
-            `Found pure u8 values: [${pureValues.join(", ")}]. ` +
-            "Market and taker order types are not permitted.",
+            "Could not read the order-type argument from place_limit_order — " +
+            "cannot verify POST_ONLY. Blocking (fail-closed).",
         };
       }
-      if (hasTakerType) {
+      if (orderTypeU8 !== POST_ONLY_VALUE) {
         return {
           ok: false,
           reason:
-            `place_limit_order call contains a taker order type (0, 1, or 2). ` +
-            `Found pure u8 values: [${pureValues.join(", ")}]. ` +
-            "Only POST_ONLY (3) is permitted.",
+            `place_limit_order order type is ${orderTypeU8}, not POST_ONLY (3). ` +
+            "Market (0), immediate-or-cancel (1), and fill-or-kill (2) are not permitted.",
         };
       }
     }
 
-    // If the PTB has no place_limit_order call, the orderbook gate is not applicable.
-    // Return ok=true so we don't block non-order transactions that happen to go through
-    // this gate. (The gate is only invoked when actionType==="limit_order".)
-    void foundOrderCall;
+    // No place_limit_order call → gate not applicable (only invoked for limit_order).
     return { ok: true, reason: "" };
   } catch (err) {
     return {
@@ -1257,6 +1239,32 @@ function checkPostOnlyInPtb(txBytesB64: string): { ok: boolean; reason: string }
         (err instanceof Error ? err.message : String(err)),
     };
   }
+}
+
+/**
+ * Resolve a MoveCall argument to its single-byte (u8) Pure value, handling both
+ * an inline `{ Pure: { bytes } }` argument and an `{ Input: n }` reference into
+ * the transaction's input list. Returns undefined if it isn't a 1-byte Pure.
+ */
+function resolvePureU8(arg: unknown, inputs: unknown[]): number | undefined {
+  const decode1 = (b?: string): number | undefined => {
+    if (!b) return undefined;
+    const d = Buffer.from(b, "base64");
+    return d.length === 1 ? d[0] : undefined;
+  };
+  if (!arg || typeof arg !== "object") return undefined;
+  if ("Pure" in arg) {
+    return decode1((arg as { Pure?: { bytes?: string } }).Pure?.bytes);
+  }
+  if ("Input" in arg) {
+    const idx = (arg as { Input?: number }).Input;
+    if (typeof idx !== "number") return undefined;
+    const input = inputs[idx];
+    if (input && typeof input === "object" && "Pure" in input) {
+      return decode1((input as { Pure?: { bytes?: string } }).Pure?.bytes);
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
