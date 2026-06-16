@@ -69,10 +69,15 @@ export default defineConfig({
     include: [
       "packages/*/src/__tests__/**/*.test.ts",
       "packages/*/src/__tests__/**/*.spec.ts",
+      "apps/web/**/__tests__/**/*.test.ts",
+      "apps/web/**/__tests__/**/*.spec.ts",
     ],
   },
   resolve: {
     alias: [
+      // apps/web internal alias (@/ → apps/web/)
+      { find: /^@\/(.*)$/, replacement: path.resolve(ROOT, "apps/web/$1") },
+
       // @dewlock/walrus sub-paths
       { find: /^@dewlock\/walrus$/, replacement: src("walrus", "index.ts") },
       { find: "@dewlock/walrus/receipt", replacement: src("walrus", "receipt.ts") },

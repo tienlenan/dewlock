@@ -21,6 +21,10 @@
 import { Agent } from "@mastra/core/agent";
 import { createGateway } from "@ai-sdk/gateway";
 import { NextRequest } from "next/server";
+import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
+
+// 60 req/min per IP — generous for a streaming chat endpoint
+const RATE_LIMIT_MAX = 60;
 
 // --- Persona (inlined to avoid bundler workspace-resolution issues in Next.js) ---
 
@@ -148,6 +152,16 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
 
+  // Rate-limit check — applied before any body parsing to fail fast.
+  const ip = clientIp(req.headers);
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  if (rl.limited) {
+    return Response.json(
+      { error: "Too many requests — please slow down." },
+      { status: 429, headers: { ...corsHeaders(origin), ...rateLimitHeaders(rl, RATE_LIMIT_MAX) } },
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -246,7 +260,7 @@ export async function POST(req: NextRequest) {
         "content-type": "application/x-ndjson; charset=utf-8",
         "x-content-type-options": "nosniff",
         "cache-control": "no-cache",
-        "x-ratelimit-policy": "60;w=60",
+        ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
         ...corsHeaders(origin),
       },
     });

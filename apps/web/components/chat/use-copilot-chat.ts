@@ -277,7 +277,14 @@ export function useCopilotChat(walletAddress: string) {
 
         if (!res.ok || !res.body) {
           const errText = await res.text().catch(() => `HTTP ${res.status}`);
-          appendText(`[Error]: ${errText}`);
+          const is429 = res.status === 429;
+          appendCard({
+            type: "agent-error",
+            message: is429
+              ? "You're sending messages too quickly. Please wait a moment and try again."
+              : `Request failed (${res.status}): ${errText.slice(0, 200)}`,
+            retryable: true,
+          });
           return;
         }
 
@@ -313,7 +320,8 @@ export function useCopilotChat(walletAddress: string) {
               const card = toolResultToCard(parsed.toolName, parsed.result);
               if (card) appendCard(card);
             } else if (parsed.type === "error") {
-              appendText(`\n[Error]: ${parsed.message}`);
+              // Server-side stream error — surface as a card, not raw text.
+              appendCard({ type: "agent-error", message: parsed.message, retryable: false });
             } else if (parsed.type === "done") {
               break outer;
             }
@@ -321,7 +329,12 @@ export function useCopilotChat(walletAddress: string) {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        appendText(`\n[Network error]: ${msg}`);
+        // Network / fetch-level error (offline, DNS, AbortError) — retryable.
+        appendCard({
+          type: "agent-error",
+          message: `Connection error: ${msg}`,
+          retryable: true,
+        });
       } finally {
         // Clear streaming cursor on the assistant message
         setMessages((prev) =>

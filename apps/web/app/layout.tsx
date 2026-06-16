@@ -25,13 +25,31 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Dewlock — Sui DeFi Copilot",
   description:
-    "Every transaction, sealed before you sign. AI-powered DeFi copilot on Sui.",
-  metadataBase: new URL("https://dewlock.xyz"),
+    "Every transaction, sealed before you sign. Dewlock is an AI-powered DeFi copilot on Sui " +
+    "with a nine-gate Guardian that verifies, dry-runs, and receipts every action before you sign.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ?? "https://dewlock.xyz",
+  ),
+  keywords: [
+    "Sui", "DeFi", "AI copilot", "transaction guard", "DeepBook",
+    "Walrus receipt", "WYSIWYS", "Cetus swap", "SuiNS",
+  ],
   openGraph: {
     title: "Dewlock — Sui DeFi Copilot",
     description: "Every transaction, sealed before you sign.",
     type: "website",
+    url: "/",
+    siteName: "Dewlock",
+    // og:image served from /opengraph-image route (Next auto-discovery).
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Dewlock — Sui DeFi Copilot",
+    description: "Every transaction, sealed before you sign.",
+    // twitter:image auto-resolved from /opengraph-image if present.
+  },
+  // Robots: index on prod; next.config can override via headers.
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({

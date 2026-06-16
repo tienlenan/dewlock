@@ -16,22 +16,62 @@ export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
 import { memNamespace, recall, isMemoryEnabled } from "@dewlock/walrus";
+import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
 const WALLET_RE = /^0x[0-9a-fA-F]{1,64}$/;
+// 30 req/min per IP — read-only recall, same budget as prepare-trade.
+const RATE_LIMIT_MAX = 30;
+
+// CORS is same-origin only for this endpoint (no cross-origin reads of memwal data).
+function corsHeaders(origin: string | null): Record<string, string> {
+  const allowed = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean);
+  const ok = allowed.length === 0 || (origin != null && allowed.includes(origin));
+  return {
+    "access-control-allow-origin": ok && origin ? origin : "null",
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(req.headers.get("origin")),
+  });
+}
 
 export async function GET(req: NextRequest) {
+  const origin = req.headers.get("origin");
+
+  const ip = clientIp(req.headers);
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  if (rl.limited) {
+    return Response.json(
+      { error: "Too many requests — please slow down." },
+      { status: 429, headers: { ...corsHeaders(origin), ...rateLimitHeaders(rl, RATE_LIMIT_MAX) } },
+    );
+  }
+
   const wallet = new URL(req.url).searchParams.get("wallet");
 
   if (!wallet || !WALLET_RE.test(wallet)) {
     return Response.json(
       { error: "Missing or invalid wallet query parameter" },
-      { status: 400 },
+      { status: 400, headers: corsHeaders(origin) },
     );
   }
 
+  // Shared success headers for all 200 responses from this endpoint.
+  const okHeaders = {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
+    ...corsHeaders(origin),
+  };
+
   // When memwal is not configured, return empty gracefully — not a failure.
   if (!isMemoryEnabled()) {
-    return Response.json({});
+    return Response.json({}, { headers: okHeaders });
   }
 
   const ns = memNamespace(wallet);
@@ -49,12 +89,12 @@ export async function GET(req: NextRequest) {
       /^contact:\s*.+\s*=\s*0x[0-9a-fA-F]{64}$/i.test(r.trim()),
     );
 
-    return Response.json({
-      capEntry,
-      contactEntries: contactEntries.length > 0 ? contactEntries : undefined,
-    });
+    return Response.json(
+      { capEntry, contactEntries: contactEntries.length > 0 ? contactEntries : undefined },
+      { headers: okHeaders },
+    );
   } catch {
     // Recall failure is non-fatal — return empty so UI falls back to sample chips.
-    return Response.json({});
+    return Response.json({}, { headers: okHeaders });
   }
 }

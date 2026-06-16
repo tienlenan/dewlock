@@ -145,6 +145,18 @@ export function PortfolioCard({
 
       {/* ── Balance rows ── */}
       <div style={{ padding: "6px 0" }}>
+        {sorted.length === 0 && (
+          <div
+            style={{
+              padding: "28px 18px",
+              textAlign: "center",
+              color: "var(--fg-faint)",
+              fontSize: "13px",
+            }}
+          >
+            No token balances found for this wallet.
+          </div>
+        )}
         {sorted.map((b) => {
           const isZero = BigInt(b.nativeBalance) === 0n;
           return (

@@ -22,7 +22,8 @@ export type ReceiptStatus =
   | "blob_ready"
   | "anchored"
   | "blob_only"
-  | "not_found";
+  | "not_found"
+  | "timeout";
 
 export interface ReceiptReadiness {
   status: ReceiptStatus;
@@ -110,9 +111,10 @@ async function pollReceipt(
     }
   }
 
-  // Timed out — surface whatever we have as blob_only.
+  // Poll budget exhausted — surface as "timeout" so the card shows a clear
+  // "receipt write timed out" notice rather than silently appearing incomplete.
   onUpdate({
-    status: "blob_only",
+    status: "timeout",
     blobId: null,
     anchorObjectId: null,
     anchorTxDigest: null,

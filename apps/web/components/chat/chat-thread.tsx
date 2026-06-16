@@ -62,7 +62,13 @@ export type ToolCard =
   | { type: "block"; blockReasons: string[]; blockGates: string[] }
   | { type: "portfolio"; portfolio: PortfolioCardProps }
   | { type: "receipt"; receipt: TxReceipt }
-  | { type: "wysiwys-error"; wysiwysMessage: string };
+  | { type: "wysiwys-error"; wysiwysMessage: string }
+  /**
+   * agent-error: shown when the streaming request fails (network error,
+   * gateway timeout, 429, etc.). Separate from wysiwys-error to enable
+   * a retry action without discarding the conversation.
+   */
+  | { type: "agent-error"; message: string; retryable: boolean };
 
 export type ChatRole = "user" | "assistant";
 
@@ -351,6 +357,32 @@ function CardSlot({
         }}
       >
         {card.wysiwysMessage}
+      </div>
+    );
+  }
+  if (card.type === "agent-error") {
+    return (
+      <div
+        role="alert"
+        style={{
+          maxWidth: "440px",
+          borderRadius: "10px",
+          border: "1px solid color-mix(in srgb, var(--destructive) 30%, transparent)",
+          background: "color-mix(in srgb, var(--destructive) 4%, var(--bg-elev))",
+          padding: "12px 14px",
+          fontSize: "13px",
+          lineHeight: 1.5,
+        }}
+      >
+        <div style={{ color: "var(--destructive)", fontWeight: 600, marginBottom: 4 }}>
+          {card.retryable ? "Request failed — try again" : "Error"}
+        </div>
+        <div style={{ color: "var(--fg-muted)" }}>{card.message}</div>
+        {card.retryable && (
+          <div style={{ marginTop: 8, fontSize: "12px", color: "var(--fg-faint)" }}>
+            Use the input below to resend your message.
+          </div>
+        )}
       </div>
     );
   }

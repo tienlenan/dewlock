@@ -23,7 +23,7 @@
 
 import { ExternalLink } from "lucide-react";
 
-export type ReceiptStatus = "pending" | "blob_ready" | "anchored" | "blob_only";
+export type ReceiptStatus = "pending" | "blob_ready" | "anchored" | "blob_only" | "timeout";
 
 export interface ReceiptCardProps {
   txDigest: string;
@@ -95,6 +95,7 @@ export function ReceiptCard({
   status = "pending",
 }: ReceiptCardProps) {
   const explorerUrl = buildExplorerUrl(txDigest);
+  const isTimeout = status === "timeout";
   const showBlobRow = status !== "pending";
   const showAnchorRow = status !== "pending";
   const blobReady = !!blobId && (status === "anchored" || status === "blob_ready" || status === "blob_only");
@@ -235,6 +236,25 @@ export function ReceiptCard({
             <span style={{ color: "var(--fg-faint)", fontSize: "11px" }}>
               {status === "blob_only" ? "on-chain anchor pending" : "writing…"}
             </span>
+          </div>
+        )}
+
+        {/* Timeout notice — receipt write timed out but tx is confirmed on-chain */}
+        {isTimeout && (
+          <div
+            role="status"
+            style={{
+              padding: "9px 12px",
+              background: "color-mix(in srgb, var(--warning) 6%, var(--bg-sub))",
+              border: "1px solid color-mix(in srgb, var(--warning) 30%, transparent)",
+              borderRadius: "8px",
+              fontSize: "12px",
+              color: "var(--fg-muted)",
+              lineHeight: 1.45,
+            }}
+          >
+            Receipt write timed out. Your transaction is confirmed on-chain — the Walrus
+            receipt blob will be retried on the next session.
           </div>
         )}
 

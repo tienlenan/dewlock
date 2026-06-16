@@ -17,6 +17,10 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getDemoMode, getFixtureNearMissBlock } from "@/lib/demo/fixtures";
+import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
+
+// 30 req/min per IP — deterministic endpoint, tighter than the streaming agent.
+const RATE_LIMIT_MAX = 30;
 import { recall, isMemoryEnabled } from "@dewlock/walrus";
 import {
   recallCommittedCap,
@@ -140,6 +144,16 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
 
+  // Rate-limit: fail before body parsing.
+  const ip = clientIp(req.headers);
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  if (rl.limited) {
+    return Response.json(
+      { error: "Too many requests — please slow down." },
+      { status: 429, headers: { ...corsHeaders(origin), ...rateLimitHeaders(rl, RATE_LIMIT_MAX) } },
+    );
+  }
+
   let rawBody: unknown;
   try {
     rawBody = await req.json();
@@ -171,6 +185,7 @@ export async function POST(req: NextRequest) {
       headers: {
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
+        ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
         ...corsHeaders(origin),
       },
     });
@@ -218,6 +233,7 @@ export async function POST(req: NextRequest) {
       headers: {
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
+        ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
         ...corsHeaders(origin),
       },
     });

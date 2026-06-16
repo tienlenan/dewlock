@@ -25,6 +25,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { buildAndPublishReceipt, contentHash, memNamespace, remember, isMemoryEnabled } from "@dewlock/walrus";
 import { anchorReceiptHead } from "@dewlock/sui";
+import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
+
+// 20 req/min per IP — receipt writes are async/cheap but we still protect.
+const RATE_LIMIT_MAX = 20;
 
 // ---------------------------------------------------------------------------
 // In-process receipt cache (keyed by txDigest)
@@ -200,6 +204,15 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
+
+  const ip = clientIp(req.headers);
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  if (rl.limited) {
+    return Response.json(
+      { error: "Too many requests — please slow down." },
+      { status: 429, headers: { ...corsHeaders(origin), ...rateLimitHeaders(rl, RATE_LIMIT_MAX) } },
+    );
+  }
 
   let raw: unknown;
   try {
