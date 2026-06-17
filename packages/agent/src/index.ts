@@ -43,3 +43,8 @@ export {
 } from "./allowlist";
 export { prepareTrade } from "./tools/prepare-trade";
 export { getPortfolio } from "./tools/get-portfolio";
+export { listProtocols } from "./tools/list-protocols";
+export { getSwapOptions } from "./tools/get-swap-options";
+export { getReceiveInfo } from "./tools/get-receive-info";
+export { getUserStats } from "./tools/get-user-stats";
+export { getProtocolMetrics } from "./tools/get-protocol-metrics";

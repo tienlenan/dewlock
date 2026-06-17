@@ -28,6 +28,11 @@ export interface DecisionLogEntry {
 /**
  * Pure formatter — builds the memory log text without any side effects.
  * Exported for unit testing and for the caller to pass to remember().
+ *
+ * Invariant: `actionLabel` must not contain the `|` field delimiter — a pipe
+ * would shift the field boundaries when the line is parsed back (user-stats.ts).
+ * Labels are system-generated from fixed templates ("Transfer … to …",
+ * "Swap … -> …"), so this holds by construction; keep it that way.
  */
 export function formatDecisionLogEntry(entry: DecisionLogEntry): string {
   const ts = entry.timestamp ?? new Date().toISOString();

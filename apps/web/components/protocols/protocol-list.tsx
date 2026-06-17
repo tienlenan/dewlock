@@ -20,7 +20,7 @@ interface Incident {
   summary?: string;
 }
 
-interface ProtocolDto {
+export interface ProtocolDto {
   id: string;
   name: string;
   category: string;
@@ -32,7 +32,7 @@ interface ProtocolDto {
   targetCount: number;
 }
 
-interface ApiResponse {
+export interface ApiResponse {
   active: ProtocolDto[];
   excluded: ProtocolDto[];
 }
@@ -111,11 +111,12 @@ function Section({ title, subtitle, items }: { title: string; subtitle: string; 
   );
 }
 
-export function ProtocolList() {
-  const [data, setData] = useState<ApiResponse | null>(null);
+export function ProtocolList({ data: initial }: { data?: ApiResponse } = {}) {
+  const [data, setData] = useState<ApiResponse | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initial) return; // data supplied (e.g. from a chat tool result) — skip the fetch
     let cancelled = false;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -129,7 +130,7 @@ export function ProtocolList() {
       ctrl.abort();
       clearTimeout(timer);
     };
-  }, []);
+  }, [initial]);
 
   if (error) {
     return (

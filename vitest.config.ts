@@ -85,9 +85,13 @@ export default defineConfig({
       // @dewlock/agent sub-paths (pure modules come first for priority)
       { find: "@dewlock/agent/allowlist", replacement: src("agent", "allowlist.ts") },
       { find: "@dewlock/agent/guardian-gates", replacement: src("agent", "guardian-gates.ts") },
+      { find: "@dewlock/agent/guardian-bridge", replacement: src("agent", "guardian-bridge.ts") },
       { find: "@dewlock/agent/guardian", replacement: src("agent", "guardian.ts") },
       { find: "@dewlock/agent/tools/prepare-trade", replacement: src("agent", "tools/prepare-trade.ts") },
+      { find: "@dewlock/agent/tools/prepare-bridge-redeem", replacement: src("agent", "tools/prepare-bridge-redeem.ts") },
       { find: "@dewlock/agent/tools/get-portfolio", replacement: src("agent", "tools/get-portfolio.ts") },
+      { find: "@dewlock/agent/memory/user-stats", replacement: src("agent", "memory/user-stats.ts") },
+      { find: "@dewlock/agent/memory/badges", replacement: src("agent", "memory/badges.ts") },
       { find: /^@dewlock\/agent$/, replacement: src("agent", "index.ts") },
 
       // @dewlock/sui sub-paths

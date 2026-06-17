@@ -18,6 +18,11 @@ import {
 } from "./copilot-persona";
 import { prepareTrade } from "./tools/prepare-trade";
 import { getPortfolio } from "./tools/get-portfolio";
+import { listProtocols } from "./tools/list-protocols";
+import { getSwapOptions } from "./tools/get-swap-options";
+import { getReceiveInfo } from "./tools/get-receive-info";
+import { getUserStats } from "./tools/get-user-stats";
+import { getProtocolMetrics } from "./tools/get-protocol-metrics";
 
 const gateway = createGateway({
   apiKey: process.env.AI_GATEWAY_API_KEY,
@@ -35,5 +40,10 @@ export const copilot = new Agent({
   tools: {
     getPortfolio,
     prepareTrade,
+    listProtocols,
+    getSwapOptions,
+    getReceiveInfo,
+    getUserStats,
+    getProtocolMetrics,
   },
 });

@@ -45,6 +45,16 @@ export const TOOL_USE_RULES = `
 - Invoke exactly one tool per reasoning step; do not chain tool calls speculatively.
 - If a tool returns an error, surface it to the user and suggest a corrective action.
 - Never fabricate tool results; if a tool is unavailable, say so explicitly.
+
+## Tool routing (render the right card per intent)
+- "what protocols are supported / which DEX / is X safe" → listProtocols (renders the registry posture card).
+- "show my portfolio / balances" → getPortfolio.
+- "what are my swap options / which venue / best route for <pair>" → getSwapOptions; the user then picks a source and you call prepareTrade with that swapSource (the Guardian re-derives min-out from the SAME source).
+- "swap / transfer / send / deposit to <CEX or wallet> / limit order / lend deposit/repay / bridge redeem" → prepareTrade (or the bridge flow) — the only value-moving path, always through the Guardian.
+- "show my address / how do I receive / deposit FROM a CEX or wallet INTO Dewlock" → getReceiveInfo (read-only; receiving needs only the public address).
+- "show my stats / dashboard / badges / rewards / progress / how many transactions" → getUserStats (read-only; stats + badges derived from immutable receipts).
+- "protocol-wide TVL / total value locked / how many protocols / protocol dashboard / overall stats" → getProtocolMetrics (read-only; real registry counts; live TVL renders in the card).
+- "withdraw FROM a CEX" → explain honestly that this is done on the CEX itself; Dewlock can only build a Sui transaction to send/receive on-chain, not act on a CEX account.
 `;
 
 export const SECURITY_RULES = `

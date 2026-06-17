@@ -22,6 +22,7 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { getSuiMainnetClient } from "@dewlock/sui";
 import { COIN_TYPES, COIN_DECIMALS, getTrustedUsdPrice } from "../allowlist";
+import { fetchSuiVisionCoins, type SuiVisionCoin } from "../suivision-coins";
 
 // ---------------------------------------------------------------------------
 // Ticker reverse-map (coinType → ticker) for display
@@ -64,6 +65,12 @@ export const getPortfolio = createTool({
         /** Estimated USD value (null if no trusted price or unknown coin). */
         estimatedUsdValue: z.number().nullable(),
         decimals: z.number(),
+        /** Token logo / avatar URL from SuiVision (null when unavailable). */
+        iconUrl: z.string().nullable(),
+        /** Unit price in USD from SuiVision (null when unavailable). */
+        priceUsd: z.number().nullable(),
+        /** True when the token is verified on SuiVision (curated coins on RPC fallback). */
+        verified: z.boolean(),
       }),
     ),
     /** Sum of all USD-valued positions (null/unknown excluded). */
@@ -87,10 +94,64 @@ export const getPortfolio = createTool({
 });
 
 // ---------------------------------------------------------------------------
-// Live portfolio — one getAllBalances call, then per-unknown-coin getCoinMetadata
+// Live portfolio — SuiVision (verified tokens + logo + price + USD) first,
+// plain-RPC balances as a resilient fallback when no key / API failure.
 // ---------------------------------------------------------------------------
 
 async function fetchLivePortfolio(walletAddress: string) {
+  try {
+    const coins = await fetchSuiVisionCoins(walletAddress);
+    if (coins) return buildSuiVisionPortfolio(walletAddress, coins);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[getPortfolio] SuiVision fetch failed, falling back to RPC:", msg);
+  }
+  return fetchRpcPortfolio(walletAddress);
+}
+
+/**
+ * Build the portfolio from SuiVision coins. Shows verified, non-scam tokens only
+ * (the assets list is curated by SuiVision's verified flag). Logo → iconUrl,
+ * price/usdValue surfaced for display.
+ */
+function buildSuiVisionPortfolio(walletAddress: string, coins: SuiVisionCoin[]) {
+  const balances = coins
+    .filter((c) => c.verified && !c.scam)
+    .map((c) => {
+      const nativeBalance = BigInt(c.balance || "0");
+      const humanBalance = (Number(nativeBalance) / 10 ** c.decimals).toFixed(6);
+      return {
+        coinType: c.coinType,
+        displayTicker: c.symbol || c.coinType.split("::").pop() || c.coinType,
+        nativeBalance: nativeBalance.toString(),
+        humanBalance,
+        estimatedUsdValue: Number.isFinite(c.usdValue) ? c.usdValue : null,
+        decimals: c.decimals,
+        iconUrl: c.logo || null,
+        priceUsd: Number.isFinite(c.price) ? c.price : null,
+        verified: c.verified,
+      };
+    });
+
+  const totalEstimatedUsdValue = balances.reduce(
+    (sum, b) => sum + (b.estimatedUsdValue ?? 0),
+    0,
+  );
+
+  return {
+    walletAddress,
+    balances,
+    totalEstimatedUsdValue,
+    network: "mainnet" as const,
+    demoFixture: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// RPC fallback — one getAllBalances call, then per-unknown-coin getCoinMetadata
+// ---------------------------------------------------------------------------
+
+async function fetchRpcPortfolio(walletAddress: string) {
   const client = getSuiMainnetClient();
 
   // One RPC to fetch every coin balance the wallet holds.
@@ -126,7 +187,7 @@ async function fetchLivePortfolio(walletAddress: string) {
   // Build a metadata cache for unknown types
   const metadataCache: Record<
     string,
-    { decimals: number; symbol: string } | null
+    { decimals: number; symbol: string; iconUrl: string | null } | null
   > = {};
   for (const result of metadataResults) {
     if (result.status === "fulfilled" && result.value.meta) {
@@ -134,6 +195,7 @@ async function fetchLivePortfolio(walletAddress: string) {
       metadataCache[coinType] = {
         decimals: meta.decimals,
         symbol: meta.symbol,
+        iconUrl: meta.iconUrl ?? null,
       };
     } else if (result.status === "fulfilled") {
       metadataCache[result.value.coinType] = null;
@@ -172,6 +234,10 @@ async function fetchLivePortfolio(walletAddress: string) {
       humanBalance,
       estimatedUsdValue,
       decimals,
+      iconUrl: metadataCache[coinType]?.iconUrl ?? null,
+      priceUsd: usdPrice ?? null,
+      // Curated (known) coins are treated as verified on the RPC fallback path.
+      verified: curatedTicker !== undefined,
     };
   });
 
@@ -217,6 +283,9 @@ function buildFixturePortfolio(walletAddress: string) {
       humanBalance,
       estimatedUsdValue,
       decimals,
+      iconUrl: null,
+      priceUsd: usdPrice ?? null,
+      verified: true,
     };
   });
 

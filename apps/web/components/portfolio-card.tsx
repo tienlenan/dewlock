@@ -17,6 +17,8 @@
  *  - DEMO badge in fixture mode — data never presented as live when canned.
  */
 
+import { useState } from "react";
+
 export interface PortfolioBalance {
   coinType: string;
   displayTicker: string;
@@ -24,6 +26,12 @@ export interface PortfolioBalance {
   humanBalance: string;
   estimatedUsdValue: number | null;
   decimals: number;
+  /** Token logo / avatar URL from SuiVision (optional; falls back to ticker initials). */
+  iconUrl?: string | null;
+  /** Unit price in USD from SuiVision (optional). */
+  priceUsd?: number | null;
+  /** Verified on SuiVision. */
+  verified?: boolean;
 }
 
 export interface PortfolioCardProps {
@@ -42,6 +50,57 @@ function formatUsd(value: number): string {
   });
 }
 
+/** Unit price — more precision for sub-dollar tokens so micro-priced coins read. */
+function formatPrice(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value < 1 ? 6 : 2,
+  });
+}
+
+/**
+ * CoinAvatar — renders the SuiVision token logo, falling back to ticker initials
+ * in an accent circle when there's no logo or the image fails to load.
+ */
+function CoinAvatar({ iconUrl, ticker }: { iconUrl?: string | null; ticker: string }) {
+  const [failed, setFailed] = useState(false);
+  const showImg = iconUrl && !failed;
+
+  if (showImg) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- remote token logos, arbitrary hosts
+      <img
+        src={iconUrl}
+        alt=""
+        width={30}
+        height={30}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="shrink-0"
+        style={{ width: 30, height: 30, borderRadius: 99, objectFit: "cover", background: "var(--bg-sub)" }}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-center shrink-0 mono"
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 99,
+        background: "var(--accent-soft)",
+        color: "var(--accent-ink)",
+        fontSize: ticker.length > 3 ? "9px" : "11px",
+        fontWeight: 700,
+      }}
+    >
+      {ticker}
+    </div>
+  );
+}
+
 /** Shorten coin type for the sub-label: keep last two segments. */
 function shortCoinType(coinType: string): string {
   const parts = coinType.split("::");
@@ -56,12 +115,10 @@ export function PortfolioCard({
   network,
   demoFixture,
 }: PortfolioCardProps) {
-  const sorted = [...balances].sort((a, b) => {
-    const aZero = BigInt(a.nativeBalance) === 0n;
-    const bZero = BigInt(b.nativeBalance) === 0n;
-    if (aZero !== bZero) return aZero ? 1 : -1;
-    return (b.estimatedUsdValue ?? 0) - (a.estimatedUsdValue ?? 0);
-  });
+  // Hide zero-balance tokens; sort the rest by USD value (desc).
+  const sorted = balances
+    .filter((b) => BigInt(b.nativeBalance) !== 0n)
+    .sort((a, b) => (b.estimatedUsdValue ?? 0) - (a.estimatedUsdValue ?? 0));
 
   return (
     <div
@@ -158,37 +215,24 @@ export function PortfolioCard({
           </div>
         )}
         {sorted.map((b) => {
-          const isZero = BigInt(b.nativeBalance) === 0n;
           return (
             <div
               key={b.coinType}
               className="flex items-center gap-3"
-              style={{
-                padding: "11px 18px",
-                opacity: isZero ? 0.4 : 1,
-                transition: "opacity 150ms",
-              }}
+              style={{ padding: "11px 18px" }}
             >
-              {/* Ticker avatar */}
-              <div
-                className="flex items-center justify-center shrink-0 mono"
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 99,
-                  background: "var(--accent-soft)",
-                  color: "var(--accent-ink)",
-                  fontSize: b.displayTicker.length > 3 ? "9px" : "11px",
-                  fontWeight: 700,
-                }}
-              >
-                {b.displayTicker}
-              </div>
+              {/* Token avatar — SuiVision logo, ticker-initials fallback */}
+              <CoinAvatar iconUrl={b.iconUrl} ticker={b.displayTicker} />
 
-              {/* Name + coin type */}
+              {/* Balance + coin type */}
               <div className="flex-1 min-w-0">
-                <div style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--fg)" }}>
-                  {b.humanBalance}
+                <div className="flex items-baseline gap-1.5">
+                  <span style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--fg)" }}>
+                    {b.humanBalance}
+                  </span>
+                  <span style={{ fontSize: "11.5px", fontWeight: 600, color: "var(--fg-muted)" }}>
+                    {b.displayTicker}
+                  </span>
                 </div>
                 {/* Coin type — security affordance, always shown */}
                 <div
@@ -200,7 +244,7 @@ export function PortfolioCard({
                 </div>
               </div>
 
-              {/* USD value */}
+              {/* USD value + unit price */}
               <div className="text-right shrink-0">
                 <div
                   className="mono"
@@ -208,6 +252,11 @@ export function PortfolioCard({
                 >
                   {b.estimatedUsdValue != null ? formatUsd(b.estimatedUsdValue) : "—"}
                 </div>
+                {b.priceUsd != null && b.priceUsd > 0 && (
+                  <div className="mono" style={{ fontSize: "10.5px", color: "var(--fg-faint)" }}>
+                    @ {formatPrice(b.priceUsd)}
+                  </div>
+                )}
               </div>
             </div>
           );

@@ -28,6 +28,10 @@ import type { ChatMessage, ToolCard, PendingTx } from "./chat-thread";
 import type { DemoAction } from "./chat-input";
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
+import type { ApiResponse as ProtocolsData } from "@/components/protocols/protocol-list";
+import type { SwapOptionsData } from "@/components/chat/swap-options-card";
+import type { ReceiveCardData } from "@/components/receive-card";
+import type { UserStatsData, BadgeStateDto } from "@/components/dashboard/types";
 
 // ---------------------------------------------------------------------------
 // NDJSON line shapes
@@ -127,12 +131,37 @@ function makePortfolioCard(result: PortfolioResult): ToolCard {
   };
 }
 
+// Read-only display tools → cards (no value path; never build/sign here).
+function hasKeys(v: unknown, keys: string[]): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && keys.every((k) => k in v);
+}
+
 function toolResultToCard(toolName: string, result: unknown): ToolCard | null {
   if (toolName === "prepareTrade" && isPrepareTradeResult(result)) {
     return result.ok ? makePreviewCard(result) : makeBlockCard(result);
   }
   if (toolName === "getPortfolio" && isPortfolioResult(result)) {
     return makePortfolioCard(result);
+  }
+  if (toolName === "listProtocols" && hasKeys(result, ["active", "excluded"])) {
+    return { type: "protocols", protocols: result as unknown as ProtocolsData };
+  }
+  if (toolName === "getSwapOptions" && hasKeys(result, ["options", "coinTypeIn"])) {
+    return { type: "swap-options", swapOptions: result as unknown as SwapOptionsData };
+  }
+  if (toolName === "getReceiveInfo" && hasKeys(result, ["address", "qrData"])) {
+    return { type: "receive", receive: result as unknown as ReceiveCardData };
+  }
+  if (toolName === "getUserStats" && hasKeys(result, ["stats", "badges"])) {
+    const r = result as { stats: unknown; badges: unknown };
+    return {
+      type: "user-stats",
+      userStats: r as { stats: UserStatsData; badges: { earned: BadgeStateDto[]; locked: BadgeStateDto[] } },
+    };
+  }
+  if (toolName === "getProtocolMetrics" && hasKeys(result, ["supportedProtocols", "perProtocol"])) {
+    // Card self-fetches /api/metrics for live TVL; the registry counts are in `result`.
+    return { type: "protocol-metrics" };
   }
   return null;
 }

@@ -25,6 +25,13 @@ import { TxPreviewCard } from "@/components/tx-preview-card";
 import { BlockCard } from "@/components/block-card";
 import { PortfolioCard } from "@/components/portfolio-card";
 import { ReceiptCard, type ReceiptStatus } from "@/components/receipt-card";
+import { ProtocolList, type ApiResponse as ProtocolsData } from "@/components/protocols/protocol-list";
+import { SwapOptionsCard, type SwapOptionsData } from "@/components/chat/swap-options-card";
+import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
+import { UserStatsCard } from "@/components/dashboard/user-stats-card";
+import { BadgeGrid } from "@/components/dashboard/badge-grid";
+import { ProtocolMetricsSection } from "@/components/dashboard/protocol-metrics-section";
+import type { UserStatsData, BadgeStateDto } from "@/components/dashboard/types";
 import {
   MemoryChip,
   SAMPLE_MEMORY_CHIPS,
@@ -61,6 +68,14 @@ export type ToolCard =
   | { type: "tx-preview"; pendingTx: PendingTx }
   | { type: "block"; blockReasons: string[]; blockGates: string[] }
   | { type: "portfolio"; portfolio: PortfolioCardProps }
+  | { type: "protocols"; protocols: ProtocolsData }
+  | { type: "swap-options"; swapOptions: SwapOptionsData }
+  | { type: "receive"; receive: ReceiveCardData }
+  | {
+      type: "user-stats";
+      userStats: { stats: UserStatsData; badges: { earned: BadgeStateDto[]; locked: BadgeStateDto[] } };
+    }
+  | { type: "protocol-metrics" }
   | { type: "receipt"; receipt: TxReceipt }
   | { type: "wysiwys-error"; wysiwysMessage: string }
   /**
@@ -338,6 +353,27 @@ function CardSlot({
   }
   if (card.type === "portfolio") {
     return <PortfolioCard {...card.portfolio} />;
+  }
+  if (card.type === "protocols") {
+    return <ProtocolList data={card.protocols} />;
+  }
+  if (card.type === "swap-options") {
+    return <SwapOptionsCard data={card.swapOptions} />;
+  }
+  if (card.type === "receive") {
+    return <ReceiveCard data={card.receive} />;
+  }
+  if (card.type === "user-stats") {
+    return (
+      <div className="flex flex-col gap-3">
+        <UserStatsCard stats={card.userStats.stats} />
+        <BadgeGrid earned={card.userStats.badges.earned} locked={card.userStats.badges.locked} />
+      </div>
+    );
+  }
+  if (card.type === "protocol-metrics") {
+    // Self-fetches /api/metrics for live TVL (registry counts come from the tool result).
+    return <ProtocolMetricsSection />;
   }
   if (card.type === "receipt") {
     return (
