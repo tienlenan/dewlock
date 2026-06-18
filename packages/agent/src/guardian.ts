@@ -33,6 +33,8 @@ import {
   CETUS_AGGREGATOR_PACKAGE,
   CETUS_AGGREGATOR_CETUS_PACKAGE,
   isAggregatorSwapCall,
+  isAftermathSwapCall,
+  AFTERMATH_ROUTER_UTILS_PACKAGE,
   NAVI_PACKAGE,
   SUILEND_PACKAGE,
   WORMHOLE_WTT_PACKAGE,
@@ -76,8 +78,8 @@ export type ActionType = (typeof ACTION_TYPES)[number];
 export const LENDING_PROTOCOLS = ["navi", "suilend"] as const;
 export type LendingProtocol = (typeof LENDING_PROTOCOLS)[number];
 
-/** Swap execution source. "cetus" = direct CLMM pool; "aggregator" = best route. */
-export const SWAP_SOURCES = ["cetus", "aggregator"] as const;
+/** Swap execution source. "cetus" = direct CLMM pool; "aggregator" = Cetus best route; "aftermath" = Aftermath AMM router. */
+export const SWAP_SOURCES = ["cetus", "aggregator", "aftermath"] as const;
 export type SwapSource = (typeof SWAP_SOURCES)[number];
 import { dryRunTransaction, DryRunFailedError, type DryRunResult } from "@dewlock/sui";
 // quotes-source imports Cetus SDK — use subpath to keep it isolated from the root bundle
@@ -85,6 +87,8 @@ import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import type { SwapQuote } from "@dewlock/sui/quotes-source";
 // aggregator quote source — independent re-derive for swapSource="aggregator"
 import { fetchAggregatorQuote, fetchSuiUsdPrice } from "@dewlock/sui/aggregator-quotes";
+// aftermath quote source — independent re-derive for swapSource="aftermath"
+import { fetchAftermathQuote } from "@dewlock/sui/aftermath-quotes";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -585,6 +589,9 @@ export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
         // module::function signature. The action-scoped shape gate ensures these
         // only appear in a declared swap; the value gates bound the swap itself.
         if (isAggregatorSwapCall(mc.module, mc.function)) continue;
+        // Aftermath per-DEX router calls (router::swap_a_b, swap_b_a,
+        // add_swap_exact_in_to_route) have the same upgradeable-package pattern.
+        if (isAftermathSwapCall(mc.module, mc.function)) continue;
         if (!ALLOWED_MOVE_TARGETS.has(target)) {
           // Status-aware reason: if the target maps to a known-but-excluded
           // protocol, name it; otherwise the generic refusal.
@@ -641,6 +648,12 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
         `${CETUS_AGGREGATOR_CETUS_PACKAGE}::cetus::swap`,
         `${CETUS_AGGREGATOR_PACKAGE}::cetus::swap`,
         `${CETUS_AGGREGATOR_PACKAGE}::deepbookv3::swap`,
+        // Aftermath Router static scaffolding (utils package — exact-package allowlist).
+        // Per-DEX calls (router::swap_a_b, swap_b_a, add_swap_exact_in_to_route) are
+        // caught by isAftermathSwapCall in checkActionShape (package-agnostic).
+        `${AFTERMATH_ROUTER_UTILS_PACKAGE}::swap_cap::obtain_router_cap`,
+        `${AFTERMATH_ROUTER_UTILS_PACKAGE}::swap_cap::initiate_path`,
+        `${AFTERMATH_ROUTER_UTILS_PACKAGE}::swap_cap::return_router_cap_already_payed_fee`,
       ]);
     case "add_liquidity":
       return new Set([
@@ -706,12 +719,14 @@ export async function checkActionShape(proposal: TradeProposal): Promise<GateRes
     const commands = tx.getData().commands ?? [];
     const allowed = allowedTargetsForAction(proposal.actionType);
     // Zero-value framework calls permitted inside ANY action's shape: the SuiNS
-    // forward resolve (read-only) and coin::destroy_zero (aborts unless the coin
+    // forward resolve (read-only), coin::destroy_zero (aborts unless the coin
     // balance is 0, so it provably moves no value — the aggregator emits it to
-    // drop the emptied input coin after a full-balance swap).
+    // drop the emptied input coin after a full-balance swap), and coin::from_balance
+    // (wraps an intermediate swap-output Balance into a Coin — creates no value).
     const noValueFrameworkCalls = new Set([
       `${SUINS_PACKAGE}::registry::lookup`,
       `${NATIVE_PACKAGE}::coin::destroy_zero`,
+      `${NATIVE_PACKAGE}::coin::from_balance`,
     ]);
 
     for (const cmd of commands) {
@@ -725,6 +740,9 @@ export async function checkActionShape(proposal: TradeProposal): Promise<GateRes
       // multi-venue routes (e.g. a DeepBook leg) from being falsely refused while
       // the value gates (cap, min-out, provider constraint) bound the swap.
       if (proposal.actionType === "swap" && isAggregatorSwapCall(mc.module, mc.function)) continue;
+      // Aftermath per-DEX router calls carry an upgradeable integration package
+      // per pool — matched by module::function (same rationale as aggregator above).
+      if (proposal.actionType === "swap" && isAftermathSwapCall(mc.module, mc.function)) continue;
       if (!allowed.has(target)) {
         return {
           ok: false,
@@ -938,24 +956,32 @@ async function checkMinOut(
   }
 
   // Re-derive min-out from a FRESH independent quote of the SAME source the PTB
-  // was built with. Never cross a Cetus quote with an aggregator PTB.
+  // was built with. Never cross sources (e.g. Cetus quote with an Aftermath PTB).
   const source = proposal.swapSource ?? "cetus";
   let freshQuote: SwapQuote;
   try {
-    freshQuote =
-      source === "aggregator"
-        ? await fetchAggregatorQuote(
-            proposal.coinTypeIn,
-            proposal.coinTypeOut,
-            proposal.amountInNative,
-            proposal.slippageBps,
-          )
-        : await fetchSwapQuote(
-            proposal.coinTypeIn,
-            proposal.coinTypeOut,
-            proposal.amountInNative,
-            proposal.slippageBps,
-          );
+    if (source === "aggregator") {
+      freshQuote = await fetchAggregatorQuote(
+        proposal.coinTypeIn,
+        proposal.coinTypeOut,
+        proposal.amountInNative,
+        proposal.slippageBps,
+      );
+    } else if (source === "aftermath") {
+      freshQuote = await fetchAftermathQuote(
+        proposal.coinTypeIn,
+        proposal.coinTypeOut,
+        proposal.amountInNative,
+        proposal.slippageBps,
+      );
+    } else {
+      freshQuote = await fetchSwapQuote(
+        proposal.coinTypeIn,
+        proposal.coinTypeOut,
+        proposal.amountInNative,
+        proposal.slippageBps,
+      );
+    }
   } catch (err) {
     // Quote fetch failure → fail-closed (hardening #5)
     return {

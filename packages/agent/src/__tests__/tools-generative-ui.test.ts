@@ -14,9 +14,13 @@ vi.mock("@dewlock/sui/aggregator-quotes", () => ({
   fetchAggregatorQuote: vi.fn(),
   fetchSuiUsdPrice: vi.fn().mockResolvedValue(3),
 }));
+vi.mock("@dewlock/sui/aftermath-quotes", () => ({
+  fetchAftermathQuote: vi.fn(),
+}));
 
 import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
+import { fetchAftermathQuote } from "@dewlock/sui/aftermath-quotes";
 import { listProtocols } from "../tools/list-protocols";
 import { getSwapOptions } from "../tools/get-swap-options";
 import { getReceiveInfo } from "../tools/get-receive-info";
@@ -32,6 +36,9 @@ const mockCetus = fetchSwapQuote as unknown as import("vitest").Mock<
   (a: string, b: string, c: bigint, d: number) => Promise<SwapQuote>
 >;
 const mockAgg = fetchAggregatorQuote as unknown as import("vitest").Mock<
+  (a: string, b: string, c: bigint, d: number) => Promise<SwapQuote>
+>;
+const mockAf = fetchAftermathQuote as unknown as import("vitest").Mock<
   (a: string, b: string, c: bigint, d: number) => Promise<SwapQuote>
 >;
 
@@ -74,23 +81,56 @@ describe("getReceiveInfo", () => {
 describe("getSwapOptions", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns the aggregator route as the (only) source + best", async () => {
-    // Cetus CLMM "direct" is v1-incompatible → not offered; swaps go via aggregator.
+  it("returns both aggregator and aftermath sources, picks best by highest output", async () => {
     mockAgg.mockResolvedValue(quote({ estimatedAmountOut: 3_009_000n, routeProviders: ["CETUS", "DEEPBOOK"] }));
+    mockAf.mockResolvedValue(quote({ estimatedAmountOut: 3_006_000n, routeProviders: ["AFTERMATH"] }));
     const r = await run(getSwapOptions, {
       coinTypeIn: COIN_TYPES.SUI,
       coinTypeOut: COIN_TYPES.USDC,
       amountInNative: "1000000000",
       slippageBps: 50,
     });
+    // Aggregator quotes higher → best is aggregator.
     expect(r.best).toBe("aggregator");
     const options = r.options as Array<{ source: string; available: boolean }>;
-    expect(options.map((o) => o.source)).toEqual(["aggregator"]);
-    expect(options[0].available).toBe(true);
+    expect(options.map((o) => o.source).sort()).toEqual(["aftermath", "aggregator"]);
+    expect(options.every((o) => o.available)).toBe(true);
   });
 
-  it("marks the aggregator unavailable (no best) when the route fetch fails", async () => {
+  it("picks aftermath as best when it quotes higher output", async () => {
+    mockAgg.mockResolvedValue(quote({ estimatedAmountOut: 3_000_000n }));
+    mockAf.mockResolvedValue(quote({ estimatedAmountOut: 3_050_000n, routeProviders: ["AFTERMATH"] }));
+    const r = await run(getSwapOptions, {
+      coinTypeIn: COIN_TYPES.SUI,
+      coinTypeOut: COIN_TYPES.USDC,
+      amountInNative: "1000000000",
+      slippageBps: 50,
+    });
+    expect(r.best).toBe("aftermath");
+  });
+
+  it("marks aggregator unavailable but still returns aftermath when aggregator fails", async () => {
     mockAgg.mockRejectedValue(new Error("aggregator route unavailable"));
+    mockAf.mockResolvedValue(quote({ estimatedAmountOut: 3_006_000n, routeProviders: ["AFTERMATH"] }));
+    const r = await run(getSwapOptions, {
+      coinTypeIn: COIN_TYPES.SUI,
+      coinTypeOut: COIN_TYPES.USDC,
+      amountInNative: "1000000000",
+      slippageBps: 50,
+    });
+    // Only aftermath available → best is aftermath.
+    expect(r.best).toBe("aftermath");
+    const options = r.options as Array<{ source: string; available: boolean; error?: string }>;
+    expect(options).toHaveLength(2);
+    const aggOption = options.find((o) => o.source === "aggregator");
+    const afOption = options.find((o) => o.source === "aftermath");
+    expect(aggOption?.available).toBe(false);
+    expect(afOption?.available).toBe(true);
+  });
+
+  it("returns no best when both sources fail", async () => {
+    mockAgg.mockRejectedValue(new Error("aggregator route unavailable"));
+    mockAf.mockRejectedValue(new Error("aftermath route unavailable"));
     const r = await run(getSwapOptions, {
       coinTypeIn: COIN_TYPES.SUI,
       coinTypeOut: COIN_TYPES.USDC,
@@ -98,9 +138,8 @@ describe("getSwapOptions", () => {
       slippageBps: 50,
     });
     expect(r.best).toBeUndefined();
-    const options = r.options as Array<{ source: string; available: boolean; error?: string }>;
-    expect(options).toHaveLength(1);
-    expect(options[0].available).toBe(false);
+    const options = r.options as Array<{ source: string; available: boolean }>;
+    expect(options.every((o) => !o.available)).toBe(true);
   });
 });
 

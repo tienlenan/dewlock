@@ -167,7 +167,7 @@ describe("NDJSON line serialisation contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () => {
-  it("ALLOWED_MOVE_TARGETS contains only Cetus CLMM + Aggregator + SuiNS + native pay + DeepBook", () => {
+  it("ALLOWED_MOVE_TARGETS contains only Cetus CLMM + Aggregator + SuiNS + native pay + DeepBook + Aftermath", () => {
     const targets = [...ALLOWED_MOVE_TARGETS];
     for (const t of targets) {
       const isAllowed =
@@ -199,6 +199,8 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::pay::split_and_transfer") ||
         // Native zero-coin cleanup (aggregator full-balance swap)
         t.includes("::coin::destroy_zero") ||
+        // Native balance→coin wrap on a swap output leg (Aftermath router)
+        t.includes("::coin::from_balance") ||
         // DeepBook V3 — limit orders + BalanceManager bootstrap
         t.includes("::pool::place_limit_order") ||
         t.includes("::pool::cancel_order") ||
@@ -206,7 +208,12 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::balance_manager::generate_proof_as_trader") ||
         t.includes("::balance_manager::new") ||
         t.includes("::balance_manager::deposit") ||
-        t.includes("::transfer::public_share_object");
+        t.includes("::transfer::public_share_object") ||
+        // Aftermath Router — static scaffolding calls present in every Aftermath swap PTB
+        // (per-DEX router calls matched dynamically via isAftermathSwapCall module::function)
+        t.includes("::swap_cap::obtain_router_cap") ||
+        t.includes("::swap_cap::initiate_path") ||
+        t.includes("::swap_cap::return_router_cap_already_payed_fee");
       expect(isAllowed).toBe(true);
     }
   });

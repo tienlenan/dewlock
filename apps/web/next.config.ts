@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
     "@cetusprotocol/cetus-sui-clmm-sdk",
     "@cetusprotocol/aggregator-sdk",
     "@naviprotocol/lending",
+    "aftermath-ts-sdk",
     "bn.js",
   ],
 };

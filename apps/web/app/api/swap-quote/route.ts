@@ -1,9 +1,13 @@
 /**
- * GET /api/swap-quote?in=<coinType>&out=<coinType>&amount=<native> — indicative
- * swap quote for the swap-form card. Wraps the Cetus aggregator quote, fail-soft:
- * an unroutable pair / slow upstream returns `available:false` (card shows "—"),
- * never a fabricated number. Read-only. The Guardian re-derives min-out at build,
- * so this is purely a display estimate.
+ * GET /api/swap-quote?in=<coinType>&out=<coinType>&amount=<native>
+ *
+ * Returns indicative quotes from BOTH available swap sources (Cetus Aggregator
+ * and Aftermath Router) in parallel, plus the best source by highest output.
+ * Fail-soft per source: an unroutable pair / slow upstream returns available:false
+ * for that source (card shows "—"). Never fabricates numbers.
+ *
+ * The Guardian re-derives min-out at build time for whichever source is chosen,
+ * so these are purely display estimates.
  */
 
 export const runtime = "nodejs";
@@ -26,6 +30,11 @@ function corsHeaders(origin: string | null): Record<string, string> {
 export async function OPTIONS(req: NextRequest) {
   return new Response(null, { status: 204, headers: corsHeaders(req.headers.get("origin")) });
 }
+
+type QuoteModule = {
+  fetchAggregatorQuote?: (i: string, o: string, amt: bigint, slip: number) => Promise<{ estimatedAmountOut: bigint; minAmountOut: bigint; routeProviders?: string[] }>;
+  fetchAftermathQuote?: (i: string, o: string, amt: bigint, slip: number) => Promise<{ estimatedAmountOut: bigint; minAmountOut: bigint; routeProviders?: string[] }>;
+};
 
 export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -50,36 +59,71 @@ export async function GET(req: NextRequest) {
     );
   }
   if (coinIn === coinOut) {
-    return Response.json({ available: false, error: "same coin" }, { headers: corsHeaders(origin) });
+    return Response.json({ sources: [], best: null }, { headers: corsHeaders(origin) });
   }
 
-  // Fail-soft: unroutable / slow upstream → available:false, never a fabricated number.
-  try {
-    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
-    const { fetchAggregatorQuote } = require("@dewlock/sui/aggregator-quotes") as {
-      fetchAggregatorQuote: (i: string, o: string, amt: bigint, slip: number) => Promise<{ estimatedAmountOut: bigint; minAmountOut: bigint; routeProviders?: string[] }>;
-    };
-    const quote = await fetchAggregatorQuote(coinIn, coinOut, BigInt(amount), 50);
-    return Response.json(
-      {
-        available: true,
-        estimatedAmountOut: quote.estimatedAmountOut.toString(),
-        minAmountOut: quote.minAmountOut.toString(),
-        routeProviders: quote.routeProviders ?? [],
-      },
-      {
-        headers: {
-          "cache-control": "public, max-age=10",
-          "x-content-type-options": "nosniff",
-          ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
-          ...corsHeaders(origin),
-        },
-      },
-    );
-  } catch (err) {
-    return Response.json(
-      { available: false, error: err instanceof Error ? err.message.slice(0, 120) : "no route" },
-      { headers: corsHeaders(origin) },
-    );
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const aggMod = require("@dewlock/sui/aggregator-quotes") as QuoteModule;
+  const afMod = require("@dewlock/sui/aftermath-quotes") as QuoteModule;
+  /* eslint-enable @typescript-eslint/no-require-imports */
+
+  const amountBig = BigInt(amount);
+
+  const [aggResult, afResult] = await Promise.allSettled([
+    aggMod.fetchAggregatorQuote!(coinIn, coinOut, amountBig, 50),
+    afMod.fetchAftermathQuote!(coinIn, coinOut, amountBig, 50),
+  ]);
+
+  type SourceEntry = {
+    source: string;
+    available: boolean;
+    estimatedAmountOut?: string;
+    minAmountOut?: string;
+    routeProviders?: string[];
+    error?: string;
+  };
+
+  const sources: SourceEntry[] = [];
+  let bestSource: string | null = null;
+  let bestAmount = 0n;
+
+  if (aggResult.status === "fulfilled") {
+    const qt = aggResult.value;
+    sources.push({ source: "aggregator", available: true, estimatedAmountOut: qt.estimatedAmountOut.toString(), minAmountOut: qt.minAmountOut.toString(), routeProviders: qt.routeProviders ?? [] });
+    if (qt.estimatedAmountOut > bestAmount) { bestAmount = qt.estimatedAmountOut; bestSource = "aggregator"; }
+  } else {
+    sources.push({ source: "aggregator", available: false, error: aggResult.reason instanceof Error ? aggResult.reason.message.slice(0, 120) : "no route" });
   }
+
+  if (afResult.status === "fulfilled") {
+    const qt = afResult.value;
+    sources.push({ source: "aftermath", available: true, estimatedAmountOut: qt.estimatedAmountOut.toString(), minAmountOut: qt.minAmountOut.toString(), routeProviders: qt.routeProviders ?? [] });
+    if (qt.estimatedAmountOut > bestAmount) { bestAmount = qt.estimatedAmountOut; bestSource = "aftermath"; }
+  } else {
+    sources.push({ source: "aftermath", available: false, error: afResult.reason instanceof Error ? afResult.reason.message.slice(0, 120) : "no route" });
+  }
+
+  // Legacy compat: also expose the best source's estimatedAmountOut at top level
+  // so old card code (single-source) still works without changes.
+  const bestEntry = sources.find((s) => s.source === bestSource);
+
+  return Response.json(
+    {
+      sources,
+      best: bestSource,
+      // legacy flat fields (used by older swap-form-card versions)
+      available: bestEntry?.available ?? false,
+      estimatedAmountOut: bestEntry?.estimatedAmountOut,
+      minAmountOut: bestEntry?.minAmountOut,
+      routeProviders: bestEntry?.routeProviders ?? [],
+    },
+    {
+      headers: {
+        "cache-control": "public, max-age=10",
+        "x-content-type-options": "nosniff",
+        ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
+        ...corsHeaders(origin),
+      },
+    },
+  );
 }

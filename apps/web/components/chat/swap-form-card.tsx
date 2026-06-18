@@ -3,8 +3,9 @@
 /**
  * SwapFormCard — from→to swap picker rendered when the user types a bare/partial
  * "swap". DEX layout: a "You pay" panel (token + amount), a direction toggle, a
- * "You receive" panel (token + live estimated-out), a rate line, and a CTA that
- * composes a COMPLETE `swap <amt> <from> to <to>` command via onSend → prepareTrade.
+ * "You receive" panel (token + live estimated-out per source), a source selector
+ * (Cetus Aggregator vs Aftermath Router), a rate line, and a CTA that composes a
+ * COMPLETE `swap <amt> <from> to <to> via <source>` command → prepareTrade.
  *
  * The estimated-out is an INDICATIVE self-fetched quote (/api/swap-quote, fail-soft);
  * the Guardian re-derives min-out at build. This card never builds or signs.
@@ -43,6 +44,21 @@ export interface SwapFormData {
   coinTypeIn?: string;
   coinTypeOut?: string;
   amountHuman?: string;
+}
+
+type SwapSource = "aggregator" | "aftermath";
+
+const SOURCE_LABELS: Record<SwapSource, string> = {
+  aggregator: "Cetus Aggregator",
+  aftermath: "Aftermath Router",
+};
+
+interface SourceQuote {
+  available: boolean;
+  estimatedAmountOut?: string;
+  minAmountOut?: string;
+  routeProviders?: string[];
+  error?: string;
 }
 
 function humanToNative(human: string, decimals: number): string | null {
@@ -127,6 +143,54 @@ function Panel({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** Source tab selector — shows per-source estimated out. */
+function SourceSelector({
+  sources,
+  selected,
+  toDecimals,
+  onSelect,
+}: {
+  sources: Partial<Record<SwapSource, SourceQuote>>;
+  selected: SwapSource;
+  toDecimals: number;
+  onSelect: (s: SwapSource) => void;
+}) {
+  const tabs: SwapSource[] = ["aggregator", "aftermath"];
+  return (
+    <div className="flex gap-1.5" style={{ marginTop: 8 }}>
+      {tabs.map((src) => {
+        const q = sources[src];
+        const isSelected = src === selected;
+        const out = q?.available && q.estimatedAmountOut
+          ? nativeToHuman(q.estimatedAmountOut, toDecimals)
+          : null;
+        return (
+          <button
+            key={src}
+            type="button"
+            onClick={() => onSelect(src)}
+            className="flex-1 text-left"
+            style={{
+              padding: "7px 10px",
+              borderRadius: 10,
+              border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
+              background: isSelected ? "var(--accent-soft)" : "var(--bg-sub)",
+              cursor: "pointer",
+            }}
+          >
+            <div className="split-mono" style={{ fontSize: 9, letterSpacing: "0.1em", color: isSelected ? "var(--accent-ink)" : "var(--fg-faint)", textTransform: "uppercase", marginBottom: 2 }}>
+              {SOURCE_LABELS[src]}
+            </div>
+            <div className="mono" style={{ fontSize: 12, fontWeight: 650, color: isSelected ? "var(--fg)" : "var(--fg-muted)" }}>
+              {q == null ? "…" : out ?? (q.available ? "…" : "—")}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (text: string) => void }) {
   const coins = data.coins;
   const byType = useMemo(() => new Map(coins.map((c) => [c.coinType, c])), [coins]);
@@ -136,7 +200,9 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
   const [from, setFrom] = useState<SwapCoin>(byType.get(data.coinTypeIn ?? "") ?? fallbackFrom);
   const [to, setTo] = useState<SwapCoin>(byType.get(data.coinTypeOut ?? "") ?? fallbackTo);
   const [amount, setAmount] = useState(data.amountHuman ?? "");
-  const [quote, setQuote] = useState<{ out: string; loading: boolean; available: boolean; route: string[] }>({ out: "", loading: false, available: true, route: [] });
+  const [selectedSource, setSelectedSource] = useState<SwapSource>("aggregator");
+  const [sourceQuotes, setSourceQuotes] = useState<Partial<Record<SwapSource, SourceQuote>>>({});
+  const [quotesLoading, setQuotesLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   // Live balance of the "You pay" coin for the connected wallet (MAX / 50%).
@@ -160,21 +226,54 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
   }
   const hasBalance = fromBalanceNative != null && BigInt(fromBalanceNative) > 0n;
 
-  // Live indicative quote (debounced, fail-soft) — also captures the route providers.
+  // Live indicative quotes from both sources (debounced, fail-soft).
   useEffect(() => {
-    if (!amountValid || sameCoin || !from || !to) { setQuote({ out: "", loading: false, available: true, route: [] }); return; }
+    if (!amountValid || sameCoin || !from || !to) {
+      setSourceQuotes({});
+      return;
+    }
     const native = humanToNative(amount, from.decimals);
     if (!native) return;
-    setQuote((q) => ({ ...q, loading: true }));
+    setQuotesLoading(true);
     const ctrl = new AbortController();
     const t = setTimeout(() => {
-      fetch(`/api/swap-quote?in=${encodeURIComponent(from.coinType)}&out=${encodeURIComponent(to.coinType)}&amount=${native}`, { signal: ctrl.signal })
-        .then((r) => r.json())
-        .then((d: { available?: boolean; estimatedAmountOut?: string; routeProviders?: string[] }) =>
-          setQuote(d.available && d.estimatedAmountOut
-            ? { out: nativeToHuman(d.estimatedAmountOut, to.decimals), loading: false, available: true, route: d.routeProviders ?? [] }
-            : { out: "", loading: false, available: false, route: [] }))
-        .catch(() => setQuote({ out: "", loading: false, available: false, route: [] }));
+      type ApiResponse = {
+        sources?: Array<{ source: string; available: boolean; estimatedAmountOut?: string; minAmountOut?: string; routeProviders?: string[]; error?: string }>;
+        best?: string | null;
+        // legacy fallback fields
+        available?: boolean;
+        estimatedAmountOut?: string;
+        routeProviders?: string[];
+      };
+      fetch(
+        `/api/swap-quote?in=${encodeURIComponent(from.coinType)}&out=${encodeURIComponent(to.coinType)}&amount=${native}`,
+        { signal: ctrl.signal },
+      )
+        .then((r) => r.json() as Promise<ApiResponse>)
+        .then((d) => {
+          const quotes: Partial<Record<SwapSource, SourceQuote>> = {};
+          if (d.sources) {
+            for (const s of d.sources) {
+              const key = s.source as SwapSource;
+              if (key === "aggregator" || key === "aftermath") {
+                quotes[key] = { available: s.available, estimatedAmountOut: s.estimatedAmountOut, minAmountOut: s.minAmountOut, routeProviders: s.routeProviders, error: s.error };
+              }
+            }
+            // Auto-select the best source returned by the API.
+            if (d.best === "aggregator" || d.best === "aftermath") {
+              setSelectedSource(d.best);
+            }
+          } else {
+            // Legacy single-source response — treat as aggregator.
+            quotes.aggregator = { available: d.available ?? false, estimatedAmountOut: d.estimatedAmountOut, routeProviders: d.routeProviders };
+          }
+          setSourceQuotes(quotes);
+          setQuotesLoading(false);
+        })
+        .catch(() => {
+          setSourceQuotes({ aggregator: { available: false }, aftermath: { available: false } });
+          setQuotesLoading(false);
+        });
     }, 350);
     return () => { ctrl.abort(); clearTimeout(t); };
   }, [amount, from, to, amountValid, sameCoin]);
@@ -183,13 +282,22 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
     setFrom(to);
     setTo(from);
   }
+
   function submit() {
     if (!canSubmit) return;
     setSubmitted(true);
-    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol}`);
+    // Thread the chosen source into the command so prepareTrade + Guardian
+    // both route to the same source and re-derive min-out consistently.
+    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol} via ${selectedSource}`);
   }
 
-  const rate = quote.out && amountValid ? `1 ${from.symbol} ≈ ${(Number(quote.out) / Number(amount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${to.symbol}` : null;
+  const activeQuote = sourceQuotes[selectedSource];
+  const outDisplay = quotesLoading ? "…" : (activeQuote?.available && activeQuote.estimatedAmountOut)
+    ? nativeToHuman(activeQuote.estimatedAmountOut, to.decimals)
+    : null;
+  const rate = outDisplay && amountValid
+    ? `1 ${from.symbol} ≈ ${(Number(outDisplay) / Number(amount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${to.symbol}`
+    : null;
 
   return (
     <div className="w-full" style={{ maxWidth: 420, border: "1px solid var(--border)", borderRadius: "var(--radius-card)", background: "var(--bg-elev)", boxShadow: "var(--shadow-md)", padding: 14, opacity: submitted ? 0.7 : 1 }}>
@@ -207,14 +315,14 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
                 </span>
                 {[["50%", 50], ["MAX", 100]].map(([label, pct]) => (
                   <button
-                    key={label}
+                    key={label as string}
                     type="button"
                     onClick={() => applyPercent(pct as number)}
                     disabled={submitted}
                     className="split-mono"
                     style={{ fontSize: 9, letterSpacing: "0.04em", color: "var(--accent-ink)", background: "var(--accent-soft)", border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)", padding: "2px 6px", borderRadius: 6, cursor: submitted ? "default" : "pointer" }}
                   >
-                    {label}
+                    {label as string}
                   </button>
                 ))}
               </div>
@@ -246,27 +354,39 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
         </button>
 
         <Panel label="You receive">
-          <span className="mono" style={{ flex: 1, minWidth: 0, fontSize: 24, fontWeight: 650, color: quote.out ? "var(--fg)" : "var(--fg-faint)", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {quote.loading ? "…" : quote.available ? (quote.out || "0.0") : "—"}
+          <span className="mono" style={{ flex: 1, minWidth: 0, fontSize: 24, fontWeight: 650, color: outDisplay ? "var(--fg)" : "var(--fg-faint)", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {quotesLoading ? "…" : (activeQuote?.available !== false ? (outDisplay ?? "0.0") : "—")}
           </span>
           <TokenSelect coins={coins} value={to} exclude={from?.coinType} onChange={setTo} />
         </Panel>
       </div>
 
+      {/* Source selector — compare Cetus Aggregator vs Aftermath Router */}
+      {(amountValid && !sameCoin) && (
+        <SourceSelector
+          sources={sourceQuotes}
+          selected={selectedSource}
+          toDecimals={to.decimals}
+          onSelect={setSelectedSource}
+        />
+      )}
+
       {/* Rate line */}
       <div className="flex items-center justify-between" style={{ marginTop: 10, minHeight: 16 }}>
-        <span className="mono" style={{ fontSize: 11, color: "var(--fg-muted)" }}>{sameCoin ? "Pick two different tokens" : rate ?? (quote.available ? "" : "No route for this pair")}</span>
+        <span className="mono" style={{ fontSize: 11, color: "var(--fg-muted)" }}>
+          {sameCoin ? "Pick two different tokens" : rate ?? (activeQuote?.available === false ? "No route for this pair" : "")}
+        </span>
         {rate && <span className="split-mono" style={{ fontSize: 9, color: "var(--fg-faint)", letterSpacing: "0.06em" }}>INDICATIVE</span>}
       </div>
 
-      {/* Route — the Cetus aggregator auto-selects the best venue (CETUS / DeepBook). */}
+      {/* Route badge — shows chosen source + venues */}
       {rate && (
         <div className="flex items-center justify-between" style={{ marginTop: 8, padding: "8px 11px", borderRadius: 10, background: "var(--bg-sub)", border: "1px solid var(--border)" }}>
           <span className="flex items-center gap-1.5 split-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", color: "var(--fg-faint)", textTransform: "uppercase" }}>
             <Route size={11} aria-hidden /> Route · best execution
           </span>
           <span className="mono" style={{ fontSize: 11, color: "var(--fg)", fontWeight: 600 }}>
-            Cetus Aggregator{quote.route.length ? ` · ${quote.route.join(" → ")}` : ""}
+            {SOURCE_LABELS[selectedSource]}{activeQuote?.routeProviders?.length ? ` · ${activeQuote.routeProviders.join(" → ")}` : ""}
           </span>
         </div>
       )}

@@ -15,6 +15,7 @@ import { z } from "zod";
 import { getSuiMainnetClient, buildTransfer } from "@dewlock/sui";
 // build-swap imports Cetus SDK — use subpath to keep it isolated from the root bundle
 import { buildAggregatorSwap } from "@dewlock/sui/build-aggregator-swap";
+import { buildAftermathSwap } from "@dewlock/sui/build-aftermath-swap";
 // build-limit-order imports DeepBook SDK — use subpath for the same isolation rationale
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
@@ -361,10 +362,6 @@ export const prepareTrade = createTool({
         if (!coinTypeOut) {
           return { ok: false as const, reasons: ["coinTypeOut is required for swaps"], gates: ["input_validation"] };
         }
-        // Swaps route through the Cetus AGGREGATOR only. The legacy CLMM "direct"
-        // SDK is @mysten/sui v1-era and fails to load under the repo's v2.18 pin
-        // ("Class extends value undefined" — verified by loading it in Node), so it
-        // is NEVER built here, regardless of any swapSource hint from the model.
         const spec = {
           senderAddress: walletAddress,
           coinTypeIn,
@@ -372,11 +369,24 @@ export const prepareTrade = createTool({
           amountInNative,
           slippageBps,
         };
-        const swapResult = await buildAggregatorSwap(suiClient, spec);
-        txBytes = swapResult.txBytes;
-        minAmountOutNative = swapResult.quote.minAmountOut;
-        chosenSwapSource = "aggregator";
-        swapRouteProviders = swapResult.quote.routeProviders;
+        // Route to the chosen swap source. The legacy Cetus CLMM "direct" SDK is
+        // @mysten/sui v1-era and fails to load under the repo's v2.18 pin
+        // ("Class extends value undefined"), so "cetus" always falls through to
+        // the aggregator. "aftermath" routes to the Aftermath Router builder.
+        if (swapSource === "aftermath") {
+          const swapResult = await buildAftermathSwap(suiClient, spec);
+          txBytes = swapResult.txBytes;
+          minAmountOutNative = swapResult.quote.minAmountOut;
+          chosenSwapSource = "aftermath";
+          swapRouteProviders = swapResult.quote.routeProviders;
+        } else {
+          // Default: Cetus Aggregator (best route across activated venues).
+          const swapResult = await buildAggregatorSwap(suiClient, spec);
+          txBytes = swapResult.txBytes;
+          minAmountOutNative = swapResult.quote.minAmountOut;
+          chosenSwapSource = "aggregator";
+          swapRouteProviders = swapResult.quote.routeProviders;
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

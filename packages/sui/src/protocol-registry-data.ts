@@ -24,6 +24,7 @@ import {
   NAVI_PACKAGE,
   SUILEND_PACKAGE,
   WORMHOLE_WTT_PACKAGE,
+  AFTERMATH_ROUTER_UTILS_PACKAGE,
 } from "./protocol-constants";
 import type { ProtocolEntry } from "./protocol-registry";
 
@@ -179,11 +180,22 @@ export const PROTOCOLS: ProtocolEntry[] = [
     category: "aggregator",
     sdkPackage: "aftermath-ts-sdk",
     status: "active",
-    buildState: "deferred",
-    allowlistedTargets: [],
+    buildState: "built",
+    // Static scaffolding targets in the Aftermath router utils package.
+    // Per-DEX integration calls (router::swap_a_b, router::swap_b_a,
+    // router::add_swap_exact_in_to_route) are matched by module::function
+    // signature in the Guardian (isAftermathSwapCall) — the integration
+    // package changes per pool and is upgradeable (same pattern as Cetus agg).
+    // Discovery: 3 live Aftermath swap txns queried via sui_getTransactionBlock
+    // (utils pkg 0xdc157...). The referral_vault call is optional/non-value.
+    allowlistedTargets: [
+      `${AFTERMATH_ROUTER_UTILS_PACKAGE}::swap_cap::obtain_router_cap`,
+      `${AFTERMATH_ROUTER_UTILS_PACKAGE}::swap_cap::initiate_path`,
+      `${AFTERMATH_ROUTER_UTILS_PACKAGE}::swap_cap::return_router_cap_already_payed_fee`,
+    ],
     coinTypes: [SUI, USDC],
     guardianNotes:
-      "Spot/aggregation only. The PERP module is a separate excluded entry after its 2026-04 incident.",
+      "Spot/aggregation only (PERP excluded). Static utils targets exact-package; per-DEX router calls matched by module::function (isAftermathSwapCall). Verified via 3 live swap txns. [needs live-env] confirm round-trip with funded wallet.",
   },
   {
     id: "scallop",

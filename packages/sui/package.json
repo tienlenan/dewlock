@@ -12,6 +12,8 @@
     "./dry-run": "./dist/dry-run.js",
     "./quotes-source": "./dist/quotes-source.js",
     "./aggregator-quotes": "./dist/aggregator-quotes.js",
+    "./aftermath-quotes": "./dist/aftermath-quotes.js",
+    "./build-aftermath-swap": "./dist/build-aftermath-swap.js",
     "./pyth-price": "./dist/pyth-price.js",
     "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
     "./build-lend": "./dist/build-lend.js",
@@ -39,6 +41,7 @@
     "@mysten/suins": "1.2.0",
     "@naviprotocol/lending": "2.0.0-beta.0",
     "@suilend/sdk": "^3.0.4",
+    "aftermath-ts-sdk": "2.1.0",
     "bn.js": "^5.2.3"
   },
   "devDependencies": {
