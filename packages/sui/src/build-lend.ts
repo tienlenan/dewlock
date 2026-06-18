@@ -194,9 +194,14 @@ async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<Lend
     }
 
     // The 3.x initialize takes (lendingMarketId, lendingMarketType, SuiGrpcClient).
+    // SuiGrpcClient reads `baseUrl` (NOT `url`) for its gRPC-web transport — passing `url`
+    // leaves the transport base undefined, so every request crashes and the lending-market
+    // reserves come back unparsed (reserve.coinType.name undefined → findReserveArrayIndex
+    // fails). Use the gRPC endpoint (SUI_GRPC_URL); the JSON-RPC SUI_RPC_URL may be a keyed
+    // provider that does not serve gRPC-web.
     const grpc = new SuiGrpcClient({
       network: "mainnet",
-      url: process.env.SUI_RPC_URL ?? "https://fullnode.mainnet.sui.io:443",
+      baseUrl: process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443",
     });
     const lc = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, grpc);
 

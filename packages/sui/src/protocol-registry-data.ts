@@ -144,6 +144,9 @@ export const PROTOCOLS: ProtocolEntry[] = [
       `${SUILEND_PACKAGE}::lending_market::create_obligation`,
       `${SUILEND_PACKAGE}::lending_market::deposit_liquidity_and_mint_ctokens`,
       `${SUILEND_PACKAGE}::lending_market::deposit_ctokens_into_obligation`,
+      // A SUI deposit also rebalances the reserve's liquid-staking position — value-neutral
+      // protocol accounting the SDK appends to the deposit PTB (moves no user value out).
+      `${SUILEND_PACKAGE}::lending_market::rebalance_staker`,
       `${SUILEND_PACKAGE}::lending_market::repay`,
     ],
     coinTypes: [SUI, USDC, USDT],

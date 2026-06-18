@@ -309,12 +309,13 @@ export const NAVI_PACKAGE =
   "0x1e4a13a0494d5facdbe8473e74127b838c2d446ecec0ce262e2eddafa77259cb";
 
 /**
- * Suilend lending_market mainnet package (deposit/repay/borrow/withdraw).
- * Source: @suilend/sdk default packageAddress.
- * [needs live-env] re-verify before a live demo; Suilend can upgrade its package.
+ * Suilend lending_market mainnet package (deposit/repay/borrow/withdraw) — the LATEST
+ * upgrade address the @suilend/sdk client emits in deposit PTBs (verified: the live
+ * SuilendClient builds create_obligation/deposit calls against this package). Suilend
+ * upgrades its package, so re-verify against the SDK if a deposit is refused on allowlist.
  */
 export const SUILEND_PACKAGE =
-  "0xd5f3054404ec9275b50985851a5b515728f131a3bdd9c9a5f738a9326b738d53";
+  "0xe53906c2c058d1e369763114418f3c144d1b74960d29b2785718a782fec09b61";
 
 /**
  * Wormhole Sui mainnet packages. The Token Bridge (WTT) `complete_transfer` is

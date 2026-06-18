@@ -676,10 +676,12 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
       return new Set([
         `${NAVI_PACKAGE}::incentive_v3::entry_deposit`,
         `${NAVI_PACKAGE}::pool::refresh_stake`,
-        // Suilend first-deposit: create the obligation, then deposit into it.
+        // Suilend first-deposit: create the obligation, then deposit into it. A SUI deposit
+        // also appends rebalance_staker (value-neutral liquid-staking accounting on the reserve).
         `${SUILEND_PACKAGE}::lending_market::create_obligation`,
         `${SUILEND_PACKAGE}::lending_market::deposit_liquidity_and_mint_ctokens`,
         `${SUILEND_PACKAGE}::lending_market::deposit_ctokens_into_obligation`,
+        `${SUILEND_PACKAGE}::lending_market::rebalance_staker`,
       ]);
     case "lend_repay":
       return new Set([

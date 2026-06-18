@@ -190,6 +190,7 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::lending_market::create_obligation") ||
         t.includes("::lending_market::deposit_liquidity_and_mint_ctokens") ||
         t.includes("::lending_market::deposit_ctokens_into_obligation") ||
+        t.includes("::lending_market::rebalance_staker") ||
         t.includes("::lending_market::repay") ||
         // Wormhole bridge redeem (Sui-side complete_transfer)
         t.includes("::complete_transfer::complete_transfer") ||

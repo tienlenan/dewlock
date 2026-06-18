@@ -66,10 +66,10 @@ describe("protocol registry — single-authored allowlist", () => {
     // balance::split, coin::into_balance, registry::lookup) + 4 Cetus + 6 DeepBook
     // + 6 aggregator (3 router scaffolding calls + cetus::swap under the verified
     // integration pkg and the default pkg + deepbookv3::swap) + 3 NAVI (entry_deposit,
-    // entry_repay, pool::refresh_stake) + 4 Suilend (create_obligation, deposit×2, repay)
-    // + 1 Wormhole (complete_transfer) + 3 Aftermath (swap_cap::obtain_router_cap,
-    // swap_cap::initiate_path, swap_cap::return_router_cap_already_payed_fee) = 35.
-    expect(ALLOWED_MOVE_TARGETS.size).toBe(35);
+    // entry_repay, pool::refresh_stake) + 5 Suilend (create_obligation, deposit×2,
+    // rebalance_staker, repay) + 1 Wormhole (complete_transfer) + 3 Aftermath
+    // (swap_cap::obtain_router_cap, initiate_path, return_router_cap_already_payed_fee) = 36.
+    expect(ALLOWED_MOVE_TARGETS.size).toBe(36);
   });
 
   it("isTargetActive: active Cetus/DeepBook targets + core targets are active", () => {
