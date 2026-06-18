@@ -14,6 +14,8 @@ export interface UserStatsData {
 
 export interface BadgeStateDto {
   id: string;
+  /** Category for grouping (milestone, swap, send, lend, …). */
+  category?: string;
   name: string;
   blurb: string;
   earned: boolean;
@@ -51,10 +53,19 @@ export interface DailyUsageDto {
   capUsd: number | null;
 }
 
+export interface LevelDto {
+  level: number;
+  xp: number;
+  title: string;
+  xpIntoLevel: number;
+  xpForNext: number | null;
+}
+
 /** The full /api/user-stats response (chat tool omits route-only fields). */
 export interface UserStatsApiResponse {
   walletAddress: string;
   stats: UserStatsData;
+  level?: LevelDto;
   badges: { earned: BadgeStateDto[]; locked: BadgeStateDto[] };
   wallet?: WalletOverviewDto;
   recentReceipts?: ReceiptDto[];

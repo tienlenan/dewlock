@@ -3,51 +3,25 @@
 /**
  * DashboardClient — the per-wallet dashboard surface.
  *
- * Reads the connected wallet (dapp-kit), fetches GET /api/user-stats, and renders
- * the user's Dewlock activity + reward badges. The protocol-wide section is a
- * placeholder here and is filled by the protocol metrics work (Phase 5).
+ * Cards load INDEPENDENTLY: the passport + friends self-fetch, the activity cards
+ * (level/stats/badges) share one fetch, and the receipts/daily-cap card fetches on its
+ * own — so one slow (~10-15s, variable) memwal recall never blocks the whole dashboard.
+ * Each card shows its own skeleton and resolves when its data arrives.
  *
  * No keys, no signing — purely a read-only view. Honest states throughout:
- * disconnected → connect prompt; load failure → error; empty → newbie state.
+ * disconnected → connect prompt; load failure → per-group retry; empty → newbie state.
  */
 
-import { useEffect, useState } from "react";
 import { useCurrentAccount, ConnectButton } from "@mysten/dapp-kit";
 import { UserStatsCard } from "./user-stats-card";
+import { LevelCard } from "./level-card";
 import { BadgeGrid } from "./badge-grid";
 import { DailyCapAndReceipts } from "./daily-cap-and-receipts";
 import { ProtocolMetricsSection } from "./protocol-metrics-section";
-import type { UserStatsApiResponse } from "./types";
-
-function useUserStats(wallet: string | undefined) {
-  const [data, setData] = useState<UserStatsApiResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!wallet) {
-      setData(null);
-      setError(null);
-      return;
-    }
-    let cancelled = false;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 10_000);
-    setData(null);
-    setError(null);
-    fetch(`/api/user-stats?wallet=${encodeURIComponent(wallet)}`, { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: UserStatsApiResponse) => !cancelled && setData(d))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => clearTimeout(timer));
-    return () => {
-      cancelled = true;
-      ctrl.abort();
-      clearTimeout(timer);
-    };
-  }, [wallet]);
-
-  return { data, error };
-}
+import { PassportCard } from "./passport-card";
+import { FriendListCard } from "./friend-list-card";
+import { useUserStats } from "@/lib/dashboard/use-dashboard-data";
+import type { ContactsApi } from "@/lib/contacts/use-contacts";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -57,51 +31,147 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DashboardClient() {
+/** A shimmering placeholder block — w-full up to maxWidth, matching the real cards. */
+function SkeletonBlock({ height, maxWidth = 440 }: { height: number; maxWidth?: number }) {
+  return (
+    <div
+      aria-hidden
+      className="w-full"
+      role="status"
+      aria-label="Loading"
+      style={{
+        maxWidth,
+        height,
+        borderRadius: 14,
+        background: "linear-gradient(90deg, var(--bg-sub) 25%, var(--border) 50%, var(--bg-sub) 75%)",
+        backgroundSize: "200% 100%",
+        animation: "dashShimmer 1.6s ease-in-out infinite",
+      }}
+    />
+  );
+}
+
+/** Small inline error + retry for a card group whose independent fetch failed. */
+function ErrorRetry({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="w-full" style={{ maxWidth: 440, padding: 16, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10, border: "1px solid var(--border)", borderRadius: 14, background: "var(--bg-elev)", color: "var(--fg-muted)", fontSize: 13 }}>
+      <span>Couldn’t load — {message}</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{ border: "1px solid var(--border)", borderRadius: 99, padding: "5px 14px", background: "var(--bg-sub)", color: "var(--fg)", fontSize: 12.5, cursor: "pointer" }}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+/**
+ * My Dashboard — per-wallet activity in a balanced two-column layout, each card loading
+ * independently. Left column: level, stats, friends, spend. Right column: reward badges.
+ * Single column on mobile. `contactsApi` + `onManageContacts` come from the app shell so
+ * the friend card shares the dialog's single write path.
+ */
+export function UserDashboard({
+  contactsApi,
+  onManageContacts,
+}: {
+  contactsApi?: ContactsApi;
+  onManageContacts?: () => void;
+} = {}) {
   const account = useCurrentAccount();
   const wallet = account?.address;
-  const { data, error } = useUserStats(wallet);
+  const stats = useUserStats(wallet);
+
+  const statsReady = !!stats.data;
+  const statsFailed = !!stats.error && !stats.data;
 
   return (
-    <div className="flex flex-col" style={{ gap: 36 }}>
-      {/* User section — connect prompt when disconnected */}
-      <section>
-        <SectionLabel>your activity</SectionLabel>
-        {!wallet ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 14 }}>
-            <p style={{ fontSize: 13.5, color: "var(--fg-muted)", margin: 0, lineHeight: 1.55 }}>
-              Connect your wallet to see your activity, volume, and the reward badges you’ve earned through Dewlock.
-            </p>
-            <ConnectButton />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-5">
-            {error && (
-              <div style={{ maxWidth: 440, padding: 20, textAlign: "center", color: "var(--destructive)", fontSize: 13 }}>
-                Couldn’t load your dashboard ({error}).
-              </div>
-            )}
-            {!data && !error && (
-              <div className="split-mono" style={{ maxWidth: 440, padding: 24, textAlign: "center", color: "var(--fg-faint)", fontSize: 11, letterSpacing: "0.1em" }}>
-                loading your activity…
-              </div>
-            )}
-            {data && (
-              <>
-                <UserStatsCard stats={data.stats} wallet={data.wallet} memoryEnabled={data.memoryEnabled} />
-                <DailyCapAndReceipts dailyUsage={data.dailyUsage} receipts={data.recentReceipts} />
-                <BadgeGrid earned={data.badges.earned} locked={data.badges.locked} />
-              </>
-            )}
-          </div>
-        )}
-      </section>
+    <section className="flex flex-col w-full" style={{ gap: 0, maxWidth: 980 }}>
+      <style>{`@keyframes dashShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+      <SectionLabel>your activity</SectionLabel>
+      {!wallet ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 14 }}>
+          <p style={{ fontSize: 13.5, color: "var(--fg-muted)", margin: 0, lineHeight: 1.55 }}>
+            Connect your wallet to see your activity, volume, and the reward badges you’ve earned through Dewlock.
+          </p>
+          <ConnectButton />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5">
+          {/* On-chain passport — self-fetches; the user's shareable identity. Spans the top. */}
+          <PassportCard />
 
-      {/* Protocol-wide section — always visible (not wallet-scoped) */}
-      <section>
-        <SectionLabel>protocol-wide</SectionLabel>
-        <ProtocolMetricsSection />
-      </section>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+            {/* Left column — everything except badges (level, stats, friends, spend) */}
+            <div className="flex flex-col gap-5">
+              {/* Activity (level + stats) — one fetch, its own skeleton/error */}
+              {statsFailed ? (
+                <ErrorRetry message={stats.error!} onRetry={stats.retry} />
+              ) : (
+                <>
+                  {statsReady && stats.data!.level ? (
+                    <LevelCard
+                      level={stats.data!.level}
+                      earnedBadges={stats.data!.badges.earned.length}
+                      totalBadges={stats.data!.badges.earned.length + stats.data!.badges.locked.length}
+                    />
+                  ) : (
+                    <SkeletonBlock height={86} />
+                  )}
+                  {statsReady ? (
+                    <UserStatsCard stats={stats.data!.stats} wallet={stats.data!.wallet} memoryEnabled={stats.data!.memoryEnabled} />
+                  ) : (
+                    <SkeletonBlock height={150} />
+                  )}
+                </>
+              )}
+
+              {/* Friends — self-fetches via useContacts (independent) */}
+              {contactsApi && onManageContacts && (
+                <FriendListCard api={contactsApi} onManage={onManageContacts} />
+              )}
+
+              {/* Receipts + daily cap — from the same activity recall (own skeleton) */}
+              {statsReady ? (
+                <DailyCapAndReceipts dailyUsage={stats.data!.dailyUsage} receipts={stats.data!.recentReceipts} />
+              ) : !statsFailed ? (
+                <SkeletonBlock height={200} />
+              ) : null}
+            </div>
+
+            {/* Right column — reward badges (shares the activity fetch) */}
+            <div className="flex flex-col gap-5">
+              {statsReady ? (
+                <BadgeGrid earned={stats.data!.badges.earned} locked={stats.data!.badges.locked} />
+              ) : (
+                <SkeletonBlock height={220} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Network Dashboard — system-wide protocol registry + live TVL (not wallet-scoped). */
+export function NetworkDashboard() {
+  return (
+    <section className="flex flex-col" style={{ gap: 0 }}>
+      <SectionLabel>protocol-wide · network</SectionLabel>
+      <ProtocolMetricsSection />
+    </section>
+  );
+}
+
+/** Back-compat: the original combined dashboard (both sections stacked). */
+export function DashboardClient() {
+  return (
+    <div className="flex flex-col" style={{ gap: 36 }}>
+      <UserDashboard />
+      <NetworkDashboard />
     </div>
   );
 }
