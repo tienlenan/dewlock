@@ -11,6 +11,7 @@
  */
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 import { NextRequest } from "next/server";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";

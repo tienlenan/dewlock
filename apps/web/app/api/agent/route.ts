@@ -25,6 +25,8 @@ import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 import { seedPopularTokens } from "@/lib/seed-popular-tokens";
 import { seedCommittedCap } from "@/lib/seed-committed-cap";
 
+export const maxDuration = 60;
+
 // 60 req/min per IP — generous for a streaming chat endpoint
 const RATE_LIMIT_MAX = 60;
 

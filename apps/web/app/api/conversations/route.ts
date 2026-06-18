@@ -9,6 +9,7 @@
  */
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 import { NextRequest } from "next/server";
 import { listConversations, upsertConversation, clearConversations, type ConversationRecord } from "@/lib/conversations/conversation-store";

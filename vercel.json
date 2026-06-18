@@ -3,19 +3,6 @@
   "buildCommand": "pnpm --filter web build",
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "apps/web/.next",
-  "functions": {
-    "apps/web/app/api/agent/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/prepare-trade/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/lend-options/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/swap-quote/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/receipt/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/receipt/stream/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/contacts/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/conversations/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/conversations/[id]/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/memory-recall/route.ts": { "maxDuration": 60 },
-    "apps/web/app/api/**/*.ts": { "maxDuration": 30 }
-  },
   "headers": [
     {
       "source": "/(.*)",

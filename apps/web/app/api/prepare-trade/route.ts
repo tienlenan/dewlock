@@ -28,6 +28,8 @@ import {
   type MemwalIO,
 } from "@dewlock/agent/memory/conviction-streak";
 
+export const maxDuration = 60;
+
 // ---------------------------------------------------------------------------
 // Input schema — mirrors prepareTrade inputSchema exactly (subset surface)
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@
  */
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 import { NextRequest } from "next/server";
 import { getConversation, getConversationByBlob, removeConversation } from "@/lib/conversations/conversation-store";
