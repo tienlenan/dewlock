@@ -19,6 +19,12 @@ vi.mock("@dewlock/walrus", () => ({
   isMemoryEnabled: () => h.enabled,
   memNamespace: (w: string) => `ns:${w}`,
   remember: async (_ns: string, text: string) => { h.pointers.push(text); },
+  // The conversation store writes pointers via rememberBulk (non-blocking/queued) to stay
+  // under the serverless time limit — model it as appending each text to the pointer log.
+  rememberBulk: async (_ns: string, texts: string[]) => {
+    for (const t of texts) h.pointers.push(t);
+    return { jobIds: [], total: texts.length };
+  },
   // Honor topK (the real wrapper passes limit through to the SDK) so "latest
   // pointer among the returned set" is modeled faithfully.
   recall: async (_ns: string, _q: string, topK = 8) => h.pointers.slice(-topK),

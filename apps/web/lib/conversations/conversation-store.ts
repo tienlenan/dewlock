@@ -11,7 +11,7 @@
  * Per-wallet isolation via memNamespace(wallet).
  */
 
-import { memNamespace, remember, recall, isMemoryEnabled } from "@dewlock/walrus";
+import { memNamespace, rememberBulk, recall, isMemoryEnabled } from "@dewlock/walrus";
 import { publishJsonBlob, readJsonBlob } from "@dewlock/walrus";
 import type { SerializableMessage } from "./serialize";
 
@@ -77,13 +77,18 @@ export async function readIndex(wallet: string): Promise<ConversationIndex | nul
   }
 }
 
-/** Publish a new index blob + update the memwal pointer. Returns ok. */
+/** Publish a new index blob + update the memwal pointer. Returns ok.
+ * The pointer write uses rememberBulk (QUEUED — returns once the relayer accepts
+ * the job) NOT rememberAndWait (which blocks ~30-43s for indexing). The blocking
+ * write made the whole save exceed the 60s serverless limit → FUNCTION_INVOCATION_
+ * TIMEOUT → the conversation never persisted. The durable data is the Walrus blob
+ * (already awaited above); the pointer is just the index and is allowed to lag. */
 async function writeIndex(wallet: string, index: ConversationIndex): Promise<boolean> {
   if (!isMemoryEnabled()) return false;
   try {
     const ptr = await publishJsonBlob("dewlock-conversation-index", index);
     if (!ptr.blobId) return false;
-    await remember(memNamespace(wallet), `${POINTER_PREFIX} ${ptr.blobId} @ ${index.updatedAt}`);
+    await rememberBulk(memNamespace(wallet), [`${POINTER_PREFIX} ${ptr.blobId} @ ${index.updatedAt}`]);
     return true;
   } catch {
     return false;
@@ -185,7 +190,7 @@ export async function clearConversations(wallet: string): Promise<boolean> {
     // readIndex returns [] if EITHER wins; a genuine later save out-dates both and
     // reappears (index.updatedAt = save time).
     await writeIndex(wallet, { walletAddress: wallet, conversations: [], updatedAt: now });
-    await remember(memNamespace(wallet), `${CLEAR_PREFIX} @ ${now}`);
+    await rememberBulk(memNamespace(wallet), [`${CLEAR_PREFIX} @ ${now}`]);
     return true;
   } catch {
     return false;

@@ -1,6 +1,21 @@
 # Changelog
 
-## 2026-06-19 — 12 verified tokens + memes now swappable
+## 2026-06-19 — Conversation saves no longer time out (root cause: blocking memwal write)
+
+### Fixed
+- **Conversations weren't persisting at all** — `POST /api/conversations` hit
+  `FUNCTION_INVOCATION_TIMEOUT` (HTTP 504 at ~60s, verified live). The save published the
+  conversation blob + the index blob to Walrus (each ≤10s) and then wrote the index pointer
+  via `remember` → `rememberAndWait`, which **blocks ~30-43s** for memwal indexing — the sum
+  exceeded the 60s serverless limit, so the function was killed and nothing saved. Switch the
+  pointer + clear-tombstone writes to the **queued, non-blocking `rememberBulk`** (the same
+  fix already applied to the XP/badges hot path): the save now finishes in ≤~30s. The durable
+  data is the Walrus blob (still awaited); the index pointer is allowed to lag. Client-side,
+  `saveCurrent` optimistically prepends the saved conversation to the sidebar (it already has
+  the durable `blobId`) instead of a post-save `refresh()` that would read the not-yet-indexed
+  index and momentarily drop the row — so the thread appears instantly and stays.
+
+
 
 ### Changed
 - **Promoted 12 verified tokens to swappable** (were recognition-only/display): liquid-staking
@@ -15,6 +30,8 @@
   stale/missing at sign time, and the per-tx USD cap is unchanged.
 
 
+
+## 2026-06-19 — Copilot composer: recipient badge, @mention friends, single-action guard, welcome cards
 
 ### Added
 - **Live recipient badge** below the composer chips — as the user types a send command, the

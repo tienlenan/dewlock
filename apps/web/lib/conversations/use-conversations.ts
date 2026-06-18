@@ -177,12 +177,18 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
           headers: { "content-type": "application/json" },
           body: JSON.stringify(record),
         });
-        const data: { ok?: boolean } = await res.json().catch(() => ({}));
+        const data: { ok?: boolean; blobId?: string } = await res.json().catch(() => ({}));
         if (data.ok) {
           // Keep the cache fresh so re-opening this thread shows the just-saved version.
           cache.current.set(id, messages);
           if (!activeId) setActiveId(id);
-          void refresh();
+          // Optimistically reflect the save in the sidebar NOW. The memwal index pointer is
+          // queued (rememberBulk, ~30-43s to index), so a refresh() here would read the
+          // pre-save index and DROP the just-saved conversation from the list until indexing
+          // catches up — looking like "it didn't save". The blob is already durably
+          // published, so this row (with its real blobId) opens correctly.
+          const entry: ConversationIndexEntry = { id, title: record.title, updatedAt: now, blobId: data.blobId ?? "" };
+          setList((cur) => [entry, ...cur.filter((c) => c.id !== id)]);
           return id;
         }
       } catch {
@@ -190,7 +196,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       }
       return null;
     },
-    [wallet, activeId, refresh],
+    [wallet, activeId],
   );
 
   return { list, activeId, loadingId, create, open, remove, clearAll, saveCurrent };
