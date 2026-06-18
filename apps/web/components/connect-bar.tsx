@@ -14,12 +14,15 @@ import {
   useDisconnectWallet,
 } from "@mysten/dapp-kit";
 import { useSuiGasBalance } from "@/lib/use-sui-gas-balance";
+import { useSuinsName } from "@/lib/use-suins-name";
+import { CopyAddressButton } from "@/components/copy-address-button";
 import { cn, formatMistAsSui, shortAddress } from "@/lib/utils";
 
 export function ConnectBar({ className }: { className?: string }) {
   const account = useCurrentAccount();
   const { mutateAsync: disconnectWallet } = useDisconnectWallet();
   const gas = useSuiGasBalance(account?.address);
+  const { name: suinsName } = useSuinsName(account?.address);
   const [busy, setBusy] = useState(false);
 
   async function handleDisconnect() {
@@ -61,13 +64,14 @@ export function ConnectBar({ className }: { className?: string }) {
             {gas.loading ? "…" : formatMistAsSui(gas.mist)}
           </span>
 
-          {/* Wallet address — monospace short form */}
+          {/* Wallet identity — SuiNS primary name if linked, else short address */}
           <span
             className="font-mono text-xs text-fg-muted select-all"
             title={account.address}
           >
-            {shortAddress(account.address)}
+            {suinsName ?? shortAddress(account.address)}
           </span>
+          <CopyAddressButton address={account.address} />
 
           {/* Disconnect */}
           <button

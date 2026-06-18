@@ -4,30 +4,25 @@
  * AppSidebar — left panel of the /app copilot shell.
  *
  * Sections (top → bottom):
- *   New conversation button
- *   Session list (sample entries — labeled preview)
- *   Memory summary chip (sample — labeled preview)
+ *   Navigation (Copilot / My Dashboard / Network / Bridge / Guide)
+ *   Memory summary chip (real recall via memwal; honest empty state otherwise)
  *   Wallet/network footer (live — reuses ConnectBar logic inline)
+ *
+ * NOTE: conversation history lives in ConversationPanel (beside the chat), NOT here.
  *
  * Width: 248px fixed on desktop. On mobile (≤768px) it is hidden and
  * replaced by a slide-in drawer triggered by the hamburger button in
  * the app shell header. The `open` + `onClose` props wire that drawer.
  */
 
-import { X, LogOut } from "lucide-react";
+import Link from "next/link";
+import { X, LogOut, MessageSquare, LayoutDashboard, Globe, ArrowLeftRight, BookOpen, Brain } from "lucide-react";
 import { useCurrentAccount, useDisconnectWallet } from "@mysten/dapp-kit";
 import { useSuiGasBalance } from "@/lib/use-sui-gas-balance";
+import { useSuinsName } from "@/lib/use-suins-name";
+import { CopyAddressButton } from "@/components/copy-address-button";
 import { formatMistAsSui, shortAddress } from "@/lib/utils";
-import { SessionList } from "./session-list";
-
-// Plus icon matching mockup "New conversation" button
-function PlusIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M8 3v10M3 8h10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
+import { useRecalledMemory, buildRecalledChips } from "./memory-chip";
 
 // Star icon for memory section header
 function StarIcon() {
@@ -43,26 +38,53 @@ function StarIcon() {
   );
 }
 
+/** Single-UI views rendered in the right content panel. */
+export type AppView = "chat" | "my-dashboard" | "network-dashboard" | "memory" | "guide" | "protocols";
+
+// Navigation: most items switch the in-place content panel; Bridge is a separate
+// route (kept standalone so its dark page matches Mayan's widget colors).
+type NavItem = { label: string; icon: typeof MessageSquare } & ({ view: AppView } | { href: string });
+const NAV_ITEMS: NavItem[] = [
+  { view: "chat", label: "Copilot", icon: MessageSquare },
+  { view: "my-dashboard", label: "My Dashboard", icon: LayoutDashboard },
+  { view: "network-dashboard", label: "Network", icon: Globe },
+  { view: "memory", label: "Memory", icon: Brain },
+  { href: "/bridge", label: "Bridge", icon: ArrowLeftRight },
+  { view: "guide", label: "Guide", icon: BookOpen },
+];
+
 interface AppSidebarProps {
   /** Controls mobile drawer visibility */
   open: boolean;
   /** Called when drawer overlay or close button is clicked */
   onClose: () => void;
-  /** Called when "New conversation" is clicked */
-  onNewConversation: () => void;
+  /** Currently active content view. */
+  activeView?: AppView;
+  /** Switch the content view (single-UI navigation). */
+  onSelectView?: (view: AppView) => void;
 }
 
-export function AppSidebar({ open, onClose, onNewConversation }: AppSidebarProps) {
+export function AppSidebar({
+  open,
+  onClose,
+  activeView = "chat",
+  onSelectView,
+}: AppSidebarProps) {
   const account = useCurrentAccount();
   const gas = useSuiGasBalance(account?.address);
+  const { name: suinsName } = useSuinsName(account?.address);
   const { mutate: disconnect } = useDisconnectWallet();
+  const recalled = useRecalledMemory(account?.address);
+  const memoryChips = recalled?.hasReal ? buildRecalledChips(recalled) : [];
 
-  const sidebarContent = (
+  const renderSidebar = () => (
     <aside
       className="flex flex-col gap-1.5 h-full"
       style={{
         width: "248px",
-        background: "var(--bg-sub)",
+        // Blend with the page canvas (--bg) instead of the grayer --bg-sub; the
+        // border provides separation.
+        background: "var(--bg)",
         borderRight: "1px solid var(--border)",
         padding: "14px 12px",
         flexShrink: 0,
@@ -93,29 +115,48 @@ export function AppSidebar({ open, onClose, onNewConversation }: AppSidebarProps
         </button>
       </div>
 
-      {/* New conversation CTA */}
-      <button
-        type="button"
-        onClick={() => { onNewConversation(); onClose(); }}
-        className="flex items-center gap-2 rounded-lg font-semibold transition-opacity hover:opacity-90"
-        style={{
-          height: "38px",
-          padding: "0 12px",
-          background: "var(--accent)",
-          color: "#fff",
-          border: "none",
-          fontSize: "13.5px",
-          boxShadow: "var(--shadow-aqua)",
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-      >
-        <PlusIcon />
-        New conversation
-      </button>
+      {/* Navigation — in-place views + the Bridge route */}
+      <nav className="flex flex-col gap-0.5" style={{ marginTop: 6 }} aria-label="Primary">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const navClass = "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors text-left";
+          if ("href" in item) {
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                onClick={onClose}
+                className={navClass}
+                style={{ background: "transparent", color: "var(--fg-muted)", fontWeight: 400, textDecoration: "none" }}
+              >
+                <Icon size={15} aria-hidden />
+                {item.label}
+              </Link>
+            );
+          }
+          const active = activeView === item.view;
+          return (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => { onSelectView?.(item.view); onClose(); }}
+              aria-current={active ? "page" : undefined}
+              className={navClass}
+              style={{
+                background: active ? "var(--accent-soft)" : "transparent",
+                color: active ? "var(--accent-ink)" : "var(--fg-muted)",
+                fontWeight: active ? 600 : 400,
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <Icon size={15} aria-hidden />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
 
-      {/* Session list */}
-      <SessionList />
 
       {/* Memory summary — preview */}
       <div
@@ -132,25 +173,18 @@ export function AppSidebar({ open, onClose, onNewConversation }: AppSidebarProps
         >
           <StarIcon />
           memory
-          <span
-            className="ml-auto rounded px-1"
-            style={{
-              fontSize: "9px",
-              background: "var(--accent-soft)",
-              color: "var(--fg-faint)",
-              border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
-            }}
-          >
-            preview
-          </span>
         </div>
-        <p style={{ margin: 0, fontSize: "11.5px", lineHeight: 1.45, color: "var(--fg-muted)" }}>
-          Daily cap{" "}
-          <strong style={{ color: "var(--fg)" }}>$5,000</strong>
-          {" · "}risk profile{" "}
-          <strong style={{ color: "var(--fg)" }}>conservative</strong>
-          {" · "}1 saved contact.
-        </p>
+        {memoryChips.length > 0 ? (
+          <p style={{ margin: 0, fontSize: "11.5px", lineHeight: 1.45, color: "var(--fg-muted)" }}>
+            {memoryChips.join(" · ")}
+          </p>
+        ) : (
+          <p style={{ margin: 0, fontSize: "11.5px", lineHeight: 1.45, color: "var(--fg-faint)" }}>
+            {account
+              ? "No saved preferences yet — I'll remember your cap, risk profile, and contacts as you use Dewlock."
+              : "Connect a wallet to recall your saved cap, risk profile, and contacts."}
+          </p>
+        )}
       </div>
 
       {/* Wallet / network footer */}
@@ -192,9 +226,14 @@ export function AppSidebar({ open, onClose, onNewConversation }: AppSidebarProps
                 fontSize: "12px",
               }}
             >
-              <span className="mono flex-1 truncate" style={{ fontSize: "10.5px", color: "var(--fg)" }}>
-                {shortAddress(account.address)}
+              <span
+                className="mono flex-1 truncate"
+                style={{ fontSize: "10.5px", color: "var(--fg)" }}
+                title={account.address}
+              >
+                {suinsName ?? shortAddress(account.address)}
               </span>
+              <CopyAddressButton address={account.address} size={12} />
               <span
                 className="mono shrink-0 rounded-full px-2 py-0.5"
                 style={{
@@ -244,7 +283,7 @@ export function AppSidebar({ open, onClose, onNewConversation }: AppSidebarProps
   return (
     <>
       {/* Desktop: always visible */}
-      <div className="hidden md:flex h-full">{sidebarContent}</div>
+      <div className="hidden md:flex h-full">{renderSidebar()}</div>
 
       {/* Mobile: drawer overlay */}
       {open && (
@@ -258,7 +297,7 @@ export function AppSidebar({ open, onClose, onNewConversation }: AppSidebarProps
           />
           {/* Drawer panel */}
           <div className="relative z-50 flex h-full" style={{ boxShadow: "var(--shadow-lg)" }}>
-            {sidebarContent}
+            {renderSidebar()}
           </div>
         </div>
       )}

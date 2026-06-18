@@ -20,7 +20,7 @@
 
 import { useState, useCallback } from "react";
 import { Transaction } from "@mysten/sui/transactions";
-import { useSignAndExecuteTx } from "@dewlock/sui/sign";
+import { useSignAndExecuteTx } from "@/lib/use-sign-and-execute-tx";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

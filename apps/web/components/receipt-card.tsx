@@ -32,14 +32,32 @@ export interface ReceiptCardProps {
   blobId?: string | null;
   /** Sui anchor HEAD object id (null while pending or on blob_only). */
   anchorObjectId?: string | null;
+  /** Sui object to link: the HEAD anchor if its package is deployed, else the
+   *  on-chain Walrus Blob object created by the publish. Preferred over anchorObjectId. */
+  suiObjectId?: string | null;
   /** Async receipt pipeline status. */
   status?: ReceiptStatus;
 }
 
-function buildExplorerUrl(txDigest: string): string | null {
-  const template = process.env.NEXT_PUBLIC_EXPLORER_OBJECT_URL_TEMPLATE;
-  if (!template) return null;
-  return template.replace("{digest}", txDigest);
+const EXPLORER_NETWORK = process.env.NEXT_PUBLIC_SUI_NETWORK || "mainnet";
+
+/** Fill a suiscan-style template: substitutes {network} AND the value placeholder
+ * (templates use {id}; tx links also accept {digest}). */
+function fillTemplate(template: string, value: string): string {
+  return template
+    .split("{network}").join(EXPLORER_NETWORK)
+    .split("{digest}").join(value)
+    .split("{id}").join(value);
+}
+
+/** Transaction explorer URL. The configured template is OBJECT-scoped (/object/{id}),
+ * so a tx digest needs the /tx/ path — derive it (or use an explicit tx template). */
+function buildExplorerUrl(txDigest: string): string {
+  const objTpl = process.env.NEXT_PUBLIC_EXPLORER_OBJECT_URL_TEMPLATE;
+  const txTpl =
+    process.env.NEXT_PUBLIC_EXPLORER_TX_URL_TEMPLATE ||
+    (objTpl ? objTpl.replace("/object/", "/tx/") : "https://suiscan.xyz/{network}/tx/{digest}");
+  return fillTemplate(txTpl, txDigest);
 }
 
 function buildWalrusAggregatorUrl(blobId: string): string {
@@ -49,11 +67,11 @@ function buildWalrusAggregatorUrl(blobId: string): string {
   return `${base}/v1/blobs/${blobId}`;
 }
 
-function buildSuiObjectUrl(objectId: string): string | null {
-  const template = process.env.NEXT_PUBLIC_EXPLORER_OBJECT_URL_TEMPLATE;
-  if (!template) return null;
-  // Reuse the same explorer template substituting the object id.
-  return template.replace("{digest}", objectId);
+function buildSuiObjectUrl(objectId: string): string {
+  const tpl =
+    process.env.NEXT_PUBLIC_EXPLORER_OBJECT_URL_TEMPLATE ||
+    "https://suiscan.xyz/{network}/object/{id}";
+  return fillTemplate(tpl, objectId);
 }
 
 /** Truncate a long hash for display: first 6 chars + … + last 4 chars */
@@ -92,6 +110,7 @@ export function ReceiptCard({
   approvedDigest,
   blobId,
   anchorObjectId,
+  suiObjectId,
   status = "pending",
 }: ReceiptCardProps) {
   const explorerUrl = buildExplorerUrl(txDigest);
@@ -99,7 +118,10 @@ export function ReceiptCard({
   const showBlobRow = status !== "pending";
   const showAnchorRow = status !== "pending";
   const blobReady = !!blobId && (status === "anchored" || status === "blob_ready" || status === "blob_only");
-  const anchorReady = !!anchorObjectId && status === "anchored";
+  // Prefer the resolved Sui object (HEAD anchor or Walrus Blob object). The blob
+  // object exists once the blob is published, so it's live at blob_ready too.
+  const suiObj = suiObjectId ?? anchorObjectId ?? null;
+  const anchorReady = !!suiObj && (status === "anchored" || status === "blob_ready" || status === "blob_only");
 
   return (
     <div
@@ -202,7 +224,11 @@ export function ReceiptCard({
           <div className="flex items-center justify-between">
             <span style={{ color: "var(--fg-muted)" }}>blob id</span>
             <span style={{ color: "var(--fg-faint)", fontSize: "11px" }}>
-              not configured
+              {status === "timeout"
+                ? "still writing — retry later"
+                : status === "blob_only"
+                  ? "unavailable"
+                  : "writing…"}
             </span>
           </div>
         )}
@@ -212,14 +238,14 @@ export function ReceiptCard({
         {showAnchorRow && anchorReady && (
           <ReceiptRow
             label="sui object"
-            value={shortHash(anchorObjectId!)}
+            value={shortHash(suiObj!)}
             action={
-              buildSuiObjectUrl(anchorObjectId!) ? (
+              buildSuiObjectUrl(suiObj!) ? (
                 <a
-                  href={buildSuiObjectUrl(anchorObjectId!)!}
+                  href={buildSuiObjectUrl(suiObj!)!}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="View anchor object on Sui explorer"
+                  aria-label="View receipt object on Sui explorer"
                   style={{ color: "var(--accent-ink)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}
                 >
                   <ExternalLink size={12} aria-hidden />

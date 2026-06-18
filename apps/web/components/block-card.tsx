@@ -86,8 +86,12 @@ function parseBlockFields(reasons: string[]): {
       const m = r.match(/["']?([^"']+)["']?\s*(?:→|->|to\s)/i);
       if (m) fields.typed = m[1].trim();
     }
+    // Only a real address / .sui name is a "saved contact". Requiring an
+    // address-like value stops false matches such as the swap shape-gate reason
+    // "an unexpected value-moving command…" (substring "expected") from being
+    // mis-rendered as a contact row, which would hide the real reason text.
     if (lower.includes("saved contact") || lower.includes("expected")) {
-      const m = r.match(/(?:saved contact|expected)[:\s]+([^\s,]+)/i);
+      const m = r.match(/(?:saved contact|expected)[:\s]+(0x[0-9a-fA-F]{6,}|[^\s,]+\.sui)/i);
       if (m) fields.savedContact = m[1].trim();
     }
     if (lower.includes("resolved") && !lower.includes("already")) {
