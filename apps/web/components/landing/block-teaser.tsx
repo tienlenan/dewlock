@@ -23,25 +23,21 @@ export function BlockTeaser() {
   return (
     <section
       id="block-teaser"
-      className="section-pad relative overflow-hidden border-b border-border-dark"
-      style={{ background: "var(--bg-dark)" }}
+      className="section-pad relative overflow-hidden bg-transparent"
       aria-labelledby="block-teaser-heading"
     >
-      {/* Subtle grid on dark panel */}
-      <div className="absolute inset-0 grid-pattern opacity-15" aria-hidden />
-
       <div className="relative mx-auto max-w-6xl">
         <div className="grid items-center gap-10 lg:grid-cols-2">
 
           {/* LEFT — copy */}
           <ScrollReveal>
-            <p className="mb-3 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-accent-2">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent-2" aria-hidden />
+            <p className="mb-3 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
               {C.eyebrow}
             </p>
             <h2
               id="block-teaser-heading"
-              className="font-display font-bold tracking-tight text-fg-inverse"
+              className="font-display font-bold tracking-tight text-fg"
               style={{ fontSize: "var(--text-display)", lineHeight: "var(--lh-heading)" }}
             >
               Proof a{" "}
@@ -68,7 +64,7 @@ export function BlockTeaser() {
                   className="leading-relaxed text-fg-muted"
                   style={{ fontSize: "var(--text-base)", lineHeight: "var(--lh-body)" }}
                 >
-                  <b className="font-semibold text-fg-inverse">Independently checkable.</b>{" "}
+                  <b className="font-semibold text-fg">Independently checkable.</b>{" "}
                   The raw 0x mismatch is shown so anyone can verify the block was real.
                 </span>
               </div>
@@ -83,7 +79,7 @@ export function BlockTeaser() {
                   className="leading-relaxed text-fg-muted"
                   style={{ fontSize: "var(--text-base)", lineHeight: "var(--lh-body)" }}
                 >
-                  <b className="font-semibold text-fg-inverse">Anchored on-chain.</b>{" "}
+                  <b className="font-semibold text-fg">Anchored on-chain.</b>{" "}
                   An immutable Walrus near-miss receipt is written async — never blocking the hard stop.
                 </span>
               </div>

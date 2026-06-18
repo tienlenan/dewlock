@@ -18,46 +18,22 @@ import { COPY } from "@/lib/landing/copy";
 
 const { whySui: C } = COPY;
 
-/** Per-card tint configuration — sky / periwinkle / peach / mint */
+/**
+ * Per-card tint config — sky / periwinkle / peach / mint.
+ * Each card is a white surface with a soft top-down pastel wash: the tint is
+ * color-mixed toward transparent so it fades out by ~46% of the card height.
+ * Periwinkle is a vivid hue, so it mixes at a lower strength than the others.
+ */
 const TRACK_META = [
-  {
-    Icon: Wallet,
-    /** sky: matches --tint-sky token */
-    topBar: "bg-tint-sky",
-    iconColor: "text-[hsl(205_90%_48%)]",
-    /** dark: accent-ink on dark-sky tint */
-    iconColorDark: "dark:text-accent-ink",
-    cardBg: "bg-tint-sky dark:bg-[hsl(205_30%_18%)]",
-    border: "border-[hsl(205_80%_82%)] dark:border-[hsl(205_25%_28%)]",
-  },
-  {
-    Icon: BookOpen,
-    /** periwinkle: hsl(218 70% 70%) tint */
-    topBar: "bg-tint-periwinkle",
-    iconColor: "text-[hsl(218_65%_50%)]",
-    iconColorDark: "dark:text-[hsl(218_70%_72%)]",
-    cardBg: "bg-[hsl(218_80%_96%)] dark:bg-[hsl(218_40%_22%)]",
-    border: "border-[hsl(218_60%_84%)] dark:border-[hsl(218_28%_30%)]",
-  },
-  {
-    Icon: Database,
-    /** peach: matches --tint-peach token */
-    topBar: "bg-tint-peach",
-    iconColor: "text-[hsl(28_80%_50%)]",
-    iconColorDark: "dark:text-[hsl(28_80%_68%)]",
-    cardBg: "bg-tint-peach dark:bg-[hsl(24_26%_18%)]",
-    border: "border-[hsl(28_80%_84%)] dark:border-[hsl(28_20%_28%)]",
-  },
-  {
-    Icon: Bot,
-    /** mint: matches --tint-mint token */
-    topBar: "bg-tint-mint",
-    iconColor: "text-[hsl(150_52%_38%)]",
-    iconColorDark: "dark:text-[hsl(150_52%_58%)]",
-    cardBg: "bg-tint-mint dark:bg-[hsl(150_18%_15%)]",
-    border: "border-[hsl(150_48%_80%)] dark:border-[hsl(150_16%_24%)]",
-  },
+  { Icon: Wallet,   tint: "--tint-sky",        mixPct: 60, iconColor: "text-[hsl(205_90%_48%)]", iconColorDark: "dark:text-accent-ink" },
+  { Icon: BookOpen, tint: "--tint-periwinkle", mixPct: 26, iconColor: "text-[hsl(218_65%_50%)]", iconColorDark: "dark:text-[hsl(218_70%_72%)]" },
+  { Icon: Database, tint: "--tint-peach",      mixPct: 60, iconColor: "text-[hsl(28_80%_50%)]",  iconColorDark: "dark:text-[hsl(28_80%_68%)]" },
+  { Icon: Bot,      tint: "--tint-mint",       mixPct: 60, iconColor: "text-[hsl(150_52%_38%)]", iconColorDark: "dark:text-[hsl(150_52%_58%)]" },
 ] as const;
+
+/** Vertical pastel wash over a white card base — tint fades to transparent by 46%. */
+const cardWash = (tint: string, pct: number) =>
+  `linear-gradient(180deg, color-mix(in srgb, var(${tint}) ${pct}%, transparent) 0%, transparent 46%)`;
 
 export function WhySui() {
   return (
@@ -109,27 +85,16 @@ interface TrackCardProps {
 }
 
 /**
- * TrackCard — pastel tinted surface with 3px colored top-bar accent.
- * Each of 4 cards uses a distinct tint: sky / periwinkle / peach / mint.
- * Light: soft pastel fill. Dark: muted deep tint via token flip.
+ * TrackCard — white surface with a soft top-down pastel wash (token-driven, so
+ * it adapts to light/dark automatically). No top-bar stripe.
  */
 function TrackCard({ track, meta }: TrackCardProps) {
-  const { Icon, topBar, iconColor, iconColorDark, cardBg, border } = meta;
+  const { Icon, tint, mixPct, iconColor, iconColorDark } = meta;
   return (
     <div
-      className={[
-        "group relative flex h-full flex-col overflow-hidden rounded-2xl border",
-        "card-pad shadow-card card-hover",
-        cardBg,
-        border,
-      ].join(" ")}
+      className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card card-pad shadow-card card-hover"
+      style={{ backgroundImage: cardWash(tint, mixPct) }}
     >
-      {/* Colored top-bar accent — 3px stripe at the very top */}
-      <div
-        className={["absolute inset-x-0 top-0 h-[3px]", topBar].join(" ")}
-        aria-hidden
-      />
-
       {/* Icon — tint-matched color per card */}
       <Icon
         className={["relative mt-1 h-7 w-7", iconColor, iconColorDark].join(" ")}

@@ -188,6 +188,18 @@ export const COPY = {
     ],
   },
 
+  poweredBy: {
+    title: "Powered by an open AI × Sui stack",
+    sub: "Best-in-class agent intelligence, settled on Sui's native data and security layer — open and verifiable end to end.",
+    items: [
+      { key: "mastra", name: "Mastra AI", href: "https://mastra.ai", kind: "mark" },
+      { key: "gemini", name: "Gemini", href: "https://deepmind.google/technologies/gemini", kind: "mark" },
+      { key: "sui", name: "Sui", href: "https://sui.io", kind: "img", src: "/logos/sui.svg", w: 64, h: 33 },
+      { key: "walrus", name: "Walrus", href: "https://walrus.xyz", kind: "img", src: "/logos/walrus.svg", w: 145, h: 34 },
+      { key: "memwal", name: "Walrus Memory", href: "https://memory.walrus.xyz", kind: "img", src: "/logos/memwal.svg", w: 142, h: 66 },
+    ],
+  },
+
   cta: {
     headline: "Ready to sign with confidence?",
     sub: "Live on Sui mainnet. State your intent, review the preview — sign only what you approved.",

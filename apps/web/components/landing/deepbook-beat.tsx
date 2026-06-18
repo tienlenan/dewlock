@@ -17,15 +17,15 @@ import { COPY } from "@/lib/landing/copy";
 const { deepbook: C } = COPY;
 
 /**
- * Per-card color treatment: AMM (bad=true) → peach/warning tint.
- * CLOB (bad=false) → mint/sky tint.
+ * Per-card color treatment. Both cards are white surfaces with a soft top-down
+ * pastel wash (tint color-mixed toward transparent): AMM (bad=true) → peach
+ * caution wash, CLOB (bad=false) → sky positive wash. Icon / badge / verdict
+ * accents carry the matching hue.
  */
 const CARD_META = {
   bad: {
-    /** peach background */
-    cardBg: "bg-tint-peach dark:bg-[hsl(24_26%_18%)]",
-    border: "border-[hsl(28_80%_84%)] dark:border-[hsl(28_20%_28%)]",
-    topBar: "bg-tint-peach",
+    tint: "--tint-peach",
+    mixPct: 60,
     /** orange-peach icon to signal caution */
     iconColor: "text-[hsl(28_80%_50%)] dark:text-[hsl(28_80%_68%)]",
     badgeColor: "text-[hsl(28_80%_50%)] dark:text-[hsl(28_80%_68%)] border-[hsl(28_60%_78%)] dark:border-[hsl(28_24%_32%)]",
@@ -33,10 +33,8 @@ const CARD_META = {
     borderTop: "border-[hsl(28_60%_82%)] dark:border-[hsl(28_22%_30%)]",
   },
   good: {
-    /** sky/mint background */
-    cardBg: "bg-tint-sky dark:bg-[hsl(205_30%_18%)]",
-    border: "border-[hsl(205_80%_82%)] dark:border-[hsl(205_25%_28%)]",
-    topBar: "bg-tint-sky",
+    tint: "--tint-sky",
+    mixPct: 60,
     /** sky-blue icon to signal positive path */
     iconColor: "text-[hsl(205_90%_42%)] dark:text-accent-ink",
     badgeColor: "text-[hsl(205_90%_42%)] dark:text-accent-ink border-[hsl(205_80%_78%)] dark:border-[hsl(205_30%_32%)]",
@@ -44,6 +42,10 @@ const CARD_META = {
     borderTop: "border-[hsl(205_70%_82%)] dark:border-[hsl(205_26%_28%)]",
   },
 } as const;
+
+/** Vertical pastel wash over a white card base — tint fades to transparent by 46%. */
+const cardWash = (tint: string, pct: number) =>
+  `linear-gradient(180deg, color-mix(in srgb, var(${tint}) ${pct}%, transparent) 0%, transparent 46%)`;
 
 export function DeepbookBeat() {
   return (
@@ -87,18 +89,9 @@ export function DeepbookBeat() {
                   return (
                     <div
                       key={item.label}
-                      className={[
-                        "group relative flex h-full flex-col overflow-hidden rounded-2xl border",
-                        "card-pad shadow-card card-hover",
-                        meta.cardBg,
-                        meta.border,
-                      ].join(" ")}
+                      className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card card-pad shadow-card card-hover"
+                      style={{ backgroundImage: cardWash(meta.tint, meta.mixPct) }}
                     >
-                      {/* Colored top-bar accent stripe */}
-                      <div
-                        className={["absolute inset-x-0 top-0 h-[3px]", meta.topBar].join(" ")}
-                        aria-hidden
-                      />
                       <div className="mb-2.5 mt-1 flex items-center justify-between gap-2">
                         <Icon
                           className={["h-5 w-5", meta.iconColor].join(" ")}

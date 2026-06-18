@@ -22,11 +22,22 @@ const { hero: C } = COPY;
 export function Hero() {
   return (
     <section
-      className="relative w-full overflow-hidden border-b border-border pt-24 pb-8 sm:pt-28"
+      className="relative w-full overflow-hidden pt-24 pb-8 sm:pt-28"
       aria-labelledby="hero-heading"
     >
-      {/* Aurora pastel backdrop */}
-      <div className="aurora-bg" aria-hidden />
+      {/* Aurora pastel backdrop. Inline mask fades the wash out before the hero's
+          clipped bottom edge so it dissolves into the page wash — no seam against
+          the next section. (Inline so Next's CSS minifier can't strip the mask.) */}
+      <div
+        className="aurora-bg"
+        aria-hidden
+        style={{
+          WebkitMaskImage:
+            "linear-gradient(180deg, transparent 0%, #000 18%, #000 56%, transparent 74%)",
+          maskImage:
+            "linear-gradient(180deg, transparent 0%, #000 18%, #000 56%, transparent 74%)",
+        }}
+      />
 
       <div className="mx-auto w-full max-w-6xl px-6 lg:px-8">
         {/* 2-col grid — stacks on mobile */}
@@ -50,7 +61,7 @@ export function Hero() {
             >
               Every transaction,
               <br />
-              <span className="text-gradient">sealed</span>{" "}
+              <span className="text-gradient">SEALED</span>{" "}
               before you sign.
             </h1>
 

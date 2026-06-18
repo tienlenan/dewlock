@@ -5,5 +5,5 @@
     <path d="M-4.3 6 L4.3 6 L2.8 30 L-2.8 30 Z" fill="#0c131d"/>
     <circle cx="-13" cy="-5" r="5.3" fill="#6ebef7"/>
   </g>
-  <text x="86" y="61" font-family="'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="62" font-weight="500" letter-spacing="-1.8" fill="#f2f5f7">dew<tspan fill="#0c89e9">lock</tspan></text>
+  <text x="86" y="71" font-family="'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="62" font-weight="500" letter-spacing="-1.8" fill="#f2f5f7">dew<tspan fill="#0c89e9">lock</tspan></text>
 </svg>
