@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-06-19 — Suilend lend-deposit + multi-hop swap fixes
+
+### Fixed
+- **Suilend deposit enabled** (was the last failing DeFi action). The long-blamed "gRPC
+  reserve-shape incompatibility" was a misdiagnosis: `SuiGrpcClient` reads `baseUrl`, not
+  `url`, so the transport base was undefined → every gRPC call crashed and the lending-market
+  reserves parsed with `coinType.name` undefined. Pass `baseUrl` (SUI_GRPC_URL). Also bumped
+  `SUILEND_PACKAGE` to the SDK's current upgrade `0xe53906c2…` and allowlisted the SUI-deposit
+  `lending_market::rebalance_staker` (value-neutral liquid-staking accounting). All four lend/
+  swap SDKs (Cetus, Aftermath, NAVI, Suilend) now build live.
+- **Larger / multi-hop Aftermath swaps** (e.g. 2 SUI → USDC) were refused on
+  `0x2::balance::join` — a multi-leg route merges per-leg output balances with it. Allowlist
+  `balance::join` / `balance::split` / `coin::into_balance` as value-neutral framework calls
+  (the dry-run net-outflow cap remains the value bound).
+
+### Added
+- Conversations: on load, auto-open the user's most-recent thread (once per wallet).
+
 ## 2026-06-18 — Mainnet contract + Vercel production deploy
 
 ### Added
@@ -19,7 +37,7 @@
 - Deploy plumbing: Next.js version detection (root `next` devDep), `maxDuration` via segment config, function packaging (no `.pnpm/**` symlink globs), Deployment-Protection 401 disabled, env matrix set.
 
 ### Notes
-- **Suilend deposit** still parked on the gRPC reserve-shape mismatch (`reserve.coinType.name` undefined) — unrelated to the bundling fix; NAVI is the working lend path.
+- **Suilend deposit** was parked here on an apparent gRPC reserve-shape mismatch — resolved the next day (see the 2026-06-19 entry); the real cause was a SuiGrpcClient `url`/`baseUrl` config bug, not a shape incompatibility.
 
 ## 2026-06-18 — Reliability, UX, memory & passport
 
