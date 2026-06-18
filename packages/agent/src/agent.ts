@@ -25,6 +25,8 @@ import { getSwapForm } from "./tools/get-swap-form";
 import { getReceiveInfo } from "./tools/get-receive-info";
 import { getUserStats } from "./tools/get-user-stats";
 import { getProtocolMetrics } from "./tools/get-protocol-metrics";
+import { requestActionForm } from "./tools/request-action-form";
+import { requestContactPicker } from "./tools/request-contact-picker";
 
 const gateway = createGateway({
   apiKey: process.env.AI_GATEWAY_API_KEY,
@@ -49,5 +51,7 @@ export const copilot = new Agent({
     getReceiveInfo,
     getUserStats,
     getProtocolMetrics,
+    requestActionForm,
+    requestContactPicker,
   },
 });
