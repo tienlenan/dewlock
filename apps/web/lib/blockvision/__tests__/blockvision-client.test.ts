@@ -40,17 +40,19 @@ afterEach(() => {
   delete process.env.BLOCKVISION_API_KEY;
 });
 
-describe("BlockVision client — missing key", () => {
-  it("returns a degraded overview without calling fetch", async () => {
+describe("BlockVision client — missing key falls back to official Sui RPC", () => {
+  it("stays fail-soft (no throw, never fabricates) when BlockVision + RPC are both down", async () => {
     delete process.env.BLOCKVISION_API_KEY;
-    const spy = vi.fn();
-    vi.stubGlobal("fetch", spy);
+    // All network mocked to fail: BlockVision returns null, and the official-RPC coins
+    // fallback (getPortfolio) fail-softs to an empty portfolio. The overview must remain
+    // safe — empty coins, a real 0 total (never a fabricated number), no throw. The
+    // happy fallback (coins priced via official RPC) is covered by live integration.
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({}, false, 404)));
     const ov = await getWalletOverview(ADDR);
-    expect(spy).not.toHaveBeenCalled();
-    expect(ov.degraded).toBe(true);
     expect(ov.coins).toEqual([]);
-    expect(ov.totalUsdValue).toBeNull();
-    expect(ov.onchainTxCount).toBeNull();
+    expect(ov.totalUsdValue).toBe(0);
+    expect(ov.onchainTxCount).toBeNull(); // activity feed is indexer-only
+    expect(ov.degraded).toBe(true);
     vi.unstubAllGlobals();
   });
 });

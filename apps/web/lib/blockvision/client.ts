@@ -11,6 +11,11 @@
  *   - FAIL-SOFT — any error / missing key returns a degraded result, never throws
  *     and never fabricates a number. Absence is surfaced honestly to the UI.
  *
+ * Coins additionally fall back to the official Sui JSON-RPC (getAllBalances + on-chain
+ * CoinMetadata + trusted prices) when BlockVision's account endpoint is unavailable —
+ * so the portfolio value renders without any third-party indexer / Blockberry. The
+ * activity feed stays indexer-only (null when unavailable).
+ *
  * BlockVision conventions (from the agent's suivision-coins fetcher): success is
  * `code === 200`, the query param is `account=`, auth header is `x-api-key`.
  *
@@ -144,12 +149,76 @@ export async function fetchAccountActivities(
   return { total, recent };
 }
 
+/**
+ * Official Sui JSON-RPC fallback for the wallet's coins, used when BlockVision's
+ * account endpoint is unavailable (no key / Indexing API trial exhausted). Reuses the
+ * agent's getPortfolio tool whose final tier is the official Sui RPC (getAllBalances +
+ * on-chain CoinMetadata + the trusted price source) — no third-party indexer / Blockberry
+ * required. Lazy require keeps the Mastra tool out of this lib's bundle (resolved at
+ * runtime via serverExternalPackages, same pattern as the API routes). Fail-soft → null.
+ */
+async function fetchRpcCoins(
+  account: string,
+): Promise<{ coins: BvCoin[]; totalUsdValue: number } | null> {
+  try {
+    // Register + warm the live USD price oracle (CoinGecko) so non-SUI/non-stable coins
+    // (WAL/CETUS/DEEP/…) are priced on this route. The agent route warms it on its own;
+    // this dashboard route otherwise leaves the provider cold → those coins read as $0.
+    try {
+      /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+      const { refreshUsdPrices } = require("@dewlock/sui/price-oracle") as {
+        refreshUsdPrices: () => Promise<void>;
+      };
+      await refreshUsdPrices();
+    } catch {
+      /* fail-soft — coins without a warm price show as unpriced, never fabricated */
+    }
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const { getPortfolio } = require("@dewlock/agent/tools/get-portfolio") as {
+      getPortfolio: {
+        execute: (i: { walletAddress: string }) => Promise<{
+          balances: Array<{
+            coinType: string;
+            displayTicker: string;
+            nativeBalance: string;
+            estimatedUsdValue: number | null;
+            decimals: number;
+            iconUrl: string | null;
+            priceUsd: number | null;
+            verified: boolean;
+          }>;
+          totalEstimatedUsdValue: number;
+        }>;
+      };
+    };
+    const p = await getPortfolio.execute({ walletAddress: account });
+    const coins: BvCoin[] = p.balances.map((b) => ({
+      coinType: b.coinType,
+      symbol: b.displayTicker,
+      name: b.displayTicker,
+      decimals: b.decimals,
+      balance: b.nativeBalance,
+      usdValue: b.estimatedUsdValue ?? 0,
+      price: b.priceUsd ?? 0,
+      verified: b.verified,
+      logo: b.iconUrl ?? "",
+    }));
+    return { coins, totalUsdValue: p.totalEstimatedUsdValue };
+  } catch {
+    return null; // fail-soft — caller surfaces an honest degraded state
+  }
+}
+
 /** Combined wallet overview — coins + activity, fail-soft + degraded flag. */
 export async function getWalletOverview(account: string): Promise<WalletOverview> {
-  const [coinsRes, actsRes] = await Promise.all([
+  const [bvCoins, actsRes] = await Promise.all([
     fetchAccountCoins(account),
     fetchAccountActivities(account),
   ]);
+  // Coins: BlockVision's enriched account endpoint first, else fall back to the official
+  // Sui JSON-RPC (no Blockberry needed). Activity (onchainTxCount/recent) remains
+  // indexer-only and stays null when unavailable — surfaced honestly as "—" by the UI.
+  const coinsRes = bvCoins ?? (await fetchRpcCoins(account));
   return {
     degraded: coinsRes == null || actsRes == null,
     totalUsdValue: coinsRes?.totalUsdValue ?? null,
