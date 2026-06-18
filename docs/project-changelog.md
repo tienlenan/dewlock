@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-06-19 — Clear-all reliability + verified token registry expansion
+
+### Fixed
+- **"Clear all conversations" now sticks** (was repeatedly "fixed" but kept reappearing).
+  Root cause: memwal is append-only with capped, semantic recall, so the clear tombstone
+  could fall outside the recalled set and a stale index pointer would win — the cleared
+  list came back. `clearConversations` now writes BOTH an empty index blob (the newest
+  pointer resolves to an empty list) AND the tombstone; `readIndex` returns empty if either
+  wins. Client-side, `clearAll` also drops the in-memory thread cache + created-at stamps so
+  nothing can resurrect a cleared thread within the session. (Conversations live in Walrus,
+  not localStorage — there is no browser-storage copy to clear.) Regression test simulates
+  the dropped-tombstone failure.
+
+### Added
+- **Verified token registry expansion** — on-chain CoinMetadata-verified logos for
+  DEEP/WETH/WBTC/WAL/NS/BLUE, plus 13 new recognition-only entries (haSUI, afSUI, vSUI, SCA,
+  NAVX, BUCK, AUSD, SEND, TURBOS, and memes FUD/BLUB/LOFI). Every coin type confirmed via
+  CoinMetadata (symbol + decimals matched — scam-clone defense); every logo URL HTTP-200
+  verified. Recognition-only entries are `swappable:false` (NOT in the Guardian allowlist):
+  the portfolio shows their logo and the copilot recognises them by symbol, while any value
+  move still fail-closes at the Guardian. The deterministic intent parser now resolves these
+  to a `swappable:false` swap intent (the directive layer explains "not swappable yet"
+  instead of the LLM guessing an address). Symbol matching is case-insensitive, so the
+  canonical mixed-case staking tickers (haSUI/afSUI/vSUI) are preserved.
+
 ## 2026-06-19 — Suilend lend-deposit + multi-hop swap fixes
 
 ### Fixed
