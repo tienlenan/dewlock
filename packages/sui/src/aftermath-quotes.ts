@@ -20,14 +20,15 @@
 import { COIN_TYPES, COIN_DECIMALS } from "./allowlist";
 import { isFixtureMode, QuoteFetchError, type SwapQuote } from "./quotes-source";
 
-// esmImport: keeps the native dynamic import opaque to tsc so it is NOT downleveled
-// to require() (which would break ESM-only packages). Same pattern as build-lend.ts.
-const esmImport = new Function("s", "return import(s)") as <T = unknown>(s: string) => Promise<T>;
-
 type AftermathSdk = typeof import("aftermath-ts-sdk");
 
-async function loadAftermathSdk(): Promise<AftermathSdk> {
-  return esmImport<AftermathSdk>("aftermath-ts-sdk");
+function loadAftermathSdk(): AftermathSdk {
+  // STATIC require of the esbuild-prebundled CJS copy (sdk-bundles/aftermath.cjs) — same
+  // rationale as build-aftermath-swap.ts: a static relative require is traced + included
+  // by Next, so the SDK ships in the serverless function, whereas the bare ESM package
+  // sits behind a pnpm symlink the Vercel packager strips ("Cannot find package").
+  /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+  return require("../sdk-bundles/aftermath.cjs") as AftermathSdk;
 }
 
 /**
