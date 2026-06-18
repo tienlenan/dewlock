@@ -6,7 +6,6 @@
  * Responsibilities:
  *  - Owns the messages array (user + assistant with embedded tool cards).
  *  - Streams /api/agent responses, parsing NDJSON lines into text deltas and cards.
- *  - Handles /api/prepare-trade demo results, converting them directly to cards.
  *  - Exposes onReplaceCard so ChatThread can swap a card when the user
  *    confirms (tx-preview → receipt) or cancels (tx-preview → wysiwys-error).
  *
@@ -25,11 +24,14 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage, ToolCard, PendingTx } from "./chat-thread";
-import type { DemoAction } from "./chat-input";
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
 import type { ApiResponse as ProtocolsData } from "@/components/protocols/protocol-list";
 import type { SwapOptionsData } from "@/components/chat/swap-options-card";
+import type { LendOptionsData } from "@/components/chat/lend-options-card";
+import type { SwapFormData } from "@/components/chat/swap-form-card";
+import type { ActionFormData } from "@/components/chat/action-form-card";
+import type { ContactPickerData } from "@/components/chat/contact-picker-card";
 import type { ReceiveCardData } from "@/components/receive-card";
 import type { UserStatsData, BadgeStateDto } from "@/components/dashboard/types";
 
@@ -149,6 +151,18 @@ function toolResultToCard(toolName: string, result: unknown): ToolCard | null {
   if (toolName === "getSwapOptions" && hasKeys(result, ["options", "coinTypeIn"])) {
     return { type: "swap-options", swapOptions: result as unknown as SwapOptionsData };
   }
+  if (toolName === "getLendOptions" && hasKeys(result, ["options", "coinType", "verb"])) {
+    return { type: "lend-options", lendOptions: result as unknown as LendOptionsData };
+  }
+  if (toolName === "getSwapForm" && hasKeys(result, ["coins"])) {
+    return { type: "swap-form", swapForm: result as unknown as SwapFormData };
+  }
+  if (toolName === "requestActionForm" && hasKeys(result, ["formAction", "needs"])) {
+    return { type: "action-form", form: result as unknown as ActionFormData };
+  }
+  if (toolName === "requestContactPicker" && hasKeys(result, ["candidates", "query"])) {
+    return { type: "contact-picker", picker: result as unknown as ContactPickerData };
+  }
   if (toolName === "getReceiveInfo" && hasKeys(result, ["address", "qrData"])) {
     return { type: "receive", receive: result as unknown as ReceiveCardData };
   }
@@ -170,19 +184,33 @@ function toolResultToCard(toolName: string, result: unknown): ToolCard | null {
 // Stable ID generator
 // ---------------------------------------------------------------------------
 
+// IDs must stay unique even after rehydrating a saved conversation (whose
+// messages already carry msg-* ids) — a plain reset-on-reload counter collides
+// with rehydrated ids. Prefer crypto.randomUUID; fall back to counter+entropy.
 let idSeq = 0;
 function nextId() {
-  return `msg-${++idSeq}`;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `msg-${crypto.randomUUID()}`;
+  }
+  return `msg-${++idSeq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useCopilotChat(walletAddress: string) {
+export function useCopilotChat(
+  walletAddress: string,
+  // The freshest friend book — passed to /api/agent so "send to <name>" resolves a
+  // just-added/deleted contact without waiting on memwal indexing (~30s lag). A ref keeps
+  // sendMessage's identity stable while always sending the latest list.
+  contacts: { name: string; address: string }[] = [],
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const currentAssistantId = useRef<string | null>(null);
+  const contactsRef = useRef(contacts);
+  contactsRef.current = contacts;
 
   /** Append a text delta to the last assistant message. */
   const appendText = useCallback((delta: string) => {
@@ -225,44 +253,6 @@ export function useCopilotChat(walletAddress: string) {
   );
 
   /**
-   * Handle a /api/prepare-trade demo result (no LLM involved).
-   * Adds a user bubble labelled with the action, then an assistant bubble with the card.
-   */
-  const onDemoResult = useCallback((action: DemoAction, result: unknown) => {
-    const userMsg: ChatMessage = {
-      id: nextId(),
-      role: "user",
-      text: action.label,
-      cards: [],
-    };
-
-    let card: ToolCard;
-    if (isPrepareTradeResult(result)) {
-      card = result.ok ? makePreviewCard(result) : makeBlockCard(result);
-    } else {
-      card = {
-        type: "block",
-        blockReasons: ["Unexpected response from server."],
-        blockGates: ["network"],
-      };
-    }
-
-    const isPass =
-      isPrepareTradeResult(result) && result.ok;
-
-    const assistantMsg: ChatMessage = {
-      id: nextId(),
-      role: "assistant",
-      text: isPass
-        ? "Guardian approved. Review the transaction details below before signing."
-        : "Guardian blocked this transaction. See the details below.",
-      cards: [card],
-    };
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-  }, []);
-
-  /**
    * Send a free-text message through /api/agent (LLM path).
    * Streams the NDJSON response, building the assistant message incrementally.
    */
@@ -301,7 +291,7 @@ export function useCopilotChat(walletAddress: string) {
         const res = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages: historyForAgent, walletAddress }),
+          body: JSON.stringify({ messages: historyForAgent, walletAddress, contacts: contactsRef.current }),
         });
 
         if (!res.ok || !res.body) {
@@ -380,5 +370,15 @@ export function useCopilotChat(walletAddress: string) {
     [isStreaming, messages, walletAddress, appendText, appendCard],
   );
 
-  return { messages, isStreaming, sendMessage, onDemoResult, onReplaceCard };
+  /** Replace the whole thread (rehydrate a saved conversation). */
+  const loadMessages = useCallback((msgs: ChatMessage[]) => {
+    setMessages(msgs);
+  }, []);
+
+  /** Clear the thread (start a new conversation). */
+  const reset = useCallback(() => {
+    setMessages([]);
+  }, []);
+
+  return { messages, isStreaming, sendMessage, onReplaceCard, loadMessages, reset };
 }

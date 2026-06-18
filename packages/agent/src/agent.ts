@@ -20,6 +20,8 @@ import { prepareTrade } from "./tools/prepare-trade";
 import { getPortfolio } from "./tools/get-portfolio";
 import { listProtocols } from "./tools/list-protocols";
 import { getSwapOptions } from "./tools/get-swap-options";
+import { getLendOptions } from "./tools/get-lend-options";
+import { getSwapForm } from "./tools/get-swap-form";
 import { getReceiveInfo } from "./tools/get-receive-info";
 import { getUserStats } from "./tools/get-user-stats";
 import { getProtocolMetrics } from "./tools/get-protocol-metrics";
@@ -42,6 +44,8 @@ export const copilot = new Agent({
     prepareTrade,
     listProtocols,
     getSwapOptions,
+    getLendOptions,
+    getSwapForm,
     getReceiveInfo,
     getUserStats,
     getProtocolMetrics,

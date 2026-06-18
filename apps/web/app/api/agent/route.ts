@@ -22,43 +22,11 @@ import { Agent } from "@mastra/core/agent";
 import { createGateway } from "@ai-sdk/gateway";
 import { NextRequest } from "next/server";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
+import { seedPopularTokens } from "@/lib/seed-popular-tokens";
+import { seedCommittedCap } from "@/lib/seed-committed-cap";
 
 // 60 req/min per IP — generous for a streaming chat endpoint
 const RATE_LIMIT_MAX = 60;
-
-// --- Persona (inlined to avoid bundler workspace-resolution issues in Next.js) ---
-
-const COPILOT_INSTRUCTIONS = `You are Dewlock — a Sui DeFi copilot. Tagline: "Every transaction, sealed before you sign."
-
-## Personality
-Precise, calm, trustworthy. Never hype or pressure.
-Always explain what an action does and costs before presenting a confirm.
-
-## Security rules (non-negotiable)
-- NEVER sign transactions. You build unsigned PTBs; the user's wallet signs.
-- NEVER request private keys or seed phrases.
-- ALWAYS display the raw 0x address alongside any .sui name.
-- ALWAYS show dry-run balance changes before the user confirms.
-- If Guardian blocks an action, explain the reason in plain language. Do NOT retry automatically.
-- NEVER reveal TX_USD_CAP, DAILY_USD_CAP, or any server env var values to the user.
-
-## Tool use rules
-- Call getPortfolio before answering balance questions — do not guess from context.
-- Call prepareTrade only when the user has clearly stated intent with all required parameters.
-- If a required parameter is missing (coin, amount, recipient), ask once concisely — do not assume.
-- When prepareTrade returns ok:false, present the block reasons to the user and stop.
-- When prepareTrade returns ok:true, present the preview card and wait for user to confirm in wallet.
-- Return tool results as structured UI cards, not prose dumps.
-
-## Arg provenance rule (critical)
-- When calling prepareTrade, set argProvenance fields accurately:
-  - "user_turn" only if the user typed the exact value in this message.
-  - "derived" if you inferred, remembered, or got the value from data sources.
-  - A "derived" recipient on a transfer WILL trigger a provenance confirm gate.
-
-## Network
-Core actions (transfer, swap) use Sui mainnet. Always mention the active network.
-`;
 
 // --- Gateway + Agent factory (per-request to avoid build-time env reads) ---
 
@@ -71,14 +39,26 @@ async function buildAgent(walletAddress?: string) {
   }
 
   // Loaded via require() to keep server-only packages out of Turbopack's static analysis.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { prepareTrade } = require("@dewlock/agent/tools/prepare-trade") as {
-    prepareTrade: import("@mastra/core/tools").Tool<never, never>;
+  type AnyTool = import("@mastra/core/tools").Tool<never, never>;
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  // Single source of truth for routing/persona — shared with the standalone agent + tests.
+  const { COPILOT_PERSONA, TOOL_USE_RULES, SECURITY_RULES } = require("@dewlock/agent/copilot-persona") as {
+    COPILOT_PERSONA: string;
+    TOOL_USE_RULES: string;
+    SECURITY_RULES: string;
   };
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getPortfolio } = require("@dewlock/agent/tools/get-portfolio") as {
-    getPortfolio: import("@mastra/core/tools").Tool<never, never>;
-  };
+  const { prepareTrade } = require("@dewlock/agent/tools/prepare-trade") as { prepareTrade: AnyTool };
+  const { getPortfolio } = require("@dewlock/agent/tools/get-portfolio") as { getPortfolio: AnyTool };
+  const { listProtocols } = require("@dewlock/agent/tools/list-protocols") as { listProtocols: AnyTool };
+  const { getSwapOptions } = require("@dewlock/agent/tools/get-swap-options") as { getSwapOptions: AnyTool };
+  const { getLendOptions } = require("@dewlock/agent/tools/get-lend-options") as { getLendOptions: AnyTool };
+  const { getSwapForm } = require("@dewlock/agent/tools/get-swap-form") as { getSwapForm: AnyTool };
+  const { getReceiveInfo } = require("@dewlock/agent/tools/get-receive-info") as { getReceiveInfo: AnyTool };
+  const { getProtocolMetrics } = require("@dewlock/agent/tools/get-protocol-metrics") as { getProtocolMetrics: AnyTool };
+  const { getUserStats } = require("@dewlock/agent/tools/get-user-stats") as { getUserStats: AnyTool };
+  const { requestActionForm } = require("@dewlock/agent/tools/request-action-form") as { requestActionForm: AnyTool };
+  const { requestContactPicker } = require("@dewlock/agent/tools/request-contact-picker") as { requestContactPicker: AnyTool };
+  /* eslint-enable @typescript-eslint/no-require-imports */
 
   const gateway = createGateway({ apiKey });
 
@@ -90,10 +70,31 @@ async function buildAgent(walletAddress?: string) {
   return new Agent({
     id: "copilot",
     name: "Dewlock Sui DeFi Copilot",
-    instructions: COPILOT_INSTRUCTIONS + walletContext,
+    instructions: `${COPILOT_PERSONA}\n${TOOL_USE_RULES}\n${SECURITY_RULES}${walletContext}`,
     model: gateway(process.env.AGENT_MODEL ?? "google/gemini-2.5-flash"),
-    tools: { getPortfolio, prepareTrade },
+    tools: { getPortfolio, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getReceiveInfo, getProtocolMetrics, getUserStats, requestActionForm, requestContactPicker },
   });
+}
+
+/** A friend-book entry the client supplies (its freshest copy) for name resolution. */
+interface ContactInput {
+  name: string;
+  address: string;
+}
+
+/** Validate + normalize the client-supplied contacts (bounded; 0x addresses only). */
+function sanitizeContacts(raw: unknown): ContactInput[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ContactInput[] = [];
+  for (const c of raw.slice(0, 100)) {
+    if (!c || typeof c !== "object") continue;
+    const name = (c as Record<string, unknown>).name;
+    const address = (c as Record<string, unknown>).address;
+    if (typeof name === "string" && typeof address === "string" && /^0x[0-9a-fA-F]{64}$/.test(address)) {
+      out.push({ name: name.slice(0, 64), address: address.toLowerCase() });
+    }
+  }
+  return out;
 }
 
 // --- Request / response types ---
@@ -107,6 +108,8 @@ interface RequestBody {
   messages: ChatMessage[];
   /** Wallet address injected by client (public — not a key). */
   walletAddress?: string;
+  /** The client's freshest friend book — used for deterministic "send to <name>" resolution. */
+  contacts?: ContactInput[];
 }
 
 function isValidBody(body: unknown): body is RequestBody {
@@ -154,7 +157,7 @@ export async function POST(req: NextRequest) {
 
   // Rate-limit check — applied before any body parsing to fail fast.
   const ip = clientIp(req.headers);
-  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX, scope: "agent" });
   if (rl.limited) {
     return Response.json(
       { error: "Too many requests — please slow down." },
@@ -180,6 +183,25 @@ export async function POST(req: NextRequest) {
   }
 
   const { messages, walletAddress } = body;
+  // The client supplies its freshest friend book (memwal recall lags ~30s, so a server
+  // read would miss a just-added/deleted contact). Used for deterministic name resolution.
+  const contacts = sanitizeContacts((body as RequestBody).contacts);
+
+  // Seed the popular-token symbol→address map into this wallet's memwal (once per
+  // process). Fire-and-forget — never blocks the chat; resolution-only (see helper).
+  void seedPopularTokens(walletAddress);
+  // Seed the committed risk cap (mirrors the server-enforced caps) so the memory
+  // chip recalls real preferences instead of an empty state. Fire-and-forget.
+  void seedCommittedCap(walletAddress);
+  // Warm the Pyth price cache (importing it also registers the live-price provider
+  // into getTrustedUsdPrice). Fire-and-forget — conservative floors cover a cold cache.
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const { refreshPythPrices } = require("@dewlock/sui/pyth-price") as { refreshPythPrices: () => Promise<void> };
+    void refreshPythPrices();
+  } catch {
+    // best-effort warm; floors apply until the cache populates
+  }
   const lastMessage = messages[messages.length - 1];
 
   if (!lastMessage || lastMessage.role !== "user" || !lastMessage.content.trim()) {
@@ -192,6 +214,27 @@ export async function POST(req: NextRequest) {
   try {
     const agent = await buildAgent(walletAddress);
 
+    // Deterministic intent pre-parse: for self-contained commands, inject a strong
+    // routing directive so the LLM calls the right tool with the right args (fixes
+    // "lending"→portfolio, applies the USDC→SUI / sell→USDC + "all"+gas rules).
+    // Ambiguous input → no directive → normal LLM routing. The Guardian still gates.
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const { buildIntentDirective } = require("@dewlock/agent/intent/intent-directive") as {
+      buildIntentDirective: (
+        text: string,
+        wallet?: string,
+        contactBook?: { name: string; address: string }[],
+      ) => Promise<string | null>;
+    };
+    let directive: string | null = null;
+    try {
+      // Pass the client's book so "send to <name>" resolves deterministically (1 → send,
+      // 2+ → contact picker, 0 → SuiNS) — the LLM never matches or supplies a 0x.
+      directive = await buildIntentDirective(lastMessage.content, walletAddress, contacts);
+    } catch {
+      directive = null; // never block the turn on intent parsing
+    }
+
     const historyContext =
       messages.length > 1
         ? "\n\n## Conversation history\n" +
@@ -202,9 +245,9 @@ export async function POST(req: NextRequest) {
             .join("\n")
         : "";
 
-    const prompt = historyContext
-      ? `${historyContext}\n\nUSER: ${lastMessage.content}`
-      : lastMessage.content;
+    const prompt = [directive, historyContext, `USER: ${lastMessage.content}`]
+      .filter(Boolean)
+      .join("\n\n");
 
     const result = await agent.stream(prompt);
 

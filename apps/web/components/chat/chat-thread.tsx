@@ -27,21 +27,25 @@ import { PortfolioCard } from "@/components/portfolio-card";
 import { ReceiptCard, type ReceiptStatus } from "@/components/receipt-card";
 import { ProtocolList, type ApiResponse as ProtocolsData } from "@/components/protocols/protocol-list";
 import { SwapOptionsCard, type SwapOptionsData } from "@/components/chat/swap-options-card";
+import { LendOptionsCard, type LendOptionsData } from "@/components/chat/lend-options-card";
+import { SwapFormCard, type SwapFormData } from "@/components/chat/swap-form-card";
+import { ActionFormCard, type ActionFormData } from "@/components/chat/action-form-card";
+import { ContactPickerCard, type ContactPickerData } from "@/components/chat/contact-picker-card";
 import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
-import { UserStatsCard } from "@/components/dashboard/user-stats-card";
-import { BadgeGrid } from "@/components/dashboard/badge-grid";
+import { ProfileChatCard } from "@/components/dashboard/profile-chat-card";
 import { ProtocolMetricsSection } from "@/components/dashboard/protocol-metrics-section";
 import type { UserStatsData, BadgeStateDto } from "@/components/dashboard/types";
 import {
   MemoryChip,
-  SAMPLE_MEMORY_CHIPS,
   useRecalledMemory,
   buildRecalledChips,
 } from "@/components/app/memory-chip";
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
-import { useSignAndExecuteTx, WysiwysError } from "@dewlock/sui/sign";
-import { useReceiptReadiness, type ReceiptReadiness } from "./use-receipt-readiness";
+import { useSignAndExecuteTx, WysiwysError } from "@/lib/use-sign-and-execute-tx";
+import { emitTxConfirmed } from "@/lib/tx-events";
+import { useReceiptStream } from "./use-receipt-stream";
+import { ReceiptProgressInline } from "./receipt-progress-inline";
 
 // ---------------------------------------------------------------------------
 // Shared types — keep identical to preserve contract with use-copilot-chat
@@ -60,6 +64,8 @@ export interface TxReceipt {
   blobId?: string | null;
   /** Sui anchor HEAD object id (null until anchor resolves). */
   anchorObjectId?: string | null;
+  /** Resolved Sui object (HEAD anchor or on-chain Walrus Blob object). */
+  suiObjectId?: string | null;
   /** Async receipt pipeline status. */
   status?: ReceiptStatus;
 }
@@ -70,6 +76,10 @@ export type ToolCard =
   | { type: "portfolio"; portfolio: PortfolioCardProps }
   | { type: "protocols"; protocols: ProtocolsData }
   | { type: "swap-options"; swapOptions: SwapOptionsData }
+  | { type: "lend-options"; lendOptions: LendOptionsData }
+  | { type: "swap-form"; swapForm: SwapFormData }
+  | { type: "action-form"; form: ActionFormData }
+  | { type: "contact-picker"; picker: ContactPickerData }
   | { type: "receive"; receive: ReceiveCardData }
   | {
       type: "user-stats";
@@ -104,6 +114,8 @@ interface ChatThreadProps {
   onReplaceCard: (messageId: string, cardIndex: number, replacement: ToolCard) => void;
   /** Signer's public wallet address — used to key the Sui receipt anchor HEAD. */
   walletAddress?: string;
+  /** Send a new chat message — used by card quick-actions (e.g. portfolio row sell/send). */
+  onSend?: (text: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +147,7 @@ function DewdropAvatar({ variant = "normal" }: { variant?: "normal" | "blocked" 
 // Root component
 // ---------------------------------------------------------------------------
 
-export function ChatThread({ messages, onReplaceCard, walletAddress }: ChatThreadProps) {
+export function ChatThread({ messages, onReplaceCard, walletAddress, onSend }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const isEmpty = messages.length === 0;
 
@@ -180,6 +192,7 @@ export function ChatThread({ messages, onReplaceCard, walletAddress }: ChatThrea
             message={msg}
             onReplaceCard={onReplaceCard}
             walletAddress={walletAddress}
+            onSend={onSend}
           />
         ))}
 
@@ -204,9 +217,9 @@ function WelcomeRow({
   // Returns null while loading; { hasReal: false } when memwal not configured.
   const recalled = useRecalledMemory(walletAddress);
 
-  const chips = recalled?.hasReal
-    ? buildRecalledChips(recalled)
-    : SAMPLE_MEMORY_CHIPS;
+  // Only show memory chips when memwal returned REAL recalled preferences.
+  // No sample/fabricated chips — an honest generic line is shown otherwise.
+  const chips = recalled?.hasReal ? buildRecalledChips(recalled) : [];
   const isReal = Boolean(recalled?.hasReal);
 
   return (
@@ -219,28 +232,16 @@ function WelcomeRow({
           <strong>you</strong> sign.
         </div>
 
-        {showMemory && chips.length > 0 && (
+        {showMemory && isReal && chips.length > 0 && (
           <>
-            {/* Memory recall note — real when memwal configured, sample otherwise */}
+            {/* Real recalled memory — only shown when memwal returned data */}
             <div style={{ marginTop: 7, fontSize: "12.5px", color: "var(--fg-muted)" }}>
-              {isReal
-                ? "I recall your preferences from memory:"
-                : "I remember your preferences (sample):"}
+              I recall your preferences from memory:
             </div>
-
-            {/* Memory chips */}
             <div className="flex flex-wrap gap-1.5 mt-3">
               {chips.map((chip) => (
                 <MemoryChip key={chip} text={chip} />
               ))}
-              {!isReal && (
-                <span
-                  className="split-mono self-center"
-                  style={{ fontSize: "9px", color: "var(--fg-faint)", marginLeft: 2 }}
-                >
-                  · sample
-                </span>
-              )}
             </div>
           </>
         )}
@@ -257,15 +258,18 @@ function MessageRow({
   message,
   onReplaceCard,
   walletAddress,
+  onSend,
 }: {
   message: ChatMessage;
   onReplaceCard: (messageId: string, cardIndex: number, replacement: ToolCard) => void;
   walletAddress?: string;
+  onSend?: (text: string) => void;
 }) {
   const isUser = message.role === "user";
 
   // Detect if this assistant message has a block card — use blocked avatar
-  const hasBlock = message.cards.some((c) => c.type === "block");
+  const cards = message.cards ?? [];
+  const hasBlock = cards.some((c) => c.type === "block");
 
   if (isUser) {
     return (
@@ -278,6 +282,10 @@ function MessageRow({
             padding: "10px 14px",
             borderRadius: "14px 14px 4px 14px",
             fontSize: "14px",
+            // Break long unbroken tokens (0x addresses, hashes) so they wrap
+            // inside the bubble instead of overflowing it.
+            overflowWrap: "anywhere",
+            whiteSpace: "pre-wrap",
           }}
         >
           {message.text}
@@ -293,7 +301,7 @@ function MessageRow({
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Assistant text */}
         {(message.text || message.streaming) && (
-          <div style={{ fontSize: "14px", color: "var(--fg)", marginBottom: 10, lineHeight: 1.55 }}>
+          <div style={{ fontSize: "14px", color: "var(--fg)", marginBottom: 10, lineHeight: 1.55, overflowWrap: "anywhere" }}>
             {message.text}
             {message.streaming && (
               <span
@@ -313,12 +321,13 @@ function MessageRow({
         )}
 
         {/* Tool cards */}
-        {message.cards.map((card, idx) => (
+        {cards.map((card, idx) => (
           <CardSlot
             key={idx}
             card={card}
             onReplace={(replacement) => onReplaceCard(message.id, idx, replacement)}
             walletAddress={walletAddress}
+            onSend={onSend}
           />
         ))}
       </div>
@@ -334,10 +343,12 @@ function CardSlot({
   card,
   onReplace,
   walletAddress,
+  onSend,
 }: {
   card: ToolCard;
   onReplace: (replacement: ToolCard) => void;
   walletAddress?: string;
+  onSend?: (text: string) => void;
 }) {
   if (card.type === "tx-preview") {
     return (
@@ -352,7 +363,17 @@ function CardSlot({
     return <BlockCard reasons={card.blockReasons} gates={card.blockGates} />;
   }
   if (card.type === "portfolio") {
-    return <PortfolioCard {...card.portfolio} />;
+    return (
+      <PortfolioCard
+        {...card.portfolio}
+        onAction={
+          onSend
+            ? (kind, ticker) =>
+                onSend(kind === "swap" ? `Sell all ${ticker}` : `Send ${ticker}`)
+            : undefined
+        }
+      />
+    );
   }
   if (card.type === "protocols") {
     return <ProtocolList data={card.protocols} />;
@@ -360,16 +381,38 @@ function CardSlot({
   if (card.type === "swap-options") {
     return <SwapOptionsCard data={card.swapOptions} />;
   }
+  if (card.type === "lend-options") {
+    const lo = card.lendOptions;
+    return (
+      <LendOptionsCard
+        data={lo}
+        onChoose={
+          onSend
+            ? (protocol) => {
+                const verb = lo.verb === "repay" ? "repay" : "deposit";
+                const amt = lo.amountHuman ? `${lo.amountHuman} ` : "";
+                onSend(`${verb} ${amt}${lo.coinSymbol} to ${protocol}`);
+              }
+            : undefined
+        }
+      />
+    );
+  }
+  if (card.type === "swap-form") {
+    return <SwapFormCard data={card.swapForm} onSend={onSend} />;
+  }
+  if (card.type === "action-form") {
+    return <ActionFormCard form={card.form} onSend={onSend} />;
+  }
+  if (card.type === "contact-picker") {
+    return <ContactPickerCard data={card.picker} onSend={onSend} />;
+  }
   if (card.type === "receive") {
     return <ReceiveCard data={card.receive} />;
   }
   if (card.type === "user-stats") {
-    return (
-      <div className="flex flex-col gap-3">
-        <UserStatsCard stats={card.userStats.stats} />
-        <BadgeGrid earned={card.userStats.badges.earned} locked={card.userStats.badges.locked} />
-      </div>
-    );
+    // Self-fetches the durable profile for the connected wallet (real level/badges).
+    return <ProfileChatCard walletAddress={walletAddress} />;
   }
   if (card.type === "protocol-metrics") {
     // Self-fetches /api/metrics for live TVL (registry counts come from the tool result).
@@ -382,6 +425,7 @@ function CardSlot({
         approvedDigest={card.receipt.approvedDigest}
         blobId={card.receipt.blobId}
         anchorObjectId={card.receipt.anchorObjectId}
+        suiObjectId={card.receipt.suiObjectId}
         status={card.receipt.status}
       />
     );
@@ -460,28 +504,43 @@ function TxPreviewCardWithSigning({
     approvedDigest: pendingTx.approvedDigest,
   });
 
-  // Readiness callback: patches the receipt card in-place when blob/anchor land.
-  const handleReadiness = useCallback(
-    (readiness: ReceiptReadiness) => {
-      onReplace({
-        type: "receipt",
-        receipt: {
-          txDigest: txDigestRef.current,
-          approvedDigest: pendingTx.approvedDigest,
-          blobId: readiness.blobId,
-          anchorObjectId: readiness.anchorObjectId,
-          // "not_found" is a poll-only internal state; surface it as blob_only to the card.
-          status: readiness.status === "not_found" ? "blob_only" : readiness.status,
-        },
-      });
-    },
-    [onReplace, pendingTx.approvedDigest],
-  );
+  // SSE receipt pipeline — streams live per-step progress into the dialog.
+  const receiptStream = useReceiptStream();
 
-  const { submitReceipt, cancel: cancelReceipt } = useReceiptReadiness(handleReadiness);
+  // Reset the stream on unmount (aborts the fetch reader).
+  useEffect(() => receiptStream.reset, [receiptStream.reset]);
 
-  // Cancel any in-flight receipt poll on unmount.
-  useEffect(() => cancelReceipt, [cancelReceipt]);
+  // Commits the final receipt card into the thread (it replaces THIS component,
+  // ending the inline progress). Called automatically once the pipeline finishes.
+  const commitReceipt = useCallback(() => {
+    const r = receiptStream.state.result;
+    onReplace({
+      type: "receipt",
+      receipt: {
+        txDigest: txDigestRef.current,
+        approvedDigest: pendingTx.approvedDigest,
+        blobId: r?.blobId ?? null,
+        anchorObjectId: r?.anchorObjectId ?? null,
+        suiObjectId: r?.suiObjectId ?? null,
+        status: r?.status ?? "blob_only",
+      },
+    });
+    receiptStream.reset();
+  }, [receiptStream, onReplace, pendingTx.approvedDigest]);
+
+  // Auto-commit ~1.4s after the pipeline settles — long enough to read the final
+  // "saved" state, then the inline progress resolves into the durable receipt card.
+  // Ref-indirected so commitReceipt's changing identity can't reschedule the timer.
+  const commitRef = useRef(commitReceipt);
+  commitRef.current = commitReceipt;
+  const finished =
+    !receiptStream.state.active &&
+    (receiptStream.state.result !== null || receiptStream.state.error !== null);
+  useEffect(() => {
+    if (!finished) return;
+    const t = setTimeout(() => commitRef.current(), 1400);
+    return () => clearTimeout(t);
+  }, [finished]);
 
   async function handleConfirm() {
     setIsPending(true);
@@ -492,21 +551,13 @@ function TxPreviewCardWithSigning({
       const digest = (resp as { digest: string }).digest;
       txDigestRef.current = digest;
 
-      // Render the receipt card immediately with pending status (no layout shift).
-      onReplace({
-        type: "receipt",
-        receipt: {
-          txDigest: digest,
-          approvedDigest: pendingTx.approvedDigest,
-          blobId: null,
-          anchorObjectId: null,
-          status: "pending",
-        },
-      });
+      // Tell balance views to refetch — the wallet balance changed on-chain.
+      emitTxConfirmed();
 
-      // Fire-and-forget the async receipt pipeline.
-      // onReadiness will patch the card when blobId / anchorObjectId resolve.
-      void submitReceipt({
+      // Stream the receipt pipeline (blob → memwal XP → profile → anchor) into the
+      // inline progress panel below the card. The receipt card is committed to the
+      // thread automatically once the pipeline finishes (commitReceipt).
+      void receiptStream.start({
         txDigest: digest,
         approvedDigest: pendingTx.approvedDigest,
         action: pendingTx.preview.actionLabel ?? "transfer",
@@ -519,6 +570,9 @@ function TxPreviewCardWithSigning({
         dryRunEffects: pendingTx.preview.balanceDeltas,
         verdict: "approved",
         walletAddress: walletAddress ?? "0x0",
+        // Real USD value (Guardian trusted-price valuation) → recorded in the action log
+        // so "today via Dewlock" volume + this receipt's USD aren't $0.
+        estimatedUsdValue: pendingTx.preview.estimatedUsdValue ?? 0,
       });
     } catch (err) {
       if (err instanceof WysiwysError) {
@@ -538,16 +592,27 @@ function TxPreviewCardWithSigning({
   }
 
   function handleCancel() {
-    cancelReceipt();
+    receiptStream.reset();
     onReplace({ type: "wysiwys-error", wysiwysMessage: "Transaction cancelled." });
   }
 
+  const showProgress =
+    receiptStream.state.active ||
+    receiptStream.state.result !== null ||
+    receiptStream.state.error !== null ||
+    receiptStream.state.steps.length > 0;
+
   return (
-    <TxPreviewCard
-      preview={pendingTx.preview}
-      isPending={isPending}
-      onConfirm={() => void handleConfirm()}
-      onCancel={handleCancel}
-    />
+    <>
+      <TxPreviewCard
+        preview={pendingTx.preview}
+        // Lock the card once the pipeline starts — its Confirm/Cancel must not
+        // re-fire while the receipt streams below it.
+        isPending={isPending || showProgress}
+        onConfirm={() => void handleConfirm()}
+        onCancel={handleCancel}
+      />
+      {showProgress && <ReceiptProgressInline state={receiptStream.state} />}
+    </>
   );
 }
