@@ -15,6 +15,13 @@ export interface RateLimitOptions {
   max?: number;
   /** Window duration in milliseconds. Default: 60_000 (1 minute). */
   windowMs?: number;
+  /**
+   * Logical bucket name. Without it, every endpoint shares ONE per-IP window —
+   * and in local dev the IP is the constant "local", so all routes contend for a
+   * single counter and the lowest limit trips 429 from unrelated traffic. Pass a
+   * distinct scope per route so each endpoint gets its own window.
+   */
+  scope?: string;
 }
 
 export interface RateLimitResult {
@@ -46,7 +53,11 @@ export function checkRateLimit(
   const windowMs = options.windowMs ?? 60_000;
   const now = Date.now();
 
-  const existing = store.get(key);
+  // Per-endpoint isolation: prefix the IP with the logical scope so routes don't
+  // share one bucket (critical in dev where every IP resolves to "local").
+  const storeKey = options.scope ? `${options.scope}:${key}` : key;
+
+  const existing = store.get(storeKey);
   const windowStart =
     existing && now - existing.windowStart < windowMs ? existing.windowStart : now;
 
@@ -54,7 +65,7 @@ export function checkRateLimit(
   const count = existing && now - existing.windowStart < windowMs ? existing.count : 0;
   const next = count + 1;
 
-  store.set(key, { count: next, windowStart });
+  store.set(storeKey, { count: next, windowStart });
 
   const resetMs = windowMs - (now - windowStart);
   const limited = next > max;
