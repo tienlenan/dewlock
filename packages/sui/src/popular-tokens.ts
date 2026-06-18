@@ -40,22 +40,24 @@ export const POPULAR_TOKENS: readonly PopularToken[] = [
   { symbol: "NS", coinType: "0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS", decimals: 6, swappable: true, logoUrl: "https://token-image.suins.io/icon.svg" },
   { symbol: "BLUE", coinType: "0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE", decimals: 9, swappable: true, logoUrl: "https://bluefin.io/images/square.png" },
 
-  // ── Recognition-only (swappable:false): verified on-chain via CoinMetadata. The copilot
-  //    recognises them by symbol + the portfolio shows their logo; a value-move fail-closes
-  //    at the Guardian (NOT in COIN_TYPES). Liquid-staking SUI, DeFi governance, stables. ──
-  { symbol: "haSUI", coinType: "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d::hasui::HASUI", decimals: 9, swappable: false, logoUrl: "https://assets.haedal.xyz/logos/hasui.svg" },
-  { symbol: "afSUI", coinType: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI", decimals: 9, swappable: false, logoUrl: "https://aftermath.finance/coins/afsui.svg" },
-  { symbol: "vSUI", coinType: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT", decimals: 9, swappable: false, logoUrl: "https://coin-images.coingecko.com/coins/images/33243/small/voloSUI_%283%29.png" },
-  { symbol: "SCA", coinType: "0x7016aae72cfc67f2fadf55769c0a7dd54291a583b63051a5ed71081cce836ac6::sca::SCA", decimals: 9, swappable: false, logoUrl: "https://coin-images.coingecko.com/coins/images/34648/small/sca.png" },
-  { symbol: "NAVX", coinType: "0xa99b8952d4f7d947ea77fe0ecdcc9e5fc0bcab2841d6e2a5aa00c3044e5544b5::navx::NAVX", decimals: 9, swappable: false, logoUrl: "https://arweave.net/FNGKLRGBS7D4lXxsmz4_F-xkMQs9DIRsTQT_q0Nn-iI" },
-  { symbol: "BUCK", coinType: "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK", decimals: 9, swappable: false, logoUrl: "https://coin-images.coingecko.com/coins/images/33846/small/buck-icon.png" },
-  { symbol: "AUSD", coinType: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD", decimals: 6, swappable: false, logoUrl: "https://static.agora.finance/ausd-token-icon.svg" },
-  { symbol: "SEND", coinType: "0xb45fcfcc2cc07ce0702cc2d229621e046c906ef14d9b25e8e4d25f6e8763fef7::send::SEND", decimals: 6, swappable: false, logoUrl: "https://suilend-assets.s3.us-east-2.amazonaws.com/SEND/SEND.svg" },
-  { symbol: "TURBOS", coinType: "0x5d1f47ea69bb0de31c313d7acf89b890dbb8991ea8e03c6c355171f84bb1ba4a::turbos::TURBOS", decimals: 9, swappable: false, logoUrl: "https://coin-images.coingecko.com/coins/images/30349/small/ggut-eKC_400x400.jpg" },
+  // ── Liquid-staking SUI, DeFi governance/stables, and major memes — swappable. Each was
+  //    promoted only after BOTH a CoinGecko USD feed AND a live Cetus-aggregator USDC route
+  //    were verified, and the feed price matched the route's implied price (so the cap reads
+  //    real market value). All are in COIN_TYPES; the Guardian fail-closes if a feed goes
+  //    stale at sign time. ──
+  { symbol: "haSUI", coinType: "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d::hasui::HASUI", decimals: 9, swappable: true, logoUrl: "https://assets.haedal.xyz/logos/hasui.svg" },
+  { symbol: "afSUI", coinType: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI", decimals: 9, swappable: true, logoUrl: "https://aftermath.finance/coins/afsui.svg" },
+  { symbol: "vSUI", coinType: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT", decimals: 9, swappable: true, logoUrl: "https://coin-images.coingecko.com/coins/images/33243/small/voloSUI_%283%29.png" },
+  { symbol: "SCA", coinType: "0x7016aae72cfc67f2fadf55769c0a7dd54291a583b63051a5ed71081cce836ac6::sca::SCA", decimals: 9, swappable: true, logoUrl: "https://coin-images.coingecko.com/coins/images/34648/small/sca.png" },
+  { symbol: "NAVX", coinType: "0xa99b8952d4f7d947ea77fe0ecdcc9e5fc0bcab2841d6e2a5aa00c3044e5544b5::navx::NAVX", decimals: 9, swappable: true, logoUrl: "https://arweave.net/FNGKLRGBS7D4lXxsmz4_F-xkMQs9DIRsTQT_q0Nn-iI" },
+  { symbol: "BUCK", coinType: "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK", decimals: 9, swappable: true, logoUrl: "https://coin-images.coingecko.com/coins/images/33846/small/buck-icon.png" },
+  { symbol: "AUSD", coinType: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD", decimals: 6, swappable: true, logoUrl: "https://static.agora.finance/ausd-token-icon.svg" },
+  { symbol: "SEND", coinType: "0xb45fcfcc2cc07ce0702cc2d229621e046c906ef14d9b25e8e4d25f6e8763fef7::send::SEND", decimals: 6, swappable: true, logoUrl: "https://suilend-assets.s3.us-east-2.amazonaws.com/SEND/SEND.svg" },
+  { symbol: "TURBOS", coinType: "0x5d1f47ea69bb0de31c313d7acf89b890dbb8991ea8e03c6c355171f84bb1ba4a::turbos::TURBOS", decimals: 9, swappable: true, logoUrl: "https://coin-images.coingecko.com/coins/images/30349/small/ggut-eKC_400x400.jpg" },
   // Verified Sui memes
-  { symbol: "FUD", coinType: "0x76cb819b01abed502bee8a702b4c2d547532c12f25001c9dea795a5e631c26f1::fud::FUD", decimals: 5, swappable: false, logoUrl: "https://coin-images.coingecko.com/coins/images/33610/small/pug-head.png" },
-  { symbol: "BLUB", coinType: "0xfa7ac3951fdca92c5200d468d31a365eb03b2be9936fde615e69f0c1274ad3a0::BLUB::BLUB", decimals: 2, swappable: false, logoUrl: "https://coin-images.coingecko.com/coins/images/39356/small/Frame_38.png" },
-  { symbol: "LOFI", coinType: "0xf22da9a24ad027cccb5f2d496cbe91de953d363513db08a3a734d361c7c17503::LOFI::LOFI", decimals: 9, swappable: false, logoUrl: "https://i.ibb.co/fM8QZXh/LOFI-PFP.png" },
+  { symbol: "FUD", coinType: "0x76cb819b01abed502bee8a702b4c2d547532c12f25001c9dea795a5e631c26f1::fud::FUD", decimals: 5, swappable: true, logoUrl: "https://coin-images.coingecko.com/coins/images/33610/small/pug-head.png" },
+  { symbol: "BLUB", coinType: "0xfa7ac3951fdca92c5200d468d31a365eb03b2be9936fde615e69f0c1274ad3a0::BLUB::BLUB", decimals: 2, swappable: true, logoUrl: "https://coin-images.coingecko.com/coins/images/39356/small/Frame_38.png" },
+  { symbol: "LOFI", coinType: "0xf22da9a24ad027cccb5f2d496cbe91de953d363513db08a3a734d361c7c17503::LOFI::LOFI", decimals: 9, swappable: true, logoUrl: "https://i.ibb.co/fM8QZXh/LOFI-PFP.png" },
 ];
 
 /** Stable memwal lines for the symbol→address mapping cache (one per token). */

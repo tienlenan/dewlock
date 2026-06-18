@@ -30,6 +30,23 @@ export const COIN_TYPES = {
   WAL: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
   NS: "0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS",
   BLUE: "0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE",
+  // Liquid-staking SUI, DeFi governance/stables, and the major memes — each promoted
+  // only after BOTH a CoinGecko USD feed (price-oracle.idMap) AND a live Cetus-aggregator
+  // route to USDC were verified, and the feed price matched the route's implied price (so
+  // the cap can't be blinded by an under-valued/mismatched feed). The cap still fail-closes
+  // on any of these if its price goes stale/missing at sign time.
+  HASUI: "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d::hasui::HASUI",
+  AFSUI: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI",
+  VSUI: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT",
+  SCA: "0x7016aae72cfc67f2fadf55769c0a7dd54291a583b63051a5ed71081cce836ac6::sca::SCA",
+  NAVX: "0xa99b8952d4f7d947ea77fe0ecdcc9e5fc0bcab2841d6e2a5aa00c3044e5544b5::navx::NAVX",
+  BUCK: "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK",
+  AUSD: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD",
+  SEND: "0xb45fcfcc2cc07ce0702cc2d229621e046c906ef14d9b25e8e4d25f6e8763fef7::send::SEND",
+  TURBOS: "0x5d1f47ea69bb0de31c313d7acf89b890dbb8991ea8e03c6c355171f84bb1ba4a::turbos::TURBOS",
+  FUD: "0x76cb819b01abed502bee8a702b4c2d547532c12f25001c9dea795a5e631c26f1::fud::FUD",
+  BLUB: "0xfa7ac3951fdca92c5200d468d31a365eb03b2be9936fde615e69f0c1274ad3a0::BLUB::BLUB",
+  LOFI: "0xf22da9a24ad027cccb5f2d496cbe91de953d363513db08a3a734d361c7c17503::LOFI::LOFI",
 } as const;
 
 export type SupportedCoinType = (typeof COIN_TYPES)[keyof typeof COIN_TYPES];
@@ -50,6 +67,20 @@ export const COIN_DECIMALS: Record<string, number> = {
   [COIN_TYPES.WAL]: 9,
   [COIN_TYPES.NS]: 6,
   [COIN_TYPES.BLUE]: 9,
+  // On-chain CoinMetadata-verified decimals — the cap converts native→human with these,
+  // so a wrong value would mis-size the USD bound. (memes carry low decimals: FUD 5, BLUB 2)
+  [COIN_TYPES.HASUI]: 9,
+  [COIN_TYPES.AFSUI]: 9,
+  [COIN_TYPES.VSUI]: 9,
+  [COIN_TYPES.SCA]: 9,
+  [COIN_TYPES.NAVX]: 9,
+  [COIN_TYPES.BUCK]: 9,
+  [COIN_TYPES.AUSD]: 6,
+  [COIN_TYPES.SEND]: 6,
+  [COIN_TYPES.TURBOS]: 9,
+  [COIN_TYPES.FUD]: 5,
+  [COIN_TYPES.BLUB]: 2,
+  [COIN_TYPES.LOFI]: 9,
 };
 
 // ---------------------------------------------------------------------------

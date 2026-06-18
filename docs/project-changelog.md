@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-06-19 — 12 verified tokens + memes now swappable
+
+### Changed
+- **Promoted 12 verified tokens to swappable** (were recognition-only/display): liquid-staking
+  SUI (haSUI, afSUI, vSUI), DeFi governance + stables (SCA, NAVX, BUCK, AUSD, SEND, TURBOS),
+  and the major memes (**FUD, BLUB, LOFI**). Each added to the Guardian allowlist (`COIN_TYPES`)
+  + `COIN_DECIMALS` + the CoinGecko price oracle (`idMap`), and `swappable:true` in the registry.
+  Promotion gate (verified per token, not hand-trusted): (1) a live Cetus-aggregator route to
+  USDC exists, and (2) a CoinGecko USD feed returns a price that **matches the route's implied
+  price** — so the value cap reads real market value and can't be blinded by an under-valued or
+  wrong-id feed (caught LOFI: the bare `lofi` id is a different chain's token, 424× off — the
+  Sui token is `lofi-2`). The Guardian still fail-closes on any of these if its feed goes
+  stale/missing at sign time, and the per-tx USD cap is unchanged.
+
+
+
+### Added
+- **Live recipient badge** below the composer chips — as the user types a send command, the
+  recipient (`0x` address, `.sui` name, `@friend`, or a saved-contact name) is resolved client-side
+  and previewed as a colored badge: violet = saved friend, green = SuiNS resolved, neutral = valid 0x
+  (reverse-resolved to a `.sui` name when one exists), amber = resolving/typing, red = not found.
+  **Display-only — never gates Send**; the Guardian still re-resolves server-side at sign time.
+- **@mention friends menu** — typing `@` opens a friends context-menu (↑/↓/Enter/Tab/Esc). Selecting
+  inserts `@Name`; on submit each `@Name` is rewritten to the bare contact name so the existing
+  deterministic resolver + Guardian path handle the send unchanged (no new send path). Multi-word
+  names supported via longest-match.
+- **Empty-thread welcome cards** — 4 default action cards (Swap/Sell, Send, Lending, View Portfolio)
+  that submit the matching intent via the existing path, plus a supported-protocols card sourced from
+  `/api/protocols` (`active + built`) with brand logos (`/public/logos/<id>.svg`, `<img>`-first with
+  an inline-SVG/monogram fallback). `ProtocolLogo` now renders the image asset first.
+
+### Changed
+- **Single-action guard** — the agent route now refuses a message bundling 2+ distinct value actions
+  ("send … and swap …") *before* the LLM, streaming guidance to do one action per message and calling
+  no value tool. Deterministic `detectMultiAction` (clause-aware: a recipient name that happens to be
+  a verb keyword, e.g. a contact named "Lend", is not miscounted). Persona backs it up. Composite
+  multi-action-in-one-PTB is intentionally out of scope (the Guardian's PTB-shape gate fail-closes on
+  composite PTBs) — deferred to a separate plan.
+
 ## 2026-06-19 — Clear-all reliability + verified token registry expansion
 
 ### Fixed

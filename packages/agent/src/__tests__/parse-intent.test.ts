@@ -91,12 +91,12 @@ describe("parseIntent — LLM fallback (null)", () => {
     expect(parseIntent("sell ZORPCOIN")).toBeNull();
     expect(parseIntent("swap FOO to BAR")).toBeNull();
   });
-  it("recognized-but-not-swappable symbol → swap intent flagged swappable:false (the directive layer explains it, the LLM never guesses)", () => {
-    // BLUB is a verified recognition-only token (in POPULAR_TOKENS, NOT in the
-    // Guardian allowlist). The parser must resolve it to its verified coin type
-    // and mark it not-swappable so the value move fail-closes downstream.
+  it("verified meme symbol → swappable swap intent against its verified coin type", () => {
+    // BLUB is a verified, allowlisted meme (price feed + aggregator route confirmed),
+    // so a sell resolves to a swappable swap intent against its exact coin type — the
+    // deterministic path, never an LLM-guessed address.
     const intent = parseIntent("sell BLUB");
-    expect(intent).toMatchObject({ action: "swap", swappable: false });
+    expect(intent).toMatchObject({ action: "swap", swappable: true });
     expect(intent && "coinInType" in intent && intent.coinInType).toContain("::BLUB::BLUB");
   });
   it("same in/out → null", () => {

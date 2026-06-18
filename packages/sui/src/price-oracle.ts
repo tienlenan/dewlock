@@ -46,6 +46,21 @@ function idMap(): Record<string, string> {
     [COIN_TYPES.WAL]: "walrus-2",
     [COIN_TYPES.NS]: "suins-token",
     [COIN_TYPES.BLUE]: "bluefin",
+    // Each id verified to return a live price that MATCHES the token's Cetus-aggregator
+    // route-implied price (so the cap reads the real market value, never an under-valued
+    // mismatch). lofi-2 is the Sui LOFI — the bare "lofi" id is a different chain's token.
+    [COIN_TYPES.HASUI]: "haedal-staked-sui",
+    [COIN_TYPES.AFSUI]: "aftermath-staked-sui",
+    [COIN_TYPES.VSUI]: "volo-staked-sui",
+    [COIN_TYPES.SCA]: "scallop-2",
+    [COIN_TYPES.NAVX]: "navi",
+    [COIN_TYPES.BUCK]: "bucket-protocol-buck-stablecoin",
+    [COIN_TYPES.AUSD]: "agora-dollar",
+    [COIN_TYPES.SEND]: "suilend",
+    [COIN_TYPES.TURBOS]: "turbos-finance",
+    [COIN_TYPES.FUD]: "fud-the-pug",
+    [COIN_TYPES.BLUB]: "blub",
+    [COIN_TYPES.LOFI]: "lofi-2",
   };
 }
 
