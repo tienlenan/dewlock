@@ -141,6 +141,12 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     const prev = list;
     setList([]);
     setActiveId(null);
+    // Drop every client-side trace so nothing can resurrect a cleared thread within the
+    // session: the in-memory thread cache, the created-at stamps, and a refetch guard so a
+    // racing refresh()/auto-open can't re-open a now-deleted conversation. (Conversations
+    // live in Walrus, not localStorage — there is no browser-storage copy to clear.)
+    cache.current.clear();
+    createdAt.current = {};
     onReset();
     try {
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });

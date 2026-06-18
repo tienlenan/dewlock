@@ -114,6 +114,19 @@ describe("conversation-store — Walrus + memwal round-trip", () => {
     expect(await listConversations(WALLET)).toEqual([]);
   });
 
+  it("clear stays cleared even if the tombstone is NOT recalled (empty-index pointer wins)", async () => {
+    await upsertConversation(record("c1", "First", 1000));
+    await upsertConversation(record("c2", "Second", 2000));
+    expect((await listConversations(WALLET)).length).toBe(2);
+
+    expect(await clearConversations(WALLET)).toBe(true);
+    // Simulate memwal's capped/semantic recall dropping the clear tombstone (the real-world
+    // failure that made a cleared list reappear). The empty-index pointer clear now writes
+    // must still resolve the newest index to an empty list.
+    h.pointers = h.pointers.filter((p) => !p.startsWith("conversation-cleared:"));
+    expect(await listConversations(WALLET)).toEqual([]);
+  });
+
   it("a genuine save after a clear reappears (out-dates the tombstone)", async () => {
     await upsertConversation(record("c1", "First", 1000));
     await clearConversations(WALLET);

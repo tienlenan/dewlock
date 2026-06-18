@@ -175,10 +175,17 @@ export async function removeConversation(wallet: string, id: string): Promise<bo
 export async function clearConversations(wallet: string): Promise<boolean> {
   if (!isMemoryEnabled()) return false;
   try {
-    // Tombstone strictly newer than every index pointer. readIndex returns [] while
-    // the latest tombstone out-dates the latest index pointer — robust against the
-    // capped/semantic pointer recall (an empty-index pointer alone wasn't winning).
-    await remember(memNamespace(wallet), `${CLEAR_PREFIX} @ ${Date.now()}`);
+    const now = Date.now();
+    // TWO independent mechanisms so "clear all" reliably sticks despite memwal's
+    // append-only + capped/semantic recall (the tombstone-only approach didn't always
+    // win, so a cleared list kept reappearing):
+    //   1) Publish an EMPTY index blob + a fresh pointer → the NEWEST index pointer now
+    //      resolves to an empty list, even if the tombstone is not in the recalled set.
+    //   2) The tombstone, recalled separately, out-dates every index pointer → empty.
+    // readIndex returns [] if EITHER wins; a genuine later save out-dates both and
+    // reappears (index.updatedAt = save time).
+    await writeIndex(wallet, { walletAddress: wallet, conversations: [], updatedAt: now });
+    await remember(memNamespace(wallet), `${CLEAR_PREFIX} @ ${now}`);
     return true;
   } catch {
     return false;
