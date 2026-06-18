@@ -35,6 +35,8 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const createdAt = useRef<Record<string, number>>({});
   // In-memory cache of opened threads (by id) — re-opening is instant, no refetch.
   const cache = useRef<Map<string, ChatMessage[]>>(new Map());
+  // The wallet whose most-recent conversation we've already auto-opened (once per wallet).
+  const autoOpenedFor = useRef<string | undefined>(undefined);
   const { onLoad, onReset } = opts;
 
   const refresh = useCallback(async () => {
@@ -94,6 +96,17 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     },
     [wallet, onLoad, list],
   );
+
+  // On first load for a wallet, auto-open the most-recent conversation (the store sorts
+  // the list updatedAt-desc, so list[0] is newest) — the user lands on their latest thread
+  // instead of a blank screen. Fires ONCE per wallet (the autoOpenedFor guard), so it
+  // never re-yanks the user out of a thread they later open or a new one they start; a
+  // different wallet auto-opens its own latest.
+  useEffect(() => {
+    if (!wallet || list.length === 0 || autoOpenedFor.current === wallet) return;
+    autoOpenedFor.current = wallet;
+    void open(list[0].id);
+  }, [wallet, list, open]);
 
   const remove = useCallback(
     async (id: string) => {
