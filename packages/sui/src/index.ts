@@ -16,10 +16,14 @@ export {
   CETUS_CLMM_PACKAGE_V2,
   SUINS_PACKAGE,
   getTrustedUsdPrice,
+  registerLivePriceProvider,
   normalizeHomoglyphs,
   editDistance,
   LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
 } from "./allowlist";
+// Pyth live-price oracle — importing this registers the live-price provider into
+// getTrustedUsdPrice (side effect). Server-only (uses fetch).
+export { refreshPythPrices, getCachedPythPrice } from "./pyth-price";
 export type { SupportedCoinType } from "./allowlist";
 // Protocol registry — single source of truth for protocol posture + active targets.
 export {
@@ -41,7 +45,7 @@ export type {
   ProtocolIncident,
   ProtocolGateResult,
 } from "./protocol-registry";
-export { stableJson, sha256Hex, sha256HexBytes, useSignAndExecuteTx, WysiwysError } from "./sign";
+export { stableJson, sha256Hex, sha256HexBytes, WysiwysError } from "./sign";
 export { getSuiMainnetClient, getSuiDevnetClient } from "./client";
 export { dryRunTransaction, DryRunFailedError } from "./dry-run";
 export type { DryRunResult, BalanceDelta } from "./dry-run";
