@@ -30,6 +30,8 @@ export interface ReceiptReadiness {
   blobId: string | null;
   anchorObjectId: string | null;
   anchorTxDigest: string | null;
+  /** Sui object to surface (HEAD anchor if configured, else the Walrus Blob object). */
+  suiObjectId: string | null;
   contentHashHex: string | null;
   error?: string;
 }
@@ -47,10 +49,12 @@ export interface SubmitReceiptInput {
 }
 
 // ---------------------------------------------------------------------------
-// Backoff schedule (milliseconds) — capped at ~30s total
+// Backoff schedule (milliseconds) — ~55s total, under the route's maxDuration=60.
+// Walrus mainnet blob publish + the on-chain anchor often need >30s; a too-short
+// budget surfaces "timeout" while the receipt is still legitimately landing.
 // ---------------------------------------------------------------------------
 
-const BACKOFF_DELAYS = [1_000, 2_000, 4_000, 8_000, 15_000];
+const BACKOFF_DELAYS = [1_000, 2_000, 3_000, 5_000, 8_000, 12_000, 12_000, 12_000];
 
 async function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -98,6 +102,7 @@ async function pollReceipt(
           blobId: data.blobId ?? null,
           anchorObjectId: data.anchorObjectId ?? null,
           anchorTxDigest: data.anchorTxDigest ?? null,
+          suiObjectId: data.suiObjectId ?? null,
           contentHashHex: data.contentHashHex ?? null,
           error: data.error,
         });
@@ -118,6 +123,7 @@ async function pollReceipt(
     blobId: null,
     anchorObjectId: null,
     anchorTxDigest: null,
+    suiObjectId: null,
     contentHashHex: null,
     error: "receipt poll timed out",
   });
@@ -160,6 +166,7 @@ export function useReceiptReadiness(
             blobId: null,
             anchorObjectId: null,
             anchorTxDigest: null,
+            suiObjectId: null,
             contentHashHex: null,
             error: `receipt route ${res.status}`,
           });
@@ -182,6 +189,7 @@ export function useReceiptReadiness(
             blobId: (data as Record<string, string | null>).blobId ?? null,
             anchorObjectId: (data as Record<string, string | null>).anchorObjectId ?? null,
             anchorTxDigest: (data as Record<string, string | null>).anchorTxDigest ?? null,
+            suiObjectId: (data as Record<string, string | null>).suiObjectId ?? null,
             contentHashHex: (data as Record<string, string | null>).contentHashHex ?? null,
           });
           return key;
@@ -197,6 +205,7 @@ export function useReceiptReadiness(
           blobId: null,
           anchorObjectId: null,
           anchorTxDigest: null,
+          suiObjectId: null,
           contentHashHex: null,
           error: err instanceof Error ? err.message : String(err),
         });
