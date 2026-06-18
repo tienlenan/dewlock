@@ -93,14 +93,24 @@ export async function buildTransfer(
     const [coin] = tx.splitCoins(tx.gas, [amountNative]);
     tx.transferObjects([coin], resolvedRecipient);
   } else {
-    // For other coins, we select coin objects by type and merge+split
-    const coins = tx.moveCall({
-      target: "0x2::coin::zero",
-      typeArguments: [coinType],
-    });
-    // In production: fetch coin objects for senderAddress + coinType, merge, split
-    // For the PTB structure, we use a placeholder input that the wallet fills
-    tx.transferObjects([coins], resolvedRecipient);
+    // Non-SUI coins: select the sender's owned coin objects of this type, merge them
+    // into one, split the exact amount, and transfer the split. merge/split/transfer
+    // are native PTB commands (no MoveCall), so the Guardian's transfer shape — which
+    // permits zero MoveCall targets — still matches. (A 0x2::coin::zero MoveCall both
+    // transferred 0 tokens AND tripped the shape gate.)
+    const coins = await client.getCoins({ owner: senderAddress, coinType });
+    if (!coins.data || coins.data.length === 0) {
+      throw new TransferBuildError(
+        `No ${coinType} coins owned by ${senderAddress} to transfer.`,
+      );
+    }
+    const [primaryId, ...restIds] = coins.data.map((c) => c.coinObjectId);
+    const primary = tx.object(primaryId);
+    if (restIds.length > 0) {
+      tx.mergeCoins(primary, restIds.map((id) => tx.object(id)));
+    }
+    const [split] = tx.splitCoins(primary, [amountNative]);
+    tx.transferObjects([split], resolvedRecipient);
   }
 
   // Serialize to base64 bytes for Guardian inspection.

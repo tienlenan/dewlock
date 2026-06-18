@@ -25,6 +25,23 @@ export const AGGREGATOR_ACTIVE_PROVIDERS = ["CETUS", "DEEPBOOK"] as const;
 const ROUTER_ENDPOINT =
   process.env.CETUS_AGGREGATOR_ENDPOINT ?? "https://api-sui.cetus.zone/router_v3";
 
+type AggSdk = typeof import("@cetusprotocol/aggregator-sdk");
+
+/**
+ * Dynamically load the Cetus aggregator SDK with CJS/ESM-interop normalization.
+ *
+ * WHY normalize: under Next.js's externalized server runtime the SDK's named
+ * exports (AggregatorClient, Env, …) get nested under `.default`, so `mod.Env`
+ * is undefined and `mod.Env.Mainnet` throws "Cannot read properties of undefined".
+ * In plain Node the same exports sit at the top level. Detect via a known export
+ * and unwrap `.default` when needed so both runtimes work. Shared by the quote +
+ * build paths (DRY) so the swap and its min-out re-derive load the SDK identically.
+ */
+export async function loadAggregatorSdk(): Promise<AggSdk> {
+  const m = (await import("@cetusprotocol/aggregator-sdk")) as AggSdk & { default?: AggSdk };
+  return (m.AggregatorClient ? m : (m.default ?? m)) as AggSdk;
+}
+
 /**
  * Fetch a best-execution aggregator quote, or a deterministic fixture.
  * THROWS QuoteFetchError on any live failure — callers treat throw as BLOCK
@@ -43,6 +60,40 @@ export async function fetchAggregatorQuote(
   return fetchLiveAggregatorQuote(coinTypeIn, coinTypeOut, amountIn, slippageBps, senderAddress);
 }
 
+// ---------------------------------------------------------------------------
+// Live SUI/USD reference (real "oracle" via the aggregator, USDC=$1 anchor)
+// ---------------------------------------------------------------------------
+
+let suiUsdCache: { price: number; atMs: number } | null = null;
+const SUI_USD_TTL_MS = 60_000; // re-quote at most once a minute
+
+/**
+ * Live SUI price in USD, derived from a 1-SUI→USDC aggregator quote (USDC is the
+ * $1 anchor). Cached 60s to avoid per-transaction latency. Never throws: on any
+ * failure (or fixture mode) it falls back to SUI_USD_PRICE_FLOOR / $3 conservative.
+ *
+ * WHY live: the hardcoded $3 floor badly overvalues SUI at current prices (~$0.8),
+ * making the value-cap gate reject normal-sized swaps. The cap must bound REAL value.
+ */
+export async function fetchSuiUsdPrice(): Promise<number> {
+  const floor = process.env.SUI_USD_PRICE_FLOOR ? parseFloat(process.env.SUI_USD_PRICE_FLOOR) : 3.0;
+  if (isFixtureMode()) return floor;
+  const now = Date.now();
+  if (suiUsdCache && now - suiUsdCache.atMs < SUI_USD_TTL_MS) return suiUsdCache.price;
+  try {
+    // 1 SUI (1e9 MIST) → micro-USDC; /1e6 = USD per SUI.
+    const q = await fetchAggregatorQuote(COIN_TYPES.SUI, COIN_TYPES.USDC, 1_000_000_000n, 50);
+    const price = Number(q.estimatedAmountOut) / 1e6;
+    if (price > 0 && Number.isFinite(price)) {
+      suiUsdCache = { price, atMs: now };
+      return price;
+    }
+  } catch {
+    // fall through to floor
+  }
+  return floor;
+}
+
 async function fetchLiveAggregatorQuote(
   coinTypeIn: string,
   coinTypeOut: string,
@@ -50,9 +101,9 @@ async function fetchLiveAggregatorQuote(
   slippageBps: number,
   senderAddress?: string,
 ): Promise<SwapQuote> {
-  let mod: typeof import("@cetusprotocol/aggregator-sdk");
+  let mod: AggSdk;
   try {
-    mod = await import("@cetusprotocol/aggregator-sdk");
+    mod = await loadAggregatorSdk();
   } catch (err) {
     throw new QuoteFetchError(
       `Failed to load Cetus aggregator SDK: ${err instanceof Error ? err.message : String(err)}`,

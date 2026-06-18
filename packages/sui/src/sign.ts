@@ -1,24 +1,20 @@
-"use client";
-
 /**
- * Dewlock client-side signing utilities.
+ * Dewlock signing primitives — framework-agnostic, context-free.
  *
  * Key exports:
- *  - stableJson / sha256Hex — deterministic content hashing for receipts.
- *  - useSignAndExecuteTx — hook wrapping dapp-kit's useSignAndExecuteTransaction
- *    with WYSIWYS assertion: digest(signedBytes) must equal approvedDigest
- *    before mutateAsync is called. A mutated PTB is refused at this boundary.
+ *  - stableJson / sha256Hex / sha256HexBytes — deterministic content hashing.
+ *  - WysiwysError — thrown when signed PTB bytes diverge from the approved digest.
  *
- * Signing ALWAYS happens client-side in the user's wallet — the server
- * only builds unsigned PTBs (Transaction objects / base64 bytes).
+ * NOTE: the React signing hook (useSignAndExecuteTx) lives in the WEB APP
+ * (apps/web/lib/use-sign-and-execute-tx.ts), NOT here. This package is in Next's
+ * serverExternalPackages, so a dapp-kit React hook here would resolve a DIFFERENT
+ * @mysten/dapp-kit context instance during SSR than the app's provider → the
+ * SuiClientContext lookup fails. Keeping this module dapp-kit-free avoids that.
  *
- * @mysten/sui v2.x: SuiTransactionBlockResponse lives in @mysten/sui/jsonRpc.
- * The Uint8Array passed to crypto.subtle.digest is normalized to ArrayBuffer
- * to satisfy the strict BufferSource constraint (no SharedArrayBuffer).
+ * Signing ALWAYS happens client-side in the user's wallet — the server only
+ * builds unsigned PTBs. The Uint8Array passed to crypto.subtle.digest is
+ * normalized to a plain ArrayBuffer (strict BufferSource, no SharedArrayBuffer).
  */
-
-import { useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
-import type { SuiTransactionBlockResponse } from "@mysten/sui/jsonRpc";
 
 // --- Deterministic JSON (canonical key order at every nesting level) ---
 
@@ -89,68 +85,4 @@ export class WysiwysError extends Error {
     );
     this.name = "WysiwysError";
   }
-}
-
-// --- Sign-and-execute hook ---
-
-export interface SignAndExecuteOptions {
-  /** Called immediately before the wallet signs (use for loading state). */
-  onBeforeSign?: () => void;
-  /**
-   * Guardian-approved digest from the prepareTrade tool result.
-   * When provided, the hook asserts digest(ptbBytes) === approvedDigest
-   * before calling mutateAsync. A mismatch throws WysiwysError.
-   *
-   * WHY this check: the WYSIWYS invariant (What You See Is What You Sign).
-   * The Guardian approved specific bytes; if those bytes changed between
-   * approval and signing (re-build, race, substitution), we must refuse.
-   */
-  approvedDigest?: string;
-}
-
-/**
- * Drop-in hook for signing a Guardian-approved PTB and executing it on-chain.
- * Asserts WYSIWYS digest equality before wallet prompt when approvedDigest is provided.
- *
- * Usage:
- *   const { signAndExecute } = useSignAndExecuteTx({ approvedDigest });
- *   const result = await signAndExecute({ transaction: tx });
- */
-export function useSignAndExecuteTx(options?: SignAndExecuteOptions) {
-  const client = useSuiClient();
-  const { mutateAsync } = useSignAndExecuteTransaction<SuiTransactionBlockResponse>({
-    execute: async ({ bytes, signature }) => {
-      // WYSIWYS assertion: verify PTB digest before execution.
-      // `bytes` is the base64-encoded PTB the wallet will sign.
-      if (options?.approvedDigest) {
-        const rawBytes = Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0));
-        const actualDigest = await sha256HexBytes(rawBytes);
-
-        if (actualDigest !== options.approvedDigest) {
-          throw new WysiwysError(options.approvedDigest, actualDigest);
-        }
-      }
-
-      return client.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showObjectChanges: true,
-          showEvents: true,
-        },
-      });
-    },
-  });
-
-  async function signAndExecute(params: {
-    transaction: { toJSON: () => Promise<string> } | string;
-  }): Promise<SuiTransactionBlockResponse> {
-    options?.onBeforeSign?.();
-    return mutateAsync({
-      transaction: params.transaction as Parameters<typeof mutateAsync>[0]["transaction"],
-    });
-  }
-
-  return { signAndExecute };
 }

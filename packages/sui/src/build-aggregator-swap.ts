@@ -21,6 +21,7 @@ import { isFixtureMode, type SwapQuote } from "./quotes-source";
 import {
   fetchAggregatorQuote,
   AGGREGATOR_ACTIVE_PROVIDERS,
+  loadAggregatorSdk,
 } from "./aggregator-quotes";
 import type { SwapSpec, SwapBuildResult } from "./build-swap";
 import { SwapBuildError } from "./build-swap";
@@ -64,20 +65,26 @@ async function buildLiveAggregatorPtb(spec: SwapSpec): Promise<SwapBuildResult> 
   let mod: typeof import("@cetusprotocol/aggregator-sdk");
   let grpcMod: typeof import("@mysten/sui/grpc");
   try {
-    mod = await import("@cetusprotocol/aggregator-sdk");
+    // Normalized loader unwraps the SDK's named exports from `.default` under Next's
+    // externalized server runtime (else `mod.Env.Mainnet` throws). @mysten/sui/grpc
+    // exposes its exports top-level in the same runtime, so a plain import is fine.
+    mod = await loadAggregatorSdk();
     grpcMod = await import("@mysten/sui/grpc");
   } catch (err) {
     throw new SwapBuildError(`Failed to load aggregator SDK: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // The aggregator selects coins on-chain → it needs a gRPC client (separate from
-  // the JSON-RPC client the rest of the app uses). [needs live-env] grpc endpoint.
-  const grpcUrl = process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443";
+  // the JSON-RPC client the rest of the app uses). SuiGrpcClient has NO network→URL
+  // default: the endpoint MUST be supplied as `baseUrl` (the gRPC-web transport reads
+  // options.baseUrl). Passing the wrong key leaves baseUrl undefined → every gRPC call
+  // silently fails → no route → swap never builds. [needs live-env] grpc endpoint.
+  const grpcBaseUrl = process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443";
 
   let txBytes: Uint8Array;
   let router: Awaited<ReturnType<InstanceType<typeof mod.AggregatorClient>["findRouters"]>>;
   try {
-    const grpc = new grpcMod.SuiGrpcClient({ network: "mainnet", url: grpcUrl } as never);
+    const grpc = new grpcMod.SuiGrpcClient({ network: "mainnet", baseUrl: grpcBaseUrl });
     const agg = new mod.AggregatorClient({
       endpoint: process.env.CETUS_AGGREGATOR_ENDPOINT ?? "https://api-sui.cetus.zone/router_v3",
       signer: senderAddress,

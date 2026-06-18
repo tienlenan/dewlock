@@ -25,8 +25,6 @@
  */
 
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
-import { SuinsClient } from "@mysten/suins";
-import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { normalizeHomoglyphs, editDistance, LOOKALIKE_EDIT_DISTANCE_THRESHOLD } from "./allowlist";
 
 // Server-side SuiClient type — SuiJsonRpcClient satisfies ClientWithCoreApi.
@@ -91,25 +89,24 @@ export async function resolveSuiNSName(
   }
 
   // ---------------------------------------------------------------------------
-  // Forward resolve via SuinsClient.getNameRecord()
-  // SuinsClient.getNameRecord(name) → NameRecord | null
-  // NameRecord.targetAddress is the resolved 0x address.
-  // SuiJsonRpcClient satisfies ClientWithCoreApi (has .core: CoreClient).
+  // Forward resolve via native JSON-RPC (suix_resolveNameServiceAddress) → 0x | null.
+  // WHY not @mysten/suins SuinsClient: it fails to construct under the externalized
+  // server runtime ("SuinsClient is not a constructor" — CJS/ESM interop). The base
+  // RPC client resolves both directions natively (the reverse lookup below uses it
+  // too), so we use one resolution path with no extra SDK.
   // ---------------------------------------------------------------------------
-  const suinsClient = new SuinsClient({
-    client: suiClient as unknown as ClientWithCoreApi,
-    network: "mainnet",
-  });
-
   let resolvedAddress: string;
   try {
-    const record = await suinsClient.getNameRecord(`${label}.sui`);
-    if (!record?.targetAddress) {
+    const forward = await (suiClient as unknown as {
+      resolveNameServiceAddress(args: { name: string }): Promise<string | null>;
+    }).resolveNameServiceAddress({ name: `${label}.sui` });
+    if (!forward) {
+      // Clear, specific reason: the name simply isn't registered on SuiNS.
       throw new SuiNSResolveError(
-        `SuiNS name "${label}.sui" did not resolve to any address — blocking transfer.`,
+        `SuiNS name "${label}.sui" is not registered — there is no address to send to. Double-check the name.`,
       );
     }
-    resolvedAddress = record.targetAddress;
+    resolvedAddress = forward;
   } catch (err) {
     if (err instanceof SuiNSResolveError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
