@@ -6,11 +6,11 @@
  * independently when aftermath is the chosen source (never crossing an Aftermath
  * quote with a Cetus PTB). Same SwapQuote contract as the Cetus/aggregator sources.
  *
- * WHY dynamic import via esmImport wrapper: the aftermath-ts-sdk is ESM-only
- * (no CJS export). This package compiles to CommonJS so a plain `await import(pkg)`
- * is downleveled by tsc to require() and fails on an ESM-only package. Wrapping in
- * a Function keeps it a TRUE native dynamic import at runtime — opaque to tsc AND
- * to the bundler — so Node's ESM loader handles it. Identical pattern to build-lend.ts.
+ * WHY a prebundled CJS copy via static require: aftermath-ts-sdk is ESM-only and sits
+ * behind a pnpm symlink the Vercel serverless packager strips, so it's loaded from
+ * sdk-bundles/aftermath.cjs by a STATIC relative require — Next's tracer ships it in the
+ * function, whereas a bare/dynamic import resolves to "Cannot find package" at runtime.
+ * Identical pattern to build-aftermath-swap.ts / build-lend.ts.
  *
  * WHY no provider pooling: the Aftermath SDK's Aftermath instance is cheap to
  * construct and the router is stateless across calls, so we construct per-call

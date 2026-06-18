@@ -10,10 +10,11 @@
  * of the wallet, so the Guardian's dry-run net-outflow cap bounds the USD value
  * automatically, and the trusted-price gate blocks an unpriced collateral coin.
  *
- * WHY dynamic import: keep the lending SDKs out of non-lending bundles (same
- * rationale as the Cetus/DeepBook SDKs). The Suilend SDK is bundler-only — it is
- * not clean Node-ESM — so its live path resolves only under Next, never in tests;
- * the fixture path is what tests and the demo exercise. [needs live-env].
+ * WHY prebundled CJS via static require: the NAVI/Suilend SDKs are ESM-only (Suilend is
+ * even bundler-only — directory imports that load as an empty module under raw Node) and
+ * sit behind pnpm symlinks the Vercel serverless packager strips. They're loaded from
+ * sdk-bundles/*.cjs by STATIC relative require so Next's tracer ships them in the
+ * function (a bare/dynamic import would not resolve at runtime). [needs live-env].
  */
 
 import { Transaction } from "@mysten/sui/transactions";

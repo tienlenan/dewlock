@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-06-18 — Mainnet contract + Vercel production deploy
+
+### Added
+- **Live production: https://dewlock.vercel.app** — deployed via Vercel CLI (team `itab-projects`, GitHub-connected). Public, mainnet, live + small caps (`TX_USD_CAP=50`).
+- **`dewlock_receipt` published to Sui mainnet** — package `0x8c3b42b4…612361`, shared `Config` (v1) `0xa8ece854…672a2c`; AdminCap/UpgradeCap on the deployer. `Published.toml` committed.
+- **Aftermath Router as a 2nd swap source** — swap form shows Cetus-aggregator + Aftermath quotes side by side and routes the chosen source through the Guardian (re-derives min-out per source).
+- **Dashboard portfolio falls back to the official Sui JSON-RPC** when the BlockVision indexer is unavailable — no Blockberry needed; non-SUI coins priced via the CoinGecko oracle.
+- **Copilot-layer tests** — system-prompt guardrails + tool-routing wiring (complements the 16 runtime guardian tests).
+
+### Changed
+- **Price oracle: Pyth Hermes → CoinGecko** (`price-oracle.ts`) — keyless, covers all priced coins incl. the Sui-ecosystem tokens; optional free Demo key. `max(price, floor)` cap-safety unchanged.
+- **`SUI_RPC_URL` → public fullnode** for the deploy — BlockVision free tier's per-second burst cap tripped a 429 on prepare-trade's rapid RPC calls.
+
+### Fixed
+- **ESM-only SDKs failed in the Vercel serverless function** ("Cannot find package": Aftermath swaps + ALL lend deposits) — pnpm symlinks are stripped and a dynamic `esmImport` is invisible to the tracer. Fix: esbuild-**prebundle each SDK to a self-contained CJS file** (`packages/sui/sdk-bundles/*.cjs`) and load via a **static relative `require`** so Next's tracer ships it. Cetus + Aftermath swaps + NAVI lend-deposit verified live.
+- **Aftermath swap built invalid bytes** — used `tx.serialize()` (JSON) instead of `tx.build({client})` (BCS) → Guardian ULEB decode error. Now builds canonical BCS.
+- Deploy plumbing: Next.js version detection (root `next` devDep), `maxDuration` via segment config, function packaging (no `.pnpm/**` symlink globs), Deployment-Protection 401 disabled, env matrix set.
+
+### Notes
+- **Suilend deposit** still parked on the gRPC reserve-shape mismatch (`reserve.coinType.name` undefined) — unrelated to the bundling fix; NAVI is the working lend path.
+
 ## 2026-06-18 — Reliability, UX, memory & passport
 
 ### Fixed

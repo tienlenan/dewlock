@@ -7,13 +7,14 @@
  * resulting PTBs have different MoveCall shapes and are governed by different
  * allowlist targets (swap_cap::obtain_router_cap vs router::new_swap_context).
  *
- * WHY dynamic import via esmImport wrapper: aftermath-ts-sdk is ESM-only — the same
- * rationale as build-lend.ts. Plain `await import()` is downleveled by tsc to
- * require() under CJS output, breaking ESM-only packages at runtime.
+ * WHY a prebundled CJS copy via static require: aftermath-ts-sdk is ESM-only and sits
+ * behind a pnpm symlink the Vercel serverless packager strips. It's loaded from
+ * sdk-bundles/aftermath.cjs by a STATIC relative require so Next's tracer ships it in
+ * the function — same rationale as build-lend.ts (see loadAftermathSdk below).
  *
- * WHY serialize via tx.serialize() + Transaction.from(): the SDK returns an
- * @mysten/sui Transaction object; we serialize it to base64 for transport and
- * to match the rest of the build pipeline (Guardian always receives base64).
+ * WHY tx.build({client}) (NOT tx.serialize()): the SDK returns an @mysten/sui Transaction;
+ * we build it to canonical BCS bytes + base64 for the Guardian. tx.serialize() emits JSON,
+ * which the Guardian's Transaction.from(base64) would mis-decode (ULEB overflow).
  *
  * Guardian invariant: the Guardian re-derives min-out from a FRESH Aftermath quote
  * (fetchAftermathQuote) when aftermath is the chosen source — never from Cetus.
