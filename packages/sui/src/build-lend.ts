@@ -157,12 +157,17 @@ async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<Lend
   // SuilendClient + the market constants live on the `@suilend/sdk/client` SUBPATH
   // (the root does not re-export them). Suilend is bundler-only (directory imports),
   // so it stays a plain dynamic import (bundled by Next), NOT a native import().
+  // Load the PRE-BUNDLED Suilend client via its package export — a clean-ESM file whose
+  // directory imports esbuild already resolved, so native import() works (the raw
+  // @suilend/sdk loads as an empty module under Node/Turbopack). `@mysten/*` stayed
+  // external in the bundle, so it uses the repo's v2 client. Imported by package
+  // specifier (not __dirname, which Next rewrites to a virtual path).
   let raw: Record<string, unknown>;
   try {
-    raw = (await import("@suilend/sdk/client")) as unknown as Record<string, unknown>;
+    raw = await esmImport<Record<string, unknown>>("@dewlock/sui/suilend-client-bundle");
   } catch (err) {
     throw new LendBuildError(
-      `Failed to load Suilend SDK (bundler-only): ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to load the vendored Suilend client: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -174,12 +179,13 @@ async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<Lend
     const LENDING_MARKET_ID = pick<string>("LENDING_MARKET_ID");
     const LENDING_MARKET_TYPE = pick<string>("LENDING_MARKET_TYPE");
     if (!SuilendClient || typeof SuilendClient.initialize !== "function") {
-      // The @suilend/sdk uses extensionless directory imports that the Next bundler
-      // resolves to an EMPTY module (keys: [default], default: {}), so the client API
-      // never materializes. This needs bundler-resolution work (or a clean-ESM SDK
-      // build); the 3.x call flow below is correct for when it loads. Use NAVI today.
       throw new LendBuildError(
-        "Suilend SDK did not load under the bundler (directory-import resolution → empty module). NAVI is the supported live lending protocol.",
+        `Suilend client unavailable from the vendored bundle — keys: [${Object.keys(raw).join(",")}] default: [${Object.keys(def).join(",")}]`,
+      );
+    }
+    if (typeof LENDING_MARKET_ID !== "string" || typeof LENDING_MARKET_TYPE !== "string") {
+      throw new LendBuildError(
+        `Suilend market constants missing — id:${typeof LENDING_MARKET_ID} type:${typeof LENDING_MARKET_TYPE}`,
       );
     }
 

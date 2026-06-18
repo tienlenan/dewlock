@@ -15,6 +15,7 @@
     "./pyth-price": "./dist/pyth-price.js",
     "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
     "./build-lend": "./dist/build-lend.js",
+    "./suilend-client-bundle": "./sdk-bundles/suilend-client.mjs",
     "./wormhole-vaa": "./dist/wormhole/vaa.js",
     "./build-redeem": "./dist/wormhole/build-redeem.js",
     "./client": "./dist/client.js",
@@ -25,7 +26,8 @@
     "./suins-resolver": "./dist/suins-resolver.js"
   },
   "scripts": {
-    "build": "tsc --noCheck",
+    "build": "node scripts/bundle-suilend.mjs && tsc --noCheck",
+    "build:sdk-bundles": "node scripts/bundle-suilend.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
@@ -41,6 +43,7 @@
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.6.3"
   }
 }
