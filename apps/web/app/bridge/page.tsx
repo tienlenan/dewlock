@@ -1,10 +1,8 @@
 /**
- * /bridge — Wormhole cross-chain inflow into Sui.
- *
- * Two honest legs: the source lock/burn is wallet-driven (Wormhole Connect — the
- * user signs in their own wallet); Dewlock builds ONLY the Sui redeem, behind 9
- * fail-closed bridge gates (recipient==self, priced-asset allowlist, VAA verify,
- * server-fetched guardian-set index, fee model — not the trade cap).
+ * /bridge — standalone route (kept separate from the single-UI shell so the dark
+ * page background matches Mayan's own dark widget colors). The Mayan widget's
+ * theme isn't externally configurable (colors live in Mayan's builder dashboard,
+ * not the init config), so a dedicated dark page is the clean fit.
  */
 
 import type { Metadata } from "next";
@@ -14,13 +12,13 @@ import { BridgeClient } from "@/components/bridge/bridge-client";
 export const metadata: Metadata = {
   title: "Bridge · Dewlock",
   description:
-    "Bring liquidity into Sui via Wormhole. The source leg is wallet-driven; Dewlock builds only the Sui redeem, guarded and to your own address.",
+    "Bring liquidity into Sui via Mayan's cross-chain swap. Fully wallet-driven; an advanced path redeems a raw VAA behind the bridge Guardian, to your own address.",
 };
 
 export default function BridgePage() {
   return (
     <div className="dark" style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--fg)" }}>
-      <div style={{ maxWidth: 520, margin: "0 auto", padding: "56px 20px 80px" }}>
+      <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px 80px" }}>
         <Link href="/app" className="split-mono" style={{ fontSize: 11, letterSpacing: "0.1em", color: "var(--fg-muted)", textDecoration: "none" }}>
           ← back to copilot
         </Link>
@@ -28,9 +26,9 @@ export default function BridgePage() {
           Bridge into Sui
         </h1>
         <p style={{ fontSize: 13.5, color: "var(--fg-muted)", margin: "0 0 28px", lineHeight: 1.55 }}>
-          Pull liquidity from other chains into Sui via Wormhole. The source-chain transfer is your own
-          wallet-driven decision; Dewlock builds only the Sui redeem — verified by the bridge Guardian and
-          delivered <strong style={{ color: "var(--fg)" }}>only to your own address</strong>.
+          Bring liquidity into Sui with Mayan&apos;s cross-chain swap (Wormhole-based) — fully wallet-driven;
+          Dewlock never signs the source leg. For a raw VAA, the advanced path redeems it behind the bridge
+          Guardian, delivered <strong style={{ color: "var(--fg)" }}>only to your own address</strong>.
         </p>
         <BridgeClient />
       </div>

@@ -6,6 +6,7 @@ import { DeepbookBeat } from "@/components/landing/deepbook-beat";
 import { SecurityTrust } from "@/components/landing/security-trust";
 import { WalrusReceipts } from "@/components/landing/walrus-receipts";
 import { WhySui } from "@/components/landing/why-sui";
+import { PoweredBy } from "@/components/landing/powered-by";
 import { Cta } from "@/components/landing/cta";
 import { Footer } from "@/components/landing/footer";
 
@@ -43,6 +44,7 @@ export default function LandingPage() {
           <Hero />
         </div>
         {/* Each component below declares its own <section id="..."> */}
+        <PoweredBy />
         <BlockTeaser />
         <HowItWorks />
         <DeepbookBeat />

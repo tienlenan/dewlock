@@ -17,7 +17,8 @@
      --fg-inverse is the text color on always-dark panels (always light).
    ========================================================================== */
 
-:root {
+:root,
+.theme-light {
     /* --- fonts (wired via <html> className in layout.tsx) --- */
     --font-sans: var(--font-jakarta);
     --font-mono: var(--font-jetbrains);
@@ -49,7 +50,9 @@
     --accent-soft: hsl(205 100% 95%);  /* sky tint */
     --accent-2: hsl(205 90% 70%);      /* periwinkle highlight */
 
-    /* Pastel multi-color accent tints — sky / periwinkle / blush / peach / mint */
+    /* Pastel multi-color accent tints — sky / periwinkle / blush / peach / mint.
+       Cards read these through a 180deg gradient wash (color-mix → transparent),
+       so the tokens stay at their soft base lightness. */
     --tint-sky: hsl(205 100% 95%);
     --tint-periwinkle: hsl(205 90% 70%);
     --tint-blush: hsl(10 60% 96%);
@@ -181,8 +184,12 @@
         );
 }
 
-/* Dark theme — cool slate ink + lifted sky-blue primary */
-.dark {
+/* Dark theme — cool slate ink + lifted sky-blue primary.
+   .theme-dark re-declares the full token set so a scoped subtree (the /app shell)
+   can force dark even when an ancestor is light — and .theme-light can force light
+   even under a global html.dark (next-themes) — making the /app toggle self-contained. */
+.dark,
+.theme-dark {
     --bg: hsl(213 26% 9%);
     --bg-sub: hsl(213 22% 12%);
     --bg-subtle: hsl(213 22% 12%);

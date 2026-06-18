@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
     "@mysten/suins",
     "@mastra/core",
     "@cetusprotocol/cetus-sui-clmm-sdk",
+    "@cetusprotocol/aggregator-sdk",
+    "@naviprotocol/lending",
     "bn.js",
   ],
 };
