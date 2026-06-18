@@ -19,6 +19,7 @@ import {
   CETUS_CLMM_PACKAGE,
   CETUS_CLMM_PACKAGE_V2,
   CETUS_AGGREGATOR_PACKAGE,
+  CETUS_AGGREGATOR_CETUS_PACKAGE,
   DEEPBOOK_PACKAGE,
   NAVI_PACKAGE,
   SUILEND_PACKAGE,
@@ -89,7 +90,20 @@ export const PROTOCOLS: ProtocolEntry[] = [
     // A route that touches a non-activated DEX calls `<AGG>::<dex>::swap` for a
     // module that is NOT here → the allowlist gate fail-closes the whole route.
     allowlistedTargets: [
+      // A real aggregator swap PTB (verified against the live router_v3 + a built PTB)
+      // contains exactly: the router scaffolding in the DEFAULT package + one per-DEX
+      // `<integration>::<dex>::swap` per hop. All four are allowlisted exactly — no
+      // package-wildcard — so a route through a non-activated DEX (its own integration
+      // package + module) still fails the gate.
+      `${CETUS_AGGREGATOR_PACKAGE}::router::new_swap_context`,
+      `${CETUS_AGGREGATOR_PACKAGE}::router::confirm_swap`,
+      `${CETUS_AGGREGATOR_PACKAGE}::router::transfer_or_destroy_coin`,
+      // CETUS hop: the live router emits the per-DEX integration package, not the
+      // aggregator DEFAULT package. Allow both so the gate matches real PTBs.
+      `${CETUS_AGGREGATOR_CETUS_PACKAGE}::cetus::swap`,
       `${CETUS_AGGREGATOR_PACKAGE}::cetus::swap`,
+      // DEEPBOOK hop wrapper. [needs live-env] confirm DeepBook's integration package
+      // (it did not route for the demo pairs during verification — SUI/USDC is Cetus-only).
       `${CETUS_AGGREGATOR_PACKAGE}::deepbookv3::swap`,
     ],
     coinTypes: [SUI, USDC, USDT],
@@ -109,9 +123,11 @@ export const PROTOCOLS: ProtocolEntry[] = [
     allowlistedTargets: [
       `${NAVI_PACKAGE}::incentive_v3::entry_deposit`,
       `${NAVI_PACKAGE}::incentive_v3::entry_repay`,
+      // The SDK's deposit PTB also refreshes reward/stake state before depositing.
+      `${NAVI_PACKAGE}::pool::refresh_stake`,
     ],
     coinTypes: [SUI, USDC, USDT, wBTC],
-    guardianNotes: "v2-native (peer @mysten/sui >=1.25.0). Deposit/repay only; borrow/withdraw gated off.",
+    guardianNotes: "v2-native (@naviprotocol/lending 2.x, @mysten/sui v2). Deposit/repay only; borrow/withdraw gated off.",
   },
   {
     id: "suilend",
@@ -123,6 +139,8 @@ export const PROTOCOLS: ProtocolEntry[] = [
     // Deposit = mint cTokens + deposit into obligation; repay = repay. borrow/
     // withdraw (lending_market::borrow / withdraw_ctokens) deliberately absent.
     allowlistedTargets: [
+      // A first-time deposit creates the user's obligation, then deposits into it.
+      `${SUILEND_PACKAGE}::lending_market::create_obligation`,
       `${SUILEND_PACKAGE}::lending_market::deposit_liquidity_and_mint_ctokens`,
       `${SUILEND_PACKAGE}::lending_market::deposit_ctokens_into_obligation`,
       `${SUILEND_PACKAGE}::lending_market::repay`,

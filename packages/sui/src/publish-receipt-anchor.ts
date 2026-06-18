@@ -92,25 +92,30 @@ export interface AnchorDeps {
 
 function buildAnchorTx(opts: {
   packageId: string;
+  configId: string;
   headObjectId: string | undefined;
   walletAddress: string;
   action: string;
   blobId: string;
   contentHash: string;
 }): Transaction {
-  const { packageId, headObjectId, walletAddress, action, blobId, contentHash } = opts;
+  const { packageId, configId, headObjectId, walletAddress, action, blobId, contentHash } = opts;
 
   // Allowlist guard: only call into the configured receipt package.
   // Any caller that attempts to pass a different packageId is blocked here.
   const allowedTarget = packageId;
   const tx = new Transaction();
   const clock = tx.object(SUI_CLOCK_OBJECT_ID);
+  // The shared Config object — first arg of create_head/set_head; carries the package
+  // version guard so a future upgrade can deprecate old entry points cleanly.
+  const config = tx.object(configId);
 
   if (!headObjectId) {
     // First write for this (wallet, action): create a new owned HEAD object.
     tx.moveCall({
       target: anchorMoveTarget(allowedTarget, false),
       arguments: [
+        config,
         tx.pure.address(walletAddress),
         tx.pure.vector("u8", Array.from(new TextEncoder().encode(action))),
         tx.pure.vector("u8", Array.from(new TextEncoder().encode(blobId))),
@@ -123,6 +128,7 @@ function buildAnchorTx(opts: {
     tx.moveCall({
       target: anchorMoveTarget(allowedTarget, true),
       arguments: [
+        config,
         tx.object(headObjectId),
         tx.pure.vector("u8", Array.from(new TextEncoder().encode(blobId))),
         tx.pure.vector("u8", Array.from(new TextEncoder().encode(contentHash))),
@@ -169,10 +175,12 @@ export async function anchorReceiptHead(
   deps?: AnchorDeps,
 ): Promise<AnchorResult> {
   const packageId = process.env.DEWLOCK_RECEIPT_PACKAGE_ID;
+  const configId = process.env.DEWLOCK_RECEIPT_CONFIG_ID;
   const secretKey = process.env.WALRUS_SDK_WALLET_KEY;
 
-  // Degrade: missing config → not_configured (blob receipt still valid)
-  if (!packageId || !secretKey) {
+  // Degrade: missing config → not_configured (blob receipt still valid). The shared
+  // Config object id is required because create_head/set_head take it as their first arg.
+  if (!packageId || !configId || !secretKey) {
     return { status: "not_configured", anchorObjectId: null, txDigest: null };
   }
 
@@ -187,6 +195,7 @@ export async function anchorReceiptHead(
 
     const tx = buildAnchorTx({
       packageId,
+      configId,
       headObjectId: existingHeadId,
       walletAddress: input.walletAddress,
       action: input.action,

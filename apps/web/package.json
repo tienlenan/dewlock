@@ -16,6 +16,8 @@
     "@dewlock/sui": "workspace:*",
     "@dewlock/walrus": "workspace:*",
     "@mastra/core": "^1.42.0",
+    "@naviprotocol/lending": "2.0.0-beta.0",
+    "@suilend/sdk": "^3.0.4",
     "@mysten-incubation/memwal": "0.0.7",
     "@mysten/dapp-kit": "^1.0.0",
     "@mysten/sui": "2.18.0",

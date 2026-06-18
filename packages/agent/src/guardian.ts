@@ -27,14 +27,18 @@ import {
   COIN_TYPES,
   DEEPBOOK_POOLS,
   SUINS_PACKAGE,
+  NATIVE_PACKAGE,
   CETUS_CLMM_PACKAGE,
   CETUS_CLMM_PACKAGE_V2,
   CETUS_AGGREGATOR_PACKAGE,
+  CETUS_AGGREGATOR_CETUS_PACKAGE,
+  isAggregatorSwapCall,
   NAVI_PACKAGE,
   SUILEND_PACKAGE,
   WORMHOLE_WTT_PACKAGE,
   DEEPBOOK_PACKAGE,
   getTrustedUsdPrice,
+  normalizeCoinType,
   getProtocolByTarget,
   assertProtocolActive,
   normalizeHomoglyphs,
@@ -80,7 +84,7 @@ import { dryRunTransaction, DryRunFailedError, type DryRunResult } from "@dewloc
 import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import type { SwapQuote } from "@dewlock/sui/quotes-source";
 // aggregator quote source — independent re-derive for swapSource="aggregator"
-import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
+import { fetchAggregatorQuote, fetchSuiUsdPrice } from "@dewlock/sui/aggregator-quotes";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -236,11 +240,25 @@ export interface TxPreview {
 // Cap constants (server-authoritative — read from env, NEVER from client)
 // ---------------------------------------------------------------------------
 
+/**
+ * USD price per native unit for value-bounding. Prefers a LIVE SUI/USD price
+ * (passed in, fetched once per guardian run) over the static $3 floor, which badly
+ * overvalues SUI at current prices. Stablecoins/others fall back to the trusted map.
+ */
+function resolveUsdPrice(coinType: string, liveSuiUsd: number | undefined): number | undefined {
+  if (liveSuiUsd !== undefined && normalizeCoinType(coinType) === COIN_TYPES.SUI) {
+    return liveSuiUsd;
+  }
+  return getTrustedUsdPrice(coinType);
+}
+
 function getServerCaps(): { txUsdCap: number; dailyUsdCap: number } {
   // Hardening point #1: caps come from server-only env vars.
   // NEXT_PUBLIC_TX_USD_CAP is display-only; a tampered client value CANNOT reach here.
-  const txUsdCap = parseFloat(process.env.TX_USD_CAP ?? "5");
-  const dailyUsdCap = parseFloat(process.env.DAILY_USD_CAP ?? "20");
+  // Defaults align with the displayed cap (NEXT_PUBLIC_TX_USD_CAP=5000) so a normal
+  // swap isn't blocked out-of-box; set TX_USD_CAP / DAILY_USD_CAP in server env to tighten.
+  const txUsdCap = parseFloat(process.env.TX_USD_CAP ?? "5000");
+  const dailyUsdCap = parseFloat(process.env.DAILY_USD_CAP ?? "20000");
   if (isNaN(txUsdCap) || txUsdCap <= 0) {
     throw new Error("TX_USD_CAP env var is invalid — refusing all transactions.");
   }
@@ -318,6 +336,10 @@ export async function guardianCheck(
     block("injection_provenance", provenanceResult.reason!);
   }
 
+  // Live SUI/USD (real oracle via aggregator, USDC=$1), fetched once per run and
+  // reused across Gate 2 + the dry-run net-outflow gate. Falls back to the floor.
+  const liveSuiUsd = await fetchSuiUsdPrice();
+
   // --- Gate 2: Trusted USD price + native-units cap fallback ---
   let estimatedUsdValue = 0;
   if (proposal.actionType === "limit_order" && proposal.limitPrice !== undefined && proposal.limitQuantity !== undefined) {
@@ -327,11 +349,11 @@ export async function guardianCheck(
     // Use quote-side USD price to convert notional to USD.
     // If no quoteCoinType is available, fall back to coinTypeIn trusted price.
     const quoteCoinType = proposal.coinTypeOut ?? proposal.coinTypeIn;
-    const quotePrice = getTrustedUsdPrice(quoteCoinType);
+    const quotePrice = resolveUsdPrice(quoteCoinType, liveSuiUsd);
     if (quotePrice === undefined) {
-      // For DEEP_SUI, quoteCoinType is SUI — getTrustedUsdPrice(SUI) returns a value.
+      // For DEEP_SUI, quoteCoinType is SUI — resolveUsdPrice(SUI) returns a value.
       // If quote price is still unknown, fall through to coinTypeIn price as last resort.
-      const basePrice = getTrustedUsdPrice(proposal.coinTypeIn);
+      const basePrice = resolveUsdPrice(proposal.coinTypeIn, liveSuiUsd);
       if (basePrice === undefined) {
         block(
           "trusted_price",
@@ -345,7 +367,7 @@ export async function guardianCheck(
       estimatedUsdValue = notionalQuote * quotePrice;
     }
   } else {
-    const usdPrice = getTrustedUsdPrice(proposal.coinTypeIn);
+    const usdPrice = resolveUsdPrice(proposal.coinTypeIn, liveSuiUsd);
     if (usdPrice === undefined) {
       block(
         "trusted_price",
@@ -445,7 +467,7 @@ export async function guardianCheck(
       // that moves more than declared is caught here. Limit orders rest on the
       // book (deltas ~0), so they keep the notional-based value computed earlier.
       if (proposal.actionType !== "limit_order") {
-        const outflow = computeNetOutflowUsd(dryRunResult, proposal.walletAddress);
+        const outflow = computeNetOutflowUsd(dryRunResult, proposal.walletAddress, liveSuiUsd);
         if (!outflow.ok) {
           block("trusted_price", outflow.reason);
         } else {
@@ -558,6 +580,11 @@ export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
       if ("MoveCall" in cmd && cmd.MoveCall) {
         const mc = cmd.MoveCall;
         const target = `${mc.package}::${mc.module}::${mc.function}`;
+        // Aggregator swap-route calls carry a per-route, upgradeable integration
+        // package that cannot be statically allowlisted, so they are matched by
+        // module::function signature. The action-scoped shape gate ensures these
+        // only appear in a declared swap; the value gates bound the swap itself.
+        if (isAggregatorSwapCall(mc.module, mc.function)) continue;
         if (!ALLOWED_MOVE_TARGETS.has(target)) {
           // Status-aware reason: if the target maps to a known-but-excluded
           // protocol, name it; otherwise the generic refusal.
@@ -601,9 +628,17 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
         // Direct Cetus CLMM swap.
         `${CETUS_CLMM_PACKAGE}::pool::swap`,
         `${CETUS_CLMM_PACKAGE_V2}::pool::swap`,
-        // Aggregator route hops — only the wrappers for ACTIVATED venues. A hop
-        // through a non-activated DEX uses a different `<AGG>::<dex>::swap`
-        // module that is absent from ALLOWED_MOVE_TARGETS → allowlist gate blocks.
+        // Aggregator router_v3 swap calls (router scaffolding + per-hop <dex>::swap)
+        // are additionally accepted by module::function signature in checkActionShape
+        // (isAggregatorSwapCall), because the live router emits a per-route,
+        // upgradeable integration package that cannot be statically pinned. The
+        // venue set is bounded upstream by the provider constraint (CETUS+DEEPBOOK)
+        // at quote time, and the value gates bound the swap. These exact-package
+        // entries stay for the known-current packages / defense-in-depth.
+        `${CETUS_AGGREGATOR_PACKAGE}::router::new_swap_context`,
+        `${CETUS_AGGREGATOR_PACKAGE}::router::confirm_swap`,
+        `${CETUS_AGGREGATOR_PACKAGE}::router::transfer_or_destroy_coin`,
+        `${CETUS_AGGREGATOR_CETUS_PACKAGE}::cetus::swap`,
         `${CETUS_AGGREGATOR_PACKAGE}::cetus::swap`,
         `${CETUS_AGGREGATOR_PACKAGE}::deepbookv3::swap`,
       ]);
@@ -623,8 +658,13 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
       ]);
     case "lend_deposit":
       // Health-improving deposits only — NAVI entry_deposit / Suilend mint+deposit.
+      // NAVI's SDK also emits pool::refresh_stake (refreshes reward accounting before
+      // the deposit; moves no value), so it is part of the legitimate deposit shape.
       return new Set([
         `${NAVI_PACKAGE}::incentive_v3::entry_deposit`,
+        `${NAVI_PACKAGE}::pool::refresh_stake`,
+        // Suilend first-deposit: create the obligation, then deposit into it.
+        `${SUILEND_PACKAGE}::lending_market::create_obligation`,
         `${SUILEND_PACKAGE}::lending_market::deposit_liquidity_and_mint_ctokens`,
         `${SUILEND_PACKAGE}::lending_market::deposit_ctokens_into_obligation`,
       ]);
@@ -665,14 +705,26 @@ export async function checkActionShape(proposal: TradeProposal): Promise<GateRes
     const tx = Transaction.from(bytes);
     const commands = tx.getData().commands ?? [];
     const allowed = allowedTargetsForAction(proposal.actionType);
-    const suinsLookup = `${SUINS_PACKAGE}::registry::lookup`;
+    // Zero-value framework calls permitted inside ANY action's shape: the SuiNS
+    // forward resolve (read-only) and coin::destroy_zero (aborts unless the coin
+    // balance is 0, so it provably moves no value — the aggregator emits it to
+    // drop the emptied input coin after a full-balance swap).
+    const noValueFrameworkCalls = new Set([
+      `${SUINS_PACKAGE}::registry::lookup`,
+      `${NATIVE_PACKAGE}::coin::destroy_zero`,
+    ]);
 
     for (const cmd of commands) {
       if (!("MoveCall" in cmd) || !cmd.MoveCall) continue;
       const mc = cmd.MoveCall;
       const target = `${mc.package}::${mc.module}::${mc.function}`;
-      // Read-only SuiNS resolve moves no value — permitted inside any action.
-      if (target === suinsLookup) continue;
+      if (noValueFrameworkCalls.has(target)) continue;
+      // A swap's aggregator-route calls (router scaffolding + per-hop <dex>::swap)
+      // carry a per-route, upgradeable package, so they are matched by
+      // module::function signature rather than an exact package target. This keeps
+      // multi-venue routes (e.g. a DeepBook leg) from being falsely refused while
+      // the value gates (cap, min-out, provider constraint) bound the swap.
+      if (proposal.actionType === "swap" && isAggregatorSwapCall(mc.module, mc.function)) continue;
       if (!allowed.has(target)) {
         return {
           ok: false,
@@ -742,27 +794,35 @@ type OutflowResult = { ok: true; usd: number } | { ok: false; reason: string };
  * USD map. Gas is subtracted from the SUI outflow so gas alone never trips the
  * cap. An outflow in an unpriced coin → fail-closed block (value unbounded).
  */
-export function computeNetOutflowUsd(dryRun: DryRunResult, sender: string): OutflowResult {
+export function computeNetOutflowUsd(
+  dryRun: DryRunResult,
+  sender: string,
+  liveSuiUsd?: number,
+): OutflowResult {
   let usd = 0;
   const senderNorm = sender.toLowerCase();
   for (const d of dryRun.balanceDeltas) {
     if (d.amount >= 0n) continue; // inflow — not an outflow
     if ((d.owner ?? "").toLowerCase() !== senderNorm) continue; // only the user's own funds
+    // On-chain balance changes use short addresses (e.g. "0x2::sui::SUI"); canonicalize
+    // so SUI-gas subtraction, the price lookup, and the decimals lookup all match the
+    // full-length curated keys. Without this, SUI outflows read as an unpriced coin → block.
+    const coinType = normalizeCoinType(d.coinType);
     let outNative = -d.amount;
-    if (d.coinType === COIN_TYPES.SUI) {
+    if (coinType === COIN_TYPES.SUI) {
       outNative = outNative > dryRun.gasCostMist ? outNative - dryRun.gasCostMist : 0n;
     }
     if (outNative <= 0n) continue;
-    const price = getTrustedUsdPrice(d.coinType);
+    const price = resolveUsdPrice(coinType, liveSuiUsd);
     if (price === undefined) {
       return {
         ok: false,
         reason:
-          `Dry-run shows an outflow in "${d.coinType}", which has no trusted USD price — ` +
+          `Dry-run shows an outflow in "${coinType}", which has no trusted USD price — ` +
           "cannot bound the transaction value. Blocking (fail-closed).",
       };
     }
-    const decimals = COIN_DECIMALS[d.coinType] ?? 9;
+    const decimals = COIN_DECIMALS[coinType] ?? 9;
     usd += (Number(outNative) / 10 ** decimals) * price;
   }
   return { ok: true, usd };

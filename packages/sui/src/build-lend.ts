@@ -17,6 +17,7 @@
  */
 
 import { Transaction } from "@mysten/sui/transactions";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { COIN_TYPES } from "./allowlist";
@@ -58,6 +59,13 @@ function isFixtureMode(): boolean {
   return process.env.NEXT_PUBLIC_DEMO_MODE === "fixture";
 }
 
+// The NAVI/Suilend SDKs are ESM-only (no CJS export). This package compiles to
+// CommonJS, so a plain `await import(pkg)` would be downleveled by tsc to require()
+// and fail on an ESM-only package ("No exports main defined"). Wrapping import in a
+// Function keeps it a TRUE native dynamic import at runtime — opaque to tsc AND to the
+// bundler's static analysis — so Node's ESM loader handles it.
+const esmImport = new Function("s", "return import(s)") as <T = unknown>(s: string) => Promise<T>;
+
 /**
  * Build an unsigned deposit/repay PTB. Throws LendBuildError on any error —
  * callers (Guardian) treat a throw as BLOCK.
@@ -96,7 +104,7 @@ async function buildNaviLend(client: SuiClient, spec: LendSpec): Promise<LendBui
   const { senderAddress, coinType, amountNative, action } = spec;
   let navi: typeof import("@naviprotocol/lending");
   try {
-    navi = await import("@naviprotocol/lending");
+    navi = await esmImport<typeof import("@naviprotocol/lending")>("@naviprotocol/lending");
   } catch (err) {
     throw new LendBuildError(`Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -131,30 +139,81 @@ async function buildNaviLend(client: SuiClient, spec: LendSpec): Promise<LendBui
 // Suilend live path — @suilend/sdk (bundler-only, unverified here). [needs live-env]
 // ---------------------------------------------------------------------------
 
+// Minimal shapes for the @suilend/sdk 3.x client API we use (verified from its d.ts).
+interface SuilendClientApi {
+  createObligation: (tx: Transaction) => unknown;
+  deposit: (sendCoin: unknown, coinType: string, obligationOwnerCap: unknown, tx: Transaction) => unknown;
+  repayIntoObligation: (ownerId: string, obligationId: string, coinType: string, value: string, tx: Transaction) => Promise<unknown>;
+}
+interface SuilendClientModule {
+  SuilendClient: { initialize: (lendingMarketId: string, lendingMarketType: string, grpc: unknown) => Promise<SuilendClientApi> };
+  LENDING_MARKET_ID: string;
+  LENDING_MARKET_TYPE: string;
+}
+
 async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<LendBuildResult> {
   const { senderAddress, coinType, amountNative, action, obligationId } = spec;
-  let suilend: typeof import("@suilend/sdk");
+
+  // SuilendClient + the market constants live on the `@suilend/sdk/client` SUBPATH
+  // (the root does not re-export them). Suilend is bundler-only (directory imports),
+  // so it stays a plain dynamic import (bundled by Next), NOT a native import().
+  let raw: Record<string, unknown>;
   try {
-    suilend = await import("@suilend/sdk");
+    raw = (await import("@suilend/sdk/client")) as unknown as Record<string, unknown>;
   } catch (err) {
     throw new LendBuildError(
       `Failed to load Suilend SDK (bundler-only): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+
   try {
-    const SuilendClient = (suilend as { SuilendClient: { initialize: (...a: unknown[]) => Promise<unknown> } }).SuilendClient;
-    const lc = (await SuilendClient.initialize(client as never)) as {
-      depositIntoObligation: (sender: string, coinType: string, amount: string, tx: Transaction, obligationId?: string) => Promise<void>;
-      repayIntoObligation: (sender: string, obligationId: string, coinType: string, amount: string, tx: Transaction) => Promise<void>;
-    };
+    // Resolve through the ESM/CJS interop (named exports may land under `.default`).
+    const def = (raw.default as Record<string, unknown> | undefined) ?? {};
+    const pick = <T,>(k: string): T => (raw[k] ?? def[k]) as T;
+    const SuilendClient = pick<SuilendClientModule["SuilendClient"]>("SuilendClient");
+    const LENDING_MARKET_ID = pick<string>("LENDING_MARKET_ID");
+    const LENDING_MARKET_TYPE = pick<string>("LENDING_MARKET_TYPE");
+    if (!SuilendClient || typeof SuilendClient.initialize !== "function") {
+      // The @suilend/sdk uses extensionless directory imports that the Next bundler
+      // resolves to an EMPTY module (keys: [default], default: {}), so the client API
+      // never materializes. This needs bundler-resolution work (or a clean-ESM SDK
+      // build); the 3.x call flow below is correct for when it loads. Use NAVI today.
+      throw new LendBuildError(
+        "Suilend SDK did not load under the bundler (directory-import resolution → empty module). NAVI is the supported live lending protocol.",
+      );
+    }
+
+    // The 3.x initialize takes (lendingMarketId, lendingMarketType, SuiGrpcClient).
+    const grpc = new SuiGrpcClient({
+      network: "mainnet",
+      url: process.env.SUI_RPC_URL ?? "https://fullnode.mainnet.sui.io:443",
+    });
+    const lc = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, grpc);
+
     const tx = new Transaction();
     tx.setSender(senderAddress);
+
     if (action === "deposit") {
-      await lc.depositIntoObligation(senderAddress, coinType, amountNative.toString(), tx, obligationId);
+      // Provide the input coin (SUI uses the gas coin; others are selected + merged).
+      const isSui = coinType === COIN_TYPES.SUI;
+      const coin = isSui
+        ? tx.splitCoins(tx.gas, [amountNative])[0]
+        : await selectCoin(client, tx, senderAddress, coinType, amountNative);
+      // Fresh obligation per deposit (the owner cap is returned), then deposit into it
+      // and transfer the cap to the user so they own the position.
+      const ownerCap = lc.createObligation(tx);
+      lc.deposit(coin, coinType, ownerCap, tx);
+      tx.transferObjects([ownerCap as Parameters<Transaction["transferObjects"]>[0][number]], senderAddress);
     } else {
-      if (!obligationId) throw new LendBuildError("Suilend repay requires an obligationId.");
+      if (!obligationId) throw new LendBuildError("Suilend repay requires an existing obligationId.");
+      const isSui = coinType === COIN_TYPES.SUI;
+      const coin = isSui
+        ? tx.splitCoins(tx.gas, [amountNative])[0]
+        : await selectCoin(client, tx, senderAddress, coinType, amountNative);
+      void coin;
       await lc.repayIntoObligation(senderAddress, obligationId, coinType, amountNative.toString(), tx);
     }
+
     const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
   } catch (err) {
