@@ -1,0 +1,285 @@
+"use client";
+
+/**
+ * SwapFormCard — from→to swap picker rendered when the user types a bare/partial
+ * "swap". DEX layout: a "You pay" panel (token + amount), a direction toggle, a
+ * "You receive" panel (token + live estimated-out), a rate line, and a CTA that
+ * composes a COMPLETE `swap <amt> <from> to <to>` command via onSend → prepareTrade.
+ *
+ * The estimated-out is an INDICATIVE self-fetched quote (/api/swap-quote, fail-soft);
+ * the Guardian re-derives min-out at build. This card never builds or signs.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ChevronDown, Route } from "lucide-react";
+import { useCurrentAccount } from "@mysten/dapp-kit";
+import { CoinLogo } from "./asset-logos";
+import { useCoinBalance } from "@/lib/use-coin-balance";
+
+// Keep ~0.05 SUI for gas when using MAX/50% on the native gas coin.
+const SUI_GAS_RESERVE_NATIVE = 50_000_000n;
+function isSuiCoin(coinType: string): boolean {
+  return coinType.endsWith("::sui::SUI");
+}
+
+/** Native units → a plain decimal string (no separators, trimmed) for an input. */
+function nativeToPlain(native: bigint, decimals: number): string {
+  if (native <= 0n) return "";
+  const s = native.toString().padStart(decimals + 1, "0");
+  const whole = s.slice(0, s.length - decimals) || "0";
+  const frac = decimals ? s.slice(s.length - decimals).replace(/0+$/, "") : "";
+  return frac ? `${whole}.${frac}` : whole;
+}
+
+export interface SwapCoin {
+  symbol: string;
+  coinType: string;
+  decimals: number;
+  logoUrl?: string;
+}
+
+export interface SwapFormData {
+  coins: SwapCoin[];
+  coinTypeIn?: string;
+  coinTypeOut?: string;
+  amountHuman?: string;
+}
+
+function humanToNative(human: string, decimals: number): string | null {
+  if (!/^\d+(\.\d+)?$/.test(human.trim())) return null;
+  const [whole, frac = ""] = human.trim().split(".");
+  const padded = (frac + "0".repeat(decimals)).slice(0, decimals);
+  try {
+    return (BigInt(whole || "0") * 10n ** BigInt(decimals) + BigInt(padded || "0")).toString();
+  } catch {
+    return null;
+  }
+}
+
+function nativeToHuman(native: string, decimals: number): string {
+  const n = Number(BigInt(native)) / 10 ** decimals;
+  return n.toLocaleString("en-US", { maximumFractionDigits: n < 1 ? 6 : 4 });
+}
+
+function TokenSelect({
+  coins,
+  value,
+  exclude,
+  onChange,
+}: {
+  coins: SwapCoin[];
+  value: SwapCoin;
+  exclude?: string;
+  onChange: (c: SwapCoin) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 transition-colors"
+        style={{ padding: "5px 8px 5px 5px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--bg-elev)", boxShadow: "var(--shadow-sm)", cursor: "pointer" }}
+      >
+        <CoinLogo symbol={value.symbol} logoUrl={value.logoUrl} size={24} />
+        <span style={{ fontSize: 14, fontWeight: 650, color: "var(--fg)" }}>{value.symbol}</span>
+        <ChevronDown size={14} style={{ color: "var(--fg-faint)" }} aria-hidden />
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
+          <div
+            style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 11, minWidth: 150,
+              background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: 12,
+              boxShadow: "var(--shadow-lg)", padding: 5, maxHeight: 220, overflowY: "auto",
+            }}
+          >
+            {coins.map((c) => {
+              const disabled = c.coinType === exclude;
+              return (
+                <button
+                  key={c.coinType}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => { onChange(c); setOpen(false); }}
+                  className="flex items-center gap-2 w-full text-left"
+                  style={{ padding: "7px 8px", borderRadius: 8, border: "none", background: c.coinType === value.coinType ? "var(--accent-soft)" : "transparent", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.35 : 1 }}
+                >
+                  <CoinLogo symbol={c.symbol} logoUrl={c.logoUrl} size={22} />
+                  <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--fg)" }}>{c.symbol}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Panel({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: "var(--bg-sub)", border: "1px solid var(--border)", borderRadius: 13, padding: "11px 13px" }}>
+      <div className="split-mono" style={{ fontSize: 9.5, letterSpacing: "0.12em", color: "var(--fg-faint)", textTransform: "uppercase", marginBottom: 7 }}>{label}</div>
+      <div className="flex items-center justify-between gap-2">{children}</div>
+    </div>
+  );
+}
+
+export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (text: string) => void }) {
+  const coins = data.coins;
+  const byType = useMemo(() => new Map(coins.map((c) => [c.coinType, c])), [coins]);
+  const fallbackFrom = coins[0];
+  const fallbackTo = coins.find((c) => c.coinType !== fallbackFrom?.coinType) ?? coins[1] ?? fallbackFrom;
+
+  const [from, setFrom] = useState<SwapCoin>(byType.get(data.coinTypeIn ?? "") ?? fallbackFrom);
+  const [to, setTo] = useState<SwapCoin>(byType.get(data.coinTypeOut ?? "") ?? fallbackTo);
+  const [amount, setAmount] = useState(data.amountHuman ?? "");
+  const [quote, setQuote] = useState<{ out: string; loading: boolean; available: boolean; route: string[] }>({ out: "", loading: false, available: true, route: [] });
+  const [submitted, setSubmitted] = useState(false);
+
+  // Live balance of the "You pay" coin for the connected wallet (MAX / 50%).
+  const account = useCurrentAccount();
+  const { native: fromBalanceNative } = useCoinBalance(account?.address, from?.coinType);
+
+  const amountValid = /^\d+(\.\d+)?$/.test(amount.trim()) && Number(amount) > 0;
+  const sameCoin = from?.coinType === to?.coinType;
+  const canSubmit = amountValid && !sameCoin && !submitted;
+
+  /** Amount usable for MAX/50% — full balance, minus a gas reserve for native SUI. */
+  function spendableNative(): bigint {
+    const bal = fromBalanceNative ? BigInt(fromBalanceNative) : 0n;
+    if (!isSuiCoin(from.coinType)) return bal;
+    return bal > SUI_GAS_RESERVE_NATIVE ? bal - SUI_GAS_RESERVE_NATIVE : 0n;
+  }
+  function applyPercent(pct: number) {
+    if (submitted) return;
+    const amt = (spendableNative() * BigInt(pct)) / 100n;
+    setAmount(nativeToPlain(amt, from.decimals));
+  }
+  const hasBalance = fromBalanceNative != null && BigInt(fromBalanceNative) > 0n;
+
+  // Live indicative quote (debounced, fail-soft) — also captures the route providers.
+  useEffect(() => {
+    if (!amountValid || sameCoin || !from || !to) { setQuote({ out: "", loading: false, available: true, route: [] }); return; }
+    const native = humanToNative(amount, from.decimals);
+    if (!native) return;
+    setQuote((q) => ({ ...q, loading: true }));
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      fetch(`/api/swap-quote?in=${encodeURIComponent(from.coinType)}&out=${encodeURIComponent(to.coinType)}&amount=${native}`, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d: { available?: boolean; estimatedAmountOut?: string; routeProviders?: string[] }) =>
+          setQuote(d.available && d.estimatedAmountOut
+            ? { out: nativeToHuman(d.estimatedAmountOut, to.decimals), loading: false, available: true, route: d.routeProviders ?? [] }
+            : { out: "", loading: false, available: false, route: [] }))
+        .catch(() => setQuote({ out: "", loading: false, available: false, route: [] }));
+    }, 350);
+    return () => { ctrl.abort(); clearTimeout(t); };
+  }, [amount, from, to, amountValid, sameCoin]);
+
+  function flip() {
+    setFrom(to);
+    setTo(from);
+  }
+  function submit() {
+    if (!canSubmit) return;
+    setSubmitted(true);
+    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol}`);
+  }
+
+  const rate = quote.out && amountValid ? `1 ${from.symbol} ≈ ${(Number(quote.out) / Number(amount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${to.symbol}` : null;
+
+  return (
+    <div className="w-full" style={{ maxWidth: 420, border: "1px solid var(--border)", borderRadius: "var(--radius-card)", background: "var(--bg-elev)", boxShadow: "var(--shadow-md)", padding: 14, opacity: submitted ? 0.7 : 1 }}>
+      <div className="split-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--accent-ink)", textTransform: "uppercase", marginBottom: 11 }}>Swap</div>
+
+      <div style={{ position: "relative", display: "grid", gap: 6 }}>
+        {/* You pay — with live balance + percentage shortcuts */}
+        <div style={{ background: "var(--bg-sub)", border: "1px solid var(--border)", borderRadius: 13, padding: "11px 13px" }}>
+          <div className="flex items-center justify-between" style={{ marginBottom: 7, gap: 8 }}>
+            <span className="split-mono" style={{ fontSize: 9.5, letterSpacing: "0.12em", color: "var(--fg-faint)", textTransform: "uppercase" }}>You pay</span>
+            {hasBalance && (
+              <div className="flex items-center gap-1.5">
+                <span className="mono" style={{ fontSize: 10.5, color: "var(--fg-muted)" }}>
+                  {nativeToHuman(fromBalanceNative!, from.decimals)} {from.symbol}
+                </span>
+                {[["50%", 50], ["MAX", 100]].map(([label, pct]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => applyPercent(pct as number)}
+                    disabled={submitted}
+                    className="split-mono"
+                    style={{ fontSize: 9, letterSpacing: "0.04em", color: "var(--accent-ink)", background: "var(--accent-soft)", border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)", padding: "2px 6px", borderRadius: 6, cursor: submitted ? "default" : "pointer" }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <input
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.0"
+              disabled={submitted}
+              className="mono"
+              style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", outline: "none", fontSize: 24, fontWeight: 650, color: "var(--fg)" }}
+            />
+            <TokenSelect coins={coins} value={from} exclude={to?.coinType} onChange={setFrom} />
+          </div>
+        </div>
+
+        {/* Direction toggle */}
+        <button
+          type="button"
+          onClick={flip}
+          aria-label="Swap direction"
+          className="flex items-center justify-center"
+          style={{ position: "absolute", top: "calc(50% - 15px)", left: "calc(50% - 15px)", width: 30, height: 30, borderRadius: 9, background: "var(--bg-elev)", border: "2px solid var(--bg-elev)", outline: "1px solid var(--border)", boxShadow: "var(--shadow-sm)", color: "var(--accent)", cursor: "pointer", zIndex: 2 }}
+        >
+          <ArrowDown size={15} aria-hidden />
+        </button>
+
+        <Panel label="You receive">
+          <span className="mono" style={{ flex: 1, minWidth: 0, fontSize: 24, fontWeight: 650, color: quote.out ? "var(--fg)" : "var(--fg-faint)", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {quote.loading ? "…" : quote.available ? (quote.out || "0.0") : "—"}
+          </span>
+          <TokenSelect coins={coins} value={to} exclude={from?.coinType} onChange={setTo} />
+        </Panel>
+      </div>
+
+      {/* Rate line */}
+      <div className="flex items-center justify-between" style={{ marginTop: 10, minHeight: 16 }}>
+        <span className="mono" style={{ fontSize: 11, color: "var(--fg-muted)" }}>{sameCoin ? "Pick two different tokens" : rate ?? (quote.available ? "" : "No route for this pair")}</span>
+        {rate && <span className="split-mono" style={{ fontSize: 9, color: "var(--fg-faint)", letterSpacing: "0.06em" }}>INDICATIVE</span>}
+      </div>
+
+      {/* Route — the Cetus aggregator auto-selects the best venue (CETUS / DeepBook). */}
+      {rate && (
+        <div className="flex items-center justify-between" style={{ marginTop: 8, padding: "8px 11px", borderRadius: 10, background: "var(--bg-sub)", border: "1px solid var(--border)" }}>
+          <span className="flex items-center gap-1.5 split-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", color: "var(--fg-faint)", textTransform: "uppercase" }}>
+            <Route size={11} aria-hidden /> Route · best execution
+          </span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--fg)", fontWeight: 600 }}>
+            Cetus Aggregator{quote.route.length ? ` · ${quote.route.join(" → ")}` : ""}
+          </span>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!canSubmit}
+        className="flex items-center justify-center gap-2"
+        style={{ marginTop: 11, width: "100%", height: 44, borderRadius: 12, border: "none", background: canSubmit ? "var(--accent)" : "var(--bg-sub)", color: canSubmit ? "#fff" : "var(--fg-faint)", fontSize: 14.5, fontWeight: 650, cursor: canSubmit ? "pointer" : "default", boxShadow: canSubmit ? "var(--shadow-aqua)" : "none" }}
+      >
+        {submitted ? "Submitted" : sameCoin ? "Select tokens" : !amountValid ? "Enter an amount" : "Review swap"}
+      </button>
+    </div>
+  );
+}
