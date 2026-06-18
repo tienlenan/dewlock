@@ -1,26 +1,93 @@
-import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // ../../node_modules/.pnpm/aftermath-ts-sdk@2.1.0_@mysten+sui@2.18.0_typescript@5.9.3_/node_modules/aftermath-ts-sdk/dist/index.js
-import {
-  Transaction
-} from "@mysten/sui/transactions";
-import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { Secp256k1Keypair } from "@mysten/sui/keypairs/secp256k1";
-import { Secp256r1Keypair } from "@mysten/sui/keypairs/secp256r1";
-import { isValidSuiAddress } from "@mysten/sui/utils";
-import { Transaction as Transaction2 } from "@mysten/sui/transactions";
-import { bcs } from "@mysten/sui/bcs";
-import {
-  Transaction as Transaction3
-} from "@mysten/sui/transactions";
-import {
-  Transaction as Transaction4
-} from "@mysten/sui/transactions";
-import {
-  Transaction as Transaction5
-} from "@mysten/sui/transactions";
-import { Transaction as Transaction6 } from "@mysten/sui/transactions";
+var index_exports = {};
+__export(index_exports, {
+  Aftermath: () => Aftermath,
+  AftermathApi: () => AftermathApi,
+  Auth: () => Auth,
+  Casting: () => Casting,
+  Coin: () => Coin,
+  Farms: () => Farms,
+  FarmsStakedPosition: () => FarmsStakedPosition,
+  FarmsStakingPool: () => FarmsStakingPool,
+  Faucet: () => Faucet,
+  GasPools: () => GasPools,
+  Helpers: () => Helpers,
+  NftAmm: () => NftAmm,
+  Perpetuals: () => Perpetuals,
+  PerpetualsAccount: () => PerpetualsAccount,
+  PerpetualsMarket: () => PerpetualsMarket,
+  PerpetualsOrderSide: () => PerpetualsOrderSide,
+  PerpetualsOrderType: () => PerpetualsOrderType,
+  PerpetualsStopOrderType: () => PerpetualsStopOrderType,
+  PerpetualsVault: () => PerpetualsVault,
+  Pool: () => Pool,
+  Pools: () => Pools,
+  ReferralVault: () => ReferralVault,
+  Router: () => Router,
+  StakedSuiFren: () => StakedSuiFren,
+  Staking: () => Staking,
+  Sui: () => Sui,
+  SuiFren: () => SuiFren,
+  SuiFrens: () => SuiFrens,
+  SuiFrensSortOption: () => SuiFrensSortOption,
+  isAllocatedCollateralEvent: () => isAllocatedCollateralEvent,
+  isCanceledOrderEvent: () => isCanceledOrderEvent,
+  isDeallocatedCollateralEvent: () => isDeallocatedCollateralEvent,
+  isDepositedCollateralEvent: () => isDepositedCollateralEvent,
+  isFarmsDepositedPrincipalEvent: () => isFarmsDepositedPrincipalEvent,
+  isFarmsHarvestedRewardsEvent: () => isFarmsHarvestedRewardsEvent,
+  isFarmsLockedEvent: () => isFarmsLockedEvent,
+  isFarmsStakedEvent: () => isFarmsStakedEvent,
+  isFarmsUnlockedEvent: () => isFarmsUnlockedEvent,
+  isFarmsWithdrewPrincipalEvent: () => isFarmsWithdrewPrincipalEvent,
+  isFilledMakerOrdersEvent: () => isFilledMakerOrdersEvent,
+  isFilledTakerOrderEvent: () => isFilledTakerOrderEvent,
+  isLiquidatedEvent: () => isLiquidatedEvent,
+  isPostedOrderEvent: () => isPostedOrderEvent,
+  isReducedOrderEvent: () => isReducedOrderEvent,
+  isSettledFundingEvent: () => isSettledFundingEvent,
+  isStakeEvent: () => isStakeEvent,
+  isStakePosition: () => isStakePosition,
+  isSuiDelegatedStake: () => isSuiDelegatedStake,
+  isUnstakeEvent: () => isUnstakeEvent,
+  isUnstakePosition: () => isUnstakePosition,
+  isUpdatedFundingEvent: () => isUpdatedFundingEvent,
+  isUpdatedMarketVersion: () => isUpdatedMarketVersion,
+  isUpdatedPremiumTwapEvent: () => isUpdatedPremiumTwapEvent,
+  isUpdatedSpreadTwapEvent: () => isUpdatedSpreadTwapEvent,
+  isWithdrewCollateralEvent: () => isWithdrewCollateralEvent
+});
+module.exports = __toCommonJS(index_exports);
+var import_transactions = require("@mysten/sui/transactions");
+var import_cryptography = require("@mysten/sui/cryptography");
+var import_ed25519 = require("@mysten/sui/keypairs/ed25519");
+var import_secp256k1 = require("@mysten/sui/keypairs/secp256k1");
+var import_secp256r1 = require("@mysten/sui/keypairs/secp256r1");
+var import_utils = require("@mysten/sui/utils");
+var import_transactions2 = require("@mysten/sui/transactions");
+var import_bcs = require("@mysten/sui/bcs");
+var import_transactions3 = require("@mysten/sui/transactions");
+var import_transactions4 = require("@mysten/sui/transactions");
+var import_transactions5 = require("@mysten/sui/transactions");
+var import_transactions6 = require("@mysten/sui/transactions");
 
 // ../../node_modules/.pnpm/date-fns@4.4.0/node_modules/date-fns/constants.js
 var daysInYear = 365.2425;
@@ -1592,41 +1659,29 @@ function cleanEscapedString(input) {
 }
 
 // ../../node_modules/.pnpm/aftermath-ts-sdk@2.1.0_@mysten+sui@2.18.0_typescript@5.9.3_/node_modules/aftermath-ts-sdk/dist/index.js
-import { Transaction as Transaction7 } from "@mysten/sui/transactions";
-import {
-  Transaction as Transaction8
-} from "@mysten/sui/transactions";
-import {
-  Transaction as Transaction9
-} from "@mysten/sui/transactions";
-import { Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
-import { MultiSigPublicKey } from "@mysten/sui/multisig";
-import {
-  Transaction as Transaction10
-} from "@mysten/sui/transactions";
-import { bcs as bcs2 } from "@mysten/sui/bcs";
-import {
-  Transaction as Transaction11
-} from "@mysten/sui/transactions";
-import { fromBase64, normalizeSuiObjectId } from "@mysten/sui/utils";
-import { bcs as bcs3 } from "@mysten/sui/bcs";
-import { Transaction as Transaction12 } from "@mysten/sui/transactions";
-import {
-  Transaction as Transaction13
-} from "@mysten/sui/transactions";
-import {
-  Transaction as Transaction14
-} from "@mysten/sui/transactions";
-import { bcs as bcs4 } from "@mysten/sui/bcs";
-import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
-var __defProp = Object.defineProperty;
-var __getOwnPropNames = Object.getOwnPropertyNames;
+var import_transactions7 = require("@mysten/sui/transactions");
+var import_transactions8 = require("@mysten/sui/transactions");
+var import_transactions9 = require("@mysten/sui/transactions");
+var import_ed255192 = require("@mysten/sui/keypairs/ed25519");
+var import_multisig = require("@mysten/sui/multisig");
+var import_transactions10 = require("@mysten/sui/transactions");
+var import_bcs2 = require("@mysten/sui/bcs");
+var import_transactions11 = require("@mysten/sui/transactions");
+var import_utils2 = require("@mysten/sui/utils");
+var import_bcs3 = require("@mysten/sui/bcs");
+var import_transactions12 = require("@mysten/sui/transactions");
+var import_transactions13 = require("@mysten/sui/transactions");
+var import_transactions14 = require("@mysten/sui/transactions");
+var import_bcs4 = require("@mysten/sui/bcs");
+var import_jsonRpc = require("@mysten/sui/jsonRpc");
+var __defProp2 = Object.defineProperty;
+var __getOwnPropNames2 = Object.getOwnPropertyNames;
 var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  return fn && (res = (0, fn[__getOwnPropNames2(fn)[0]])(fn = 0)), res;
 };
-var __export = (target, all) => {
+var __export2 = (target, all) => {
   for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+    __defProp2(target, name, { get: all[name], enumerable: true });
 };
 var _DynamicFieldsApiHelpers;
 var DynamicFieldsApiHelpers;
@@ -2188,7 +2243,7 @@ var init_transactionsApiHelpers = __esm({
     _TransactionsApiHelpers.createTxTarget = (packageAddress, packageName, functionName) => `${packageAddress}::${packageName}::${functionName}`;
     _TransactionsApiHelpers.createBuildTxFunc = (func) => {
       const builderFunc = (someInputs) => {
-        const tx = new Transaction();
+        const tx = new import_transactions.Transaction();
         tx.setSender(someInputs.walletAddress);
         func({
           tx,
@@ -2546,11 +2601,11 @@ var init_helpers = __esm({
         };
         const errorCode = moveErrorCode(errorMessage);
         const packageId = moveErrorPackageId(errorMessage);
-        const module = moveErrorModule(errorMessage);
-        if (errorCode === void 0 || !packageId || !module) {
+        const module2 = moveErrorModule(errorMessage);
+        if (errorCode === void 0 || !packageId || !module2) {
           return void 0;
         }
-        return { errorCode, packageId, module };
+        return { errorCode, packageId, module: module2 };
       }
       /**
        * Translates a Move abort error message into a known error string if it matches
@@ -2736,7 +2791,7 @@ var init_helpers = __esm({
     _Helpers.addTxObject = (tx, object) => {
       return typeof object === "string" ? tx.object(object) : object;
     };
-    _Helpers.isValidSuiAddress = (address) => isValidSuiAddress(
+    _Helpers.isValidSuiAddress = (address) => (0, import_utils.isValidSuiAddress)(
       (() => {
         if (!address.startsWith("0x") || address.length < 3) {
           return "";
@@ -2749,14 +2804,14 @@ var init_helpers = __esm({
       })()
     );
     _Helpers.keypairFromPrivateKey = (privateKey) => {
-      const parsedKeypair = decodeSuiPrivateKey(privateKey);
+      const parsedKeypair = (0, import_cryptography.decodeSuiPrivateKey)(privateKey);
       switch (parsedKeypair.scheme) {
         case "ED25519":
-          return Ed25519Keypair.fromSecretKey(parsedKeypair.secretKey);
+          return import_ed25519.Ed25519Keypair.fromSecretKey(parsedKeypair.secretKey);
         case "Secp256k1":
-          return Secp256k1Keypair.fromSecretKey(parsedKeypair.secretKey);
+          return import_secp256k1.Secp256k1Keypair.fromSecretKey(parsedKeypair.secretKey);
         case "Secp256r1":
-          return Secp256r1Keypair.fromSecretKey(parsedKeypair.secretKey);
+          return import_secp256r1.Secp256r1Keypair.fromSecretKey(parsedKeypair.secretKey);
         default:
           throw new Error(`unsupported scheme \`${parsedKeypair.scheme}\``);
       }
@@ -2854,7 +2909,7 @@ var init_caller = __esm({
           signal,
           options
         );
-        const tx = options?.txKind ? Transaction2.fromKind(txKind) : Transaction2.from(txKind);
+        const tx = options?.txKind ? import_transactions2.Transaction.fromKind(txKind) : import_transactions2.Transaction.from(txKind);
         if (body?.walletAddress) {
           tx.setSender(body.walletAddress);
         }
@@ -2867,7 +2922,7 @@ var init_caller = __esm({
           signal,
           options
         );
-        const tx = response.sponsorSignature ? Transaction2.from(response.txKind) : Transaction2.fromKind(response.txKind);
+        const tx = response.sponsorSignature ? import_transactions2.Transaction.from(response.txKind) : import_transactions2.Transaction.fromKind(response.txKind);
         const { txKind, ...rest } = response;
         return { ...rest, tx };
       }
@@ -4885,7 +4940,7 @@ var init_iFixedUtils = __esm({
   }
 });
 var casting_exports = {};
-__export(casting_exports, {
+__export2(casting_exports, {
   Casting: () => Casting
 });
 var _Casting;
@@ -4969,7 +5024,7 @@ var init_casting = __esm({
     _Casting.bigIntFromBytes = (bytes) => BigInt(
       "0x" + bytes.reverse().map((byte) => byte.toString(16).padStart(2, "0")).join("")
     );
-    _Casting.addressFromBcsBytes = (bytes) => Helpers.addLeadingZeroesToType(bcs.Address.parse(new Uint8Array(bytes)));
+    _Casting.addressFromBcsBytes = (bytes) => Helpers.addLeadingZeroesToType(import_bcs.bcs.Address.parse(new Uint8Array(bytes)));
     _Casting.addressFromBytes = (bytes) => Helpers.addLeadingZeroesToType(
       "0x" + bytes.map((byte) => {
         const hex = byte.toString(16);
@@ -9038,7 +9093,7 @@ var init_perpetualsAccount = __esm({
             accountId: this.accountCap.accountId,
             accountCapId: this.accountCap.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction3()
+              tx: tx ?? new import_transactions3.Transaction()
             })
           },
           void 0,
@@ -9086,7 +9141,7 @@ var init_perpetualsAccount = __esm({
             walletAddress: this.ownerAddress(),
             accountId: this.accountCap.accountId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: txFromInputs ?? new Transaction3()
+              tx: txFromInputs ?? new import_transactions3.Transaction()
             })
           },
           void 0,
@@ -9122,7 +9177,7 @@ var init_perpetualsAccount = __esm({
               vaultId: void 0
             },
             walletAddress: this.ownerAddress(),
-            txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({ tx: tx ?? new Transaction3() })
+            txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({ tx: tx ?? new import_transactions3.Transaction() })
           },
           void 0,
           {
@@ -9157,7 +9212,7 @@ var init_perpetualsAccount = __esm({
               vaultId: void 0
             },
             walletAddress: this.ownerAddress(),
-            txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({ tx: tx ?? new Transaction3() })
+            txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({ tx: tx ?? new import_transactions3.Transaction() })
           },
           void 0,
           {
@@ -9190,7 +9245,7 @@ var init_perpetualsAccount = __esm({
             walletAddress: this.ownerAddress(),
             fromAccountId: this.accountCap.accountId,
             fromAccountCapId: this.accountCap.objectId,
-            txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({ tx: tx ?? new Transaction3() })
+            txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({ tx: tx ?? new import_transactions3.Transaction() })
           },
           void 0,
           {
@@ -9238,7 +9293,7 @@ var init_perpetualsAccount = __esm({
        */
       async getPlaceMarketOrderTx(inputs) {
         const { tx: txFromInputs, ...otherInputs } = inputs;
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/place-market-order`,
           {
@@ -9280,7 +9335,7 @@ var init_perpetualsAccount = __esm({
        */
       async getPlaceLimitOrderTx(inputs) {
         const { tx: txFromInputs, ...otherInputs } = inputs;
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/place-limit-order`,
           {
@@ -9317,7 +9372,7 @@ var init_perpetualsAccount = __esm({
        */
       async getPlaceScaleOrderTx(inputs) {
         const { tx: txFromInputs, ...otherInputs } = inputs;
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/place-scale-order`,
           {
@@ -9352,7 +9407,7 @@ var init_perpetualsAccount = __esm({
        */
       async getCancelAndPlaceOrdersTx(inputs) {
         const { tx: txFromInputs, ...otherInputs } = inputs;
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/cancel-and-place-orders`,
           {
@@ -9467,7 +9522,7 @@ var init_perpetualsAccount = __esm({
        */
       async getPlaceStopOrdersTx(inputs) {
         const { tx: txFromInputs, ...otherInputs } = inputs;
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/place-stop-orders`,
           {
@@ -9511,7 +9566,7 @@ var init_perpetualsAccount = __esm({
         if (!position) {
           throw new Error("you have no position for this market");
         }
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/place-sl-tp-orders`,
           {
@@ -9554,7 +9609,7 @@ var init_perpetualsAccount = __esm({
        */
       async getEditStopOrdersTx(inputs) {
         const { tx: txFromInputs, ...otherInputs } = inputs;
-        const tx = txFromInputs ?? new Transaction3();
+        const tx = txFromInputs ?? new import_transactions3.Transaction();
         return this.fetchApiTxObject(
           `${this.vaultId ? "vault" : "account"}/transactions/edit-stop-orders`,
           {
@@ -10144,7 +10199,7 @@ var init_perpetualsAccount = __esm({
             recipientAddress,
             accountId: this.accountCap.accountId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction3()
+              tx: tx ?? new import_transactions3.Transaction()
             })
           },
           void 0,
@@ -10176,7 +10231,7 @@ var init_perpetualsAccount = __esm({
             accountCapId,
             accountId: this.accountCap.accountId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction3()
+              tx: tx ?? new import_transactions3.Transaction()
             })
           },
           void 0,
@@ -10877,7 +10932,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -10893,7 +10948,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -10919,7 +10974,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -10945,7 +11000,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -10968,7 +11023,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -10992,7 +11047,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11021,7 +11076,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11046,7 +11101,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: txFromInputs ?? new Transaction4()
+              tx: txFromInputs ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11072,7 +11127,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11103,7 +11158,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11134,7 +11189,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11157,7 +11212,7 @@ var init_perpetualsVault = __esm({
             ...otherInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11203,7 +11258,7 @@ var init_perpetualsVault = __esm({
             ...depositInputs,
             vaultId: this.vaultObject.objectId,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction4()
+              tx: tx ?? new import_transactions4.Transaction()
             })
           },
           void 0,
@@ -11963,7 +12018,7 @@ var init_perpetuals = __esm({
           {
             ...otherInputs,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction5()
+              tx: tx ?? new import_transactions5.Transaction()
             })
           },
           void 0,
@@ -12022,7 +12077,7 @@ var init_perpetuals = __esm({
           {
             ...otherInputs,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction5()
+              tx: tx ?? new import_transactions5.Transaction()
             })
           },
           void 0,
@@ -12057,7 +12112,7 @@ var init_perpetuals = __esm({
           {
             ...otherInputs,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction5()
+              tx: tx ?? new import_transactions5.Transaction()
             })
           },
           void 0,
@@ -12947,7 +13002,7 @@ var init_router = __esm({
           serializedTx: tx.serialize()
         });
         return {
-          tx: Transaction6.from(newTx),
+          tx: import_transactions6.Transaction.from(newTx),
           coinOutId
         };
       }
@@ -14443,7 +14498,7 @@ var init_rewards = __esm({
           {
             ...otherInputs,
             txKind: await this.api?.Transactions().fetchBase64TxKindFromTx({
-              tx: tx ?? new Transaction7()
+              tx: tx ?? new import_transactions7.Transaction()
             })
           },
           void 0,
@@ -15828,7 +15883,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildStakeTxV1 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const stakeCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -15847,7 +15902,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildStakeTxV2 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const stakeCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -15867,7 +15922,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildDepositPrincipalTxV1 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const stakeCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -15885,7 +15940,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildDepositPrincipalTxV2 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const stakeCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -15903,7 +15958,7 @@ var init_farmsApi = __esm({
         };
         this.buildWithdrawPrincipalTxV1 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const withdrawnCoin = this.withdrawPrincipalTxV1({
             ...inputs,
@@ -15914,7 +15969,7 @@ var init_farmsApi = __esm({
         };
         this.buildWithdrawPrincipalTxV2 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const withdrawnCoin = this.withdrawPrincipalTxV2({
             ...inputs,
@@ -15932,7 +15987,7 @@ var init_farmsApi = __esm({
               stakedPositionIds: [inputs.stakedPositionId]
             });
           } else {
-            tx = new Transaction8();
+            tx = new import_transactions8.Transaction();
             tx.setSender(walletAddress);
           }
           const withdrawnCoin = this.withdrawPrincipalTxV1({
@@ -15957,7 +16012,7 @@ var init_farmsApi = __esm({
               stakedPositionIds: [inputs.stakedPositionId]
             });
           } else {
-            tx = new Transaction8();
+            tx = new import_transactions8.Transaction();
             tx.setSender(walletAddress);
           }
           const withdrawnCoin = this.withdrawPrincipalTxV2({
@@ -15994,7 +16049,7 @@ var init_farmsApi = __esm({
         );
         this.buildHarvestRewardsTxV1 = (inputs) => {
           const { walletAddress, stakedPositionIds } = inputs;
-          const tx = inputs.tx ?? new Transaction8();
+          const tx = inputs.tx ?? new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const harvestRewardsCap = this.beginHarvestTxV1({
             ...inputs,
@@ -16041,7 +16096,7 @@ var init_farmsApi = __esm({
         };
         this.buildHarvestRewardsTxV2 = (inputs) => {
           const { walletAddress, stakedPositionIds } = inputs;
-          const tx = inputs.tx ?? new Transaction8();
+          const tx = inputs.tx ?? new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const firstPositionId = stakedPositionIds[0];
           const harvestRewardsCap = this.beginHarvestTxV2({
@@ -16087,7 +16142,7 @@ var init_farmsApi = __esm({
         };
         this.buildCreateStakingPoolTxV1 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const [stakingPoolId, ownerCapId] = this.newStakingPoolTxV1({
             ...inputs,
@@ -16108,7 +16163,7 @@ var init_farmsApi = __esm({
         };
         this.buildCreateStakingPoolTxV2 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const [stakingPoolId, ownerCapId] = this.newStakingPoolTxV2({
             ...inputs,
@@ -16125,7 +16180,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildInitializeStakingPoolRewardTxV1 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const rewardCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -16139,7 +16194,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildInitializeStakingPoolRewardTxV2 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           const rewardCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -16153,7 +16208,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildTopUpStakingPoolRewardsTxV1 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           for (const reward of inputs.rewards) {
             const rewardCoinId = await this.api.Coin().fetchCoinWithAmountTx({
@@ -16174,7 +16229,7 @@ var init_farmsApi = __esm({
         };
         this.fetchBuildTopUpStakingPoolRewardsTxV2 = async (inputs) => {
           const { walletAddress, isSponsoredTx } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           for (const reward of inputs.rewards) {
             const rewardCoinId = await this.api.Coin().fetchCoinWithAmountTx({
@@ -16195,7 +16250,7 @@ var init_farmsApi = __esm({
         };
         this.buildIncreaseStakingPoolRewardsEmissionsTxV1 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           for (const reward of inputs.rewards) {
             this.increaseStakingPoolRewardEmissionsTxV1({
@@ -16208,7 +16263,7 @@ var init_farmsApi = __esm({
         };
         this.buildIncreaseStakingPoolRewardsEmissionsTxV2 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           for (const reward of inputs.rewards) {
             this.increaseStakingPoolRewardEmissionsTxV2({
@@ -16227,7 +16282,7 @@ var init_farmsApi = __esm({
         );
         this.buildRemoveStakingPoolRewardTxV1 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           for (const reward of inputs.rewards) {
             this.removeStakingPoolRewardTxV1({
@@ -16240,7 +16295,7 @@ var init_farmsApi = __esm({
         };
         this.buildRemoveStakingPoolRewardTxV2 = (inputs) => {
           const { walletAddress } = inputs;
-          const tx = new Transaction8();
+          const tx = new import_transactions8.Transaction();
           tx.setSender(walletAddress);
           for (const reward of inputs.rewards) {
             this.removeStakingPoolRewardTxV2({
@@ -16602,7 +16657,7 @@ var init_faucetApi = __esm({
         );
         this.fetchBuildMintSuiFrenTx = async (inputs) => {
           const { walletAddress, mintFee, suiFrenType } = inputs;
-          const tx = new Transaction9();
+          const tx = new import_transactions9.Transaction();
           tx.setSender(walletAddress);
           const suiPaymentCoinId = await this.api.Coin().fetchCoinWithAmountTx({
             tx,
@@ -16720,12 +16775,12 @@ var init_multisigApi = __esm({
           "base64"
         );
         const afPublicKeyArray = new Uint8Array(afPublicKeyBuffer).subarray(1);
-        const afPK = new Ed25519PublicKey(afPublicKeyArray);
+        const afPK = new import_ed255192.Ed25519PublicKey(afPublicKeyArray);
         const userPublicKeyArray = new Uint8Array(inputs.userPublicKey);
-        const userPK = new Ed25519PublicKey(
+        const userPK = new import_ed255192.Ed25519PublicKey(
           userPublicKeyArray.length === 33 ? userPublicKeyArray.subarray(1) : userPublicKeyArray
         );
-        const newMultiSigPublicKey = MultiSigPublicKey.fromPublicKeys({
+        const newMultiSigPublicKey = import_multisig.MultiSigPublicKey.fromPublicKeys({
           threshold: 1,
           publicKeys: [
             { publicKey: afPK, weight: 1 },
@@ -16775,7 +16830,7 @@ var init_nftAmmApi = __esm({
           });
         };
         this.fetchBuildBuyTx = async (inputs) => {
-          const tx = new Transaction10();
+          const tx = new import_transactions10.Transaction();
           tx.setSender(inputs.walletAddress);
           const { market } = inputs;
           const marketObject = market.market;
@@ -16801,7 +16856,7 @@ var init_nftAmmApi = __esm({
           return tx;
         };
         this.fetchBuildSellTx = async (inputs) => {
-          const tx = new Transaction10();
+          const tx = new import_transactions10.Transaction();
           tx.setSender(inputs.walletAddress);
           const { market } = inputs;
           const marketObject = market.market;
@@ -16821,7 +16876,7 @@ var init_nftAmmApi = __esm({
           return tx;
         };
         this.fetchBuildDepositTx = async (inputs) => {
-          const tx = new Transaction10();
+          const tx = new import_transactions10.Transaction();
           tx.setSender(inputs.walletAddress);
           const { market } = inputs;
           const marketObject = market.market;
@@ -16848,7 +16903,7 @@ var init_nftAmmApi = __esm({
           return tx;
         };
         this.fetchBuildWithdrawTx = async (inputs) => {
-          const tx = new Transaction10();
+          const tx = new import_transactions10.Transaction();
           tx.setSender(inputs.walletAddress);
           const { market } = inputs;
           const marketObject = market.market;
@@ -17348,7 +17403,7 @@ var init_poolsApi = __esm({
               tx.object(this.addresses.referralVault.objects.referralVault),
               typeof lpCoinId === "string" ? tx.object(lpCoinId) : lpCoinId,
               tx.pure(
-                bcs2.vector(bcs2.u64()).serialize(expectedAmountsOut.map((amount) => amount.toString()))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u64()).serialize(expectedAmountsOut.map((amount) => amount.toString()))
               ),
               tx.pure.u64(Pools.normalizeInvertSlippage(slippage))
             ]
@@ -17386,10 +17441,10 @@ var init_poolsApi = __esm({
           const compiledModulesAndDeps = JSON.parse(compilations[lpCoinDecimals]);
           return tx.publish({
             modules: compiledModulesAndDeps.modules.map(
-              (m) => Array.from(fromBase64(m))
+              (m) => Array.from((0, import_utils2.fromBase64)(m))
             ),
             dependencies: compiledModulesAndDeps.dependencies.map(
-              (addr) => normalizeSuiObjectId(addr)
+              (addr) => (0, import_utils2.normalizeSuiObjectId)(addr)
             )
           });
         };
@@ -17418,55 +17473,55 @@ var init_poolsApi = __esm({
               typeof createPoolCapId === "string" ? tx.object(createPoolCapId) : createPoolCapId,
               tx.object(this.addresses.pools.objects.poolRegistry),
               tx.pure(
-                bcs2.vector(bcs2.u8()).serialize(Casting.u8VectorFromString(inputs.poolName))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u8()).serialize(Casting.u8VectorFromString(inputs.poolName))
               ),
               tx.pure(
-                bcs2.vector(bcs2.u8()).serialize(
+                import_bcs2.bcs.vector(import_bcs2.bcs.u8()).serialize(
                   Casting.u8VectorFromString(lpCoinMetadata.name.toString())
                 )
               ),
               tx.pure(
-                bcs2.vector(bcs2.u8()).serialize(
+                import_bcs2.bcs.vector(import_bcs2.bcs.u8()).serialize(
                   Casting.u8VectorFromString(
                     lpCoinMetadata.symbol.toString().toUpperCase()
                   )
                 )
               ),
               tx.pure(
-                bcs2.vector(bcs2.u8()).serialize(Casting.u8VectorFromString(lpCoinDescription))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u8()).serialize(Casting.u8VectorFromString(lpCoinDescription))
               ),
               tx.pure(
-                bcs2.vector(bcs2.u8()).serialize(Casting.u8VectorFromString(lpCoinIconUrl))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u8()).serialize(Casting.u8VectorFromString(lpCoinIconUrl))
               ),
               // lp_icon_url
               tx.pure(
-                bcs2.vector(bcs2.u64()).serialize(coinsInfo.map((coin) => coin.weight))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u64()).serialize(coinsInfo.map((coin) => coin.weight))
               ),
               tx.pure.u64(inputs.poolFlatness),
               tx.pure(
-                bcs2.vector(bcs2.u64()).serialize(coinsInfo.map((coin) => coin.tradeFeeIn))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u64()).serialize(coinsInfo.map((coin) => coin.tradeFeeIn))
               ),
               tx.pure(
-                bcs2.vector(bcs2.u64()).serialize(coinsInfo.map((coin) => coin.tradeFeeOut))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u64()).serialize(coinsInfo.map((coin) => coin.tradeFeeOut))
               ),
               tx.pure(
-                bcs2.vector(bcs2.u64()).serialize(coinsInfo.map((coin) => coin.depositFee))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u64()).serialize(coinsInfo.map((coin) => coin.depositFee))
               ),
               tx.pure(
-                bcs2.vector(bcs2.u64()).serialize(coinsInfo.map((coin) => coin.withdrawFee))
+                import_bcs2.bcs.vector(import_bcs2.bcs.u64()).serialize(coinsInfo.map((coin) => coin.withdrawFee))
               ),
               ...coinsInfo.map(
                 (coin) => typeof coin.coinId === "string" ? tx.object(coin.coinId) : coin.coinId
               ),
               tx.pure(
-                bcs2.option(bcs2.vector(bcs2.u8())).serialize(
+                import_bcs2.bcs.option(import_bcs2.bcs.vector(import_bcs2.bcs.u8())).serialize(
                   decimals.includes(void 0) ? void 0 : decimals
                 )
               ),
               // decimals
               tx.pure.bool(inputs.respectDecimals),
               // respect_decimals
-              tx.pure(bcs2.option(bcs2.u8()).serialize(inputs.forceLpDecimals))
+              tx.pure(import_bcs2.bcs.option(import_bcs2.bcs.u8()).serialize(inputs.forceLpDecimals))
               // force_lp_decimals
             ]
           });
@@ -17656,7 +17711,7 @@ var init_poolsApi = __esm({
             referrer,
             isSponsoredTx
           } = inputs;
-          const tx = new Transaction11();
+          const tx = new import_transactions11.Transaction();
           tx.setSender(walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -17741,7 +17796,7 @@ var init_poolsApi = __esm({
             referrer,
             isSponsoredTx
           } = inputs;
-          const tx = new Transaction11();
+          const tx = new import_transactions11.Transaction();
           tx.setSender(walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -17796,7 +17851,7 @@ var init_poolsApi = __esm({
             slippage,
             referrer
           } = inputs;
-          const tx = new Transaction11();
+          const tx = new import_transactions11.Transaction();
           tx.setSender(walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -17836,7 +17891,7 @@ var init_poolsApi = __esm({
         };
         this.fetchBuildAllCoinWithdrawTx = async (inputs) => {
           const { walletAddress, pool, lpCoinAmount, referrer } = inputs;
-          const tx = new Transaction11();
+          const tx = new import_transactions11.Transaction();
           tx.setSender(walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -17877,7 +17932,7 @@ var init_poolsApi = __esm({
         };
         this.buildPublishLpCoinTx = (inputs) => {
           const { lpCoinDecimals } = inputs;
-          const tx = new Transaction11();
+          const tx = new import_transactions11.Transaction();
           tx.setSender(inputs.walletAddress);
           const upgradeCap = this.publishLpCoinTx({ tx, lpCoinDecimals });
           tx.transferObjects([upgradeCap], inputs.walletAddress);
@@ -18199,7 +18254,7 @@ var init_referralVaultApi = __esm({
           });
         };
         this.fetchBalanceOfRebate = async (inputs) => {
-          const tx = new Transaction12();
+          const tx = new import_transactions12.Transaction();
           this.balanceOfRebateTx({ ...inputs, tx });
           const bytes = await this.api.Inspections().fetchFirstBytesFromTxOutput({
             tx
@@ -18207,12 +18262,12 @@ var init_referralVaultApi = __esm({
           return Casting.bigIntFromBytes(bytes);
         };
         this.fetchReferrer = async (inputs) => {
-          const tx = new Transaction12();
+          const tx = new import_transactions12.Transaction();
           this.referrerForTx({ ...inputs, tx });
           const bytes = await this.api.Inspections().fetchFirstBytesFromTxOutput({
             tx
           });
-          const unwrapped = bcs3.option(bcs3.Address).parse(new Uint8Array(bytes));
+          const unwrapped = import_bcs3.bcs.option(import_bcs3.bcs.Address).parse(new Uint8Array(bytes));
           return unwrapped ?? void 0;
         };
         const addresses = this.api.addresses.referralVault;
@@ -18545,7 +18600,7 @@ var init_stakingApi = __esm({
           if (externalFee) {
             _StakingApi2.assertValidExternalFee(externalFee);
           }
-          const tx = new Transaction13();
+          const tx = new import_transactions13.Transaction();
           tx.setSender(inputs.walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -18581,7 +18636,7 @@ var init_stakingApi = __esm({
           if (externalFee) {
             _StakingApi2.assertValidExternalFee(externalFee);
           }
-          const tx = new Transaction13();
+          const tx = new import_transactions13.Transaction();
           tx.setSender(inputs.walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -18623,7 +18678,7 @@ var init_stakingApi = __esm({
         };
         this.fetchBuildStakeStakedSuiTx = async (inputs) => {
           const { referrer } = inputs;
-          const tx = new Transaction13();
+          const tx = new import_transactions13.Transaction();
           tx.setSender(inputs.walletAddress);
           if (referrer) {
             this.api.ReferralVault().updateReferrerTx({
@@ -18640,7 +18695,7 @@ var init_stakingApi = __esm({
           return tx;
         };
         this.buildUpdateValidatorFeeTx = async (inputs) => {
-          const tx = new Transaction13();
+          const tx = new import_transactions13.Transaction();
           tx.setSender(inputs.walletAddress);
           this.updateValidatorFeeTx({
             ...inputs,
@@ -18888,13 +18943,13 @@ var init_suiFrensApi = __esm({
       constructor(api) {
         this.api = api;
         this.fetchMixingLimitsAndLastEpochMixeds = async (inputs) => {
-          const tx = new Transaction14();
+          const tx = new import_transactions14.Transaction();
           this.devInspectMixLimitAndLastEpochMixedMulTx({ ...inputs, tx });
           const [mixLimitBytes, lastEpochMixedBytes] = await this.api.Inspections().fetchAllBytesFromTxOutput({
             tx
           });
-          const mixLimits = bcs4.vector(bcs4.option(bcs4.u8())).parse(new Uint8Array(mixLimitBytes));
-          const lastEpochMixeds = bcs4.vector(bcs4.option(bcs4.u64())).parse(new Uint8Array(lastEpochMixedBytes));
+          const mixLimits = import_bcs4.bcs.vector(import_bcs4.bcs.option(import_bcs4.bcs.u8())).parse(new Uint8Array(mixLimitBytes));
+          const lastEpochMixeds = import_bcs4.bcs.vector(import_bcs4.bcs.option(import_bcs4.bcs.u64())).parse(new Uint8Array(lastEpochMixedBytes));
           return mixLimits.map((mixLimit, index) => ({
             mixLimit: mixLimit === null || mixLimit === void 0 ? void 0 : BigInt(mixLimit),
             lastEpochMixed: lastEpochMixeds[index] === void 0 ? void 0 : BigInt(lastEpochMixeds[index])
@@ -18902,36 +18957,36 @@ var init_suiFrensApi = __esm({
         };
         this.fetchMixingLimit = async (inputs) => {
           if (inputs.suiFrenType === this.objectTypes.bullshark) return void 0;
-          const tx = new Transaction14();
+          const tx = new import_transactions14.Transaction();
           this.mixingLimitTx({ tx, ...inputs });
           const bytes = await this.api.Inspections().fetchFirstBytesFromTxOutput(
             {
               tx
             }
           );
-          const unwrapped = bcs4.option(bcs4.u8()).parse(new Uint8Array(bytes));
+          const unwrapped = import_bcs4.bcs.option(import_bcs4.bcs.u8()).parse(new Uint8Array(bytes));
           return unwrapped === null || unwrapped === void 0 ? void 0 : BigInt(unwrapped);
         };
         this.fetchLastEpochMixed = async (inputs) => {
           if (inputs.suiFrenType === this.objectTypes.bullshark) return void 0;
-          const tx = new Transaction14();
+          const tx = new import_transactions14.Transaction();
           this.lastEpochMixedTx({ tx, ...inputs });
           const bytes = await this.api.Inspections().fetchFirstBytesFromTxOutput(
             {
               tx
             }
           );
-          const unwrapped = bcs4.option(bcs4.u64()).parse(new Uint8Array(bytes));
+          const unwrapped = import_bcs4.bcs.option(import_bcs4.bcs.u64()).parse(new Uint8Array(bytes));
           return unwrapped === null || unwrapped === void 0 ? void 0 : BigInt(unwrapped);
         };
         this.fetchStakedSuiFrenMetadataIds = async (inputs) => {
           const { suiFrenIds } = inputs;
-          const tx = new Transaction14();
+          const tx = new import_transactions14.Transaction();
           this.devInspectMetadataObjectIdMulTx({ tx, suiFrenIds });
           const idBytes = await this.api.Inspections().fetchFirstBytesFromTxOutput({
             tx
           });
-          const stakedSuiFrenMetadataIds = bcs4.vector(bcs4.Address).parse(new Uint8Array(idBytes));
+          const stakedSuiFrenMetadataIds = import_bcs4.bcs.vector(import_bcs4.bcs.Address).parse(new Uint8Array(idBytes));
           return stakedSuiFrenMetadataIds;
         };
         this.fetchHarvestSuiFrenFeesEvents = (inputs) => this.api.Events().fetchCastEventsWithCursor({
@@ -19128,7 +19183,7 @@ var init_suiFrensApi = __esm({
             arguments: [
               tx.object(this.addresses.objects.suiFrensVault),
               // SuiFrenVault
-              tx.pure(bcs4.vector(bcs4.Address).serialize(inputs.suiFrenIds))
+              tx.pure(import_bcs4.bcs.vector(import_bcs4.bcs.Address).serialize(inputs.suiFrenIds))
               // suifren_ids
             ]
           });
@@ -19147,7 +19202,7 @@ var init_suiFrensApi = __esm({
               // SuiFrensVaultCapyLabsExt
               tx.object(this.addresses.objects.suiFrensVault),
               // SuiFrenVault
-              tx.pure(bcs4.vector(bcs4.Address).serialize(inputs.suiFrenIds))
+              tx.pure(import_bcs4.bcs.vector(import_bcs4.bcs.Address).serialize(inputs.suiFrenIds))
               // suifren_ids
             ]
           });
@@ -19440,7 +19495,7 @@ var init_suiFrensApi = __esm({
             baseFee,
             isSponsoredTx
           } = inputs;
-          const tx = new Transaction14();
+          const tx = new import_transactions14.Transaction();
           tx.setSender(walletAddress);
           const totalFee = baseFee + SuiFrens.calcTotalInternalMixFee({
             mixFee1: suiFrenParentOne.mixFee,
@@ -19487,7 +19542,7 @@ var init_suiFrensApi = __esm({
         };
         this.fetchBuildHarvestFeesTx = async (inputs) => {
           const { stakedPositionIds } = inputs;
-          const tx = new Transaction14();
+          const tx = new import_transactions14.Transaction();
           tx.setSender(inputs.walletAddress);
           const harvestFeesEventMetadataId = this.beginHarvestTx({ tx });
           let harvestedCoins = [];
@@ -20082,7 +20137,7 @@ var init_aftermath = __esm({
         const network = this.network;
         const addresses = this.options.addresses ?? await this.getAddresses();
         const fullnodeUrl = this.options.fullnodeUrl ?? Caller.defaultFullnodeUrl(network);
-        const client = new SuiJsonRpcClient({
+        const client = new import_jsonRpc.SuiJsonRpcClient({
           url: fullnodeUrl,
           network: network.toLowerCase()
         });
@@ -20144,7 +20199,8 @@ var init_index = __esm({
   }
 });
 init_index();
-export {
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
   Aftermath,
   AftermathApi,
   Auth,
@@ -20200,4 +20256,4 @@ export {
   isUpdatedPremiumTwapEvent,
   isUpdatedSpreadTwapEvent,
   isWithdrewCollateralEvent
-};
+});

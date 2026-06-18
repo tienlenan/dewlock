@@ -27,9 +27,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "sdk-bundles");
 
 const SDKS = [
-  { name: "suilend", entry: "@suilend/sdk/client", out: "suilend-client.mjs" },
-  { name: "aftermath", entry: "aftermath-ts-sdk", out: "aftermath.mjs" },
-  { name: "navi", entry: "@naviprotocol/lending", out: "navi.mjs" },
+  { name: "suilend", entry: "@suilend/sdk/client", out: "suilend-client.cjs" },
+  { name: "aftermath", entry: "aftermath-ts-sdk", out: "aftermath.cjs" },
+  { name: "navi", entry: "@naviprotocol/lending", out: "navi.cjs" },
 ];
 
 // Resolve a package entry to a file path. CJS require.resolve fails for ESM-only
@@ -51,18 +51,17 @@ for (const sdk of SDKS) {
   await build({
     entryPoints: [resolveEntry(sdk.entry)],
     bundle: true,
-    format: "esm",
+    // CJS output: the loaders `require()` these bundles via a STATIC relative path so
+    // Next's tracer follows + includes them (or inlines into the chunk) — no fragile
+    // dynamic import / package resolution in the serverless function. require() is native
+    // in CJS, so no createRequire banner is needed.
+    format: "cjs",
     platform: "node",
     target: "node20",
     outfile,
     // Keep @mysten/* external (shared, pinned v2.18). Everything else is inlined so the
     // bundle is self-contained and needs no node_modules resolution in the function.
     external: ["@mysten/sui", "@mysten/sui/*", "@mysten/bcs", "@mysten/walrus"],
-    // Bundled deps do dynamic `require(...)` of Node builtins (util, crypto, …) which an
-    // ESM output can't do natively — inject a createRequire-backed `require` shim.
-    banner: {
-      js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
-    },
     legalComments: "none",
     logLevel: "error",
   });

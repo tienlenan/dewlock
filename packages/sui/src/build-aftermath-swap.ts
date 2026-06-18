@@ -32,19 +32,17 @@ import { SwapBuildError } from "./build-swap";
 
 type SuiClient = SuiJsonRpcClient;
 
-// esmImport: keeps native dynamic import opaque to tsc — prevents downlevel to require().
-// Same pattern as build-lend.ts.
-const esmImport = new Function("s", "return import(s)") as <T = unknown>(s: string) => Promise<T>;
-
 type AftermathSdk = typeof import("aftermath-ts-sdk");
 
-async function loadAftermathSdk(): Promise<AftermathSdk> {
-  // Load the esbuild-prebundled, self-contained ESM copy (sdk-bundles/aftermath.mjs)
-  // rather than the bare "aftermath-ts-sdk" package. On Vercel the package lives behind
-  // a pnpm symlink the serverless packager strips, so a bare import fails at runtime
-  // ("Cannot find package"); the bundle is force-included by file path and resolves via
-  // this stable @dewlock/sui export. Types still come from the real package above.
-  return esmImport<AftermathSdk>("@dewlock/sui/aftermath-bundle");
+function loadAftermathSdk(): AftermathSdk {
+  // STATIC require of the esbuild-prebundled CJS copy (sdk-bundles/aftermath.cjs). A
+  // static relative require is followed by Next's file tracer (and inlined when this
+  // module is bundled into a route chunk), so the SDK is present in the serverless
+  // function — unlike the bare ESM package, which sits behind a pnpm symlink the Vercel
+  // packager strips ("Cannot find package") and is invisible to the tracer when loaded
+  // via dynamic import. Types still come from the real package above.
+  /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+  return require("../sdk-bundles/aftermath.cjs") as AftermathSdk;
 }
 
 /**

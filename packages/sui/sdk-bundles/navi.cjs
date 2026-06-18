@@ -1,4 +1,3 @@
-import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11,6 +10,10 @@ var __commonJS = (cb, mod) => function __require() {
   } catch (e) {
     throw mod = 0, e;
   }
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -28,10 +31,11 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // ../../node_modules/.pnpm/lodash.camelcase@4.3.0/node_modules/lodash.camelcase/index.js
 var require_lodash = __commonJS({
-  "../../node_modules/.pnpm/lodash.camelcase@4.3.0/node_modules/lodash.camelcase/index.js"(exports, module) {
+  "../../node_modules/.pnpm/lodash.camelcase@4.3.0/node_modules/lodash.camelcase/index.js"(exports2, module2) {
     var INFINITY = 1 / 0;
     var symbolTag = "[object Symbol]";
     var reAsciiWord = /[^\x00-\x2f\x3a-\x40\x5b-\x60\x7b-\x7f]+/g;
@@ -400,15 +404,88 @@ var require_lodash = __commonJS({
       }
       return string.match(pattern) || [];
     }
-    module.exports = camelCase;
+    module2.exports = camelCase;
   }
 });
 
 // ../../node_modules/.pnpm/@naviprotocol+lending@2.0.0-beta.0_@mysten+sui@2.18.0_typescript@5.9.3_/node_modules/@naviprotocol/lending/dist/index.esm.js
+var index_esm_exports = {};
+__export(index_esm_exports, {
+  Address: () => Z,
+  DEFAULT_CACHE_TIME: () => b,
+  DEFAULT_MARKET_IDENTITY: () => O,
+  FlashLoanAssetConfig: () => rt,
+  IncentiveAPYInfo: () => et,
+  IncentivePoolInfo: () => we,
+  IncentivePoolInfoByPhase: () => tt,
+  MARKETS: () => U,
+  Market: () => Ue,
+  OracleInfo: () => ot,
+  PoolOperator: () => N,
+  ReserveDataInfo: () => ve,
+  SuiPriceServiceConnection: () => te,
+  SuiPythClient: () => $e,
+  UserPositions: () => D,
+  UserStateInfo: () => be,
+  borrowCoinPTB: () => ct,
+  claimLendingRewardsPTB: () => St,
+  createAccountCapPTB: () => De,
+  createEModeCapPTB: () => dt,
+  createNaviSuiClient: () => Ce,
+  depositCoinPTB: () => Ee,
+  emodeIdentityId: () => mt,
+  enterEModePTB: () => Ne,
+  exitEModePTB: () => pt,
+  filterPriceFeeds: () => Ge,
+  flashloanPTB: () => It,
+  getAccountCapOwnerPTB: () => Fe,
+  getAllFlashLoanAssets: () => Y,
+  getBorrowFee: () => lt,
+  getCoins: () => vt,
+  getConfig: () => _,
+  getFees: () => at,
+  getFlashLoanAsset: () => jt,
+  getHealthFactor: () => gt,
+  getHealthFactorPTB: () => Re,
+  getLendingPositions: () => qe,
+  getLendingState: () => yt,
+  getMarket: () => ut,
+  getMarketConfig: () => C,
+  getMarkets: () => Oe,
+  getPool: () => $,
+  getPools: () => R,
+  getPriceFeeds: () => se,
+  getPythStalePriceFeedId: () => kt,
+  getPythStalePriceFeedIdV2: () => He,
+  getSimulatedHealthFactor: () => ht,
+  getSimulatedHealthFactorPTB: () => ae,
+  getStats: () => nt,
+  getTransactions: () => wt,
+  getUserAvailableLendingRewards: () => Pt,
+  getUserClaimedRewardHistory: () => $t,
+  getUserEModeCaps: () => ne,
+  getUserTotalClaimedReward: () => At,
+  liquidatePTB: () => Tt,
+  mergeCoinsPTB: () => ft,
+  normalizeCoinType: () => k,
+  parsePoolUID: () => Me,
+  parseTxValue: () => g,
+  repayCoinPTB: () => st,
+  repayFlashLoanPTB: () => Ct,
+  summaryLendingRewards: () => Bt,
+  updateOraclePriceBeforeUserOperationPTB: () => _t,
+  updateOraclePricesPTB: () => ze,
+  updatePythPriceFeeds: () => We,
+  verifyHealthFactorPTB: () => bt,
+  withCache: () => S,
+  withSingleton: () => A,
+  withdrawCoinPTB: () => it
+});
+module.exports = __toCommonJS(index_esm_exports);
+var import_transactions = require("@mysten/sui/transactions");
+var import_bcs = require("@mysten/sui/bcs");
+var import_utils = require("@mysten/sui/utils");
 var import_lodash = __toESM(require_lodash(), 1);
-import { Transaction as F } from "@mysten/sui/transactions";
-import { bcs as l } from "@mysten/sui/bcs";
-import { toHex as de, fromHex as me, SUI_CLOCK_OBJECT_ID as z, normalizeStructTag as fe } from "@mysten/sui/utils";
 
 // ../../node_modules/.pnpm/bignumber.js@9.1.2/node_modules/bignumber.js/bignumber.mjs
 var isNumeric = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
@@ -1755,137 +1832,137 @@ var BigNumber = clone();
 var bignumber_default = BigNumber;
 
 // ../../node_modules/.pnpm/@naviprotocol+lending@2.0.0-beta.0_@mysten+sui@2.18.0_typescript@5.9.3_/node_modules/@naviprotocol/lending/dist/index.esm.js
-import { getJsonRpcFullnodeUrl as ge, SuiJsonRpcClient as he } from "@mysten/sui/jsonRpc";
-var Z = l.bytes(32).transform({
+var import_jsonRpc = require("@mysten/sui/jsonRpc");
+var Z = import_bcs.bcs.bytes(32).transform({
   // To change the input type, you need to provide a type definition for the input
-  input: (e) => me(e),
-  output: (e) => de(e)
+  input: (e) => (0, import_utils.fromHex)(e),
+  output: (e) => (0, import_utils.toHex)(e)
 });
-var et = l.struct("IncentiveAPYInfo", {
+var et = import_bcs.bcs.struct("IncentiveAPYInfo", {
   /** Asset identifier */
-  asset_id: l.u8(),
+  asset_id: import_bcs.bcs.u8(),
   /** Annual Percentage Yield as a 256-bit integer */
-  apy: l.u256(),
+  apy: import_bcs.bcs.u256(),
   /** List of supported coin types for this incentive */
-  coin_types: l.vector(l.string())
+  coin_types: import_bcs.bcs.vector(import_bcs.bcs.string())
 });
-var we = l.struct("IncentivePoolInfo", {
+var we = import_bcs.bcs.struct("IncentivePoolInfo", {
   /** Unique pool identifier */
   pool_id: Z,
   /** Address holding the incentive funds */
   funds: Z,
   /** Current phase of the incentive program */
-  phase: l.u64(),
+  phase: import_bcs.bcs.u64(),
   /** Timestamp when the incentive started */
-  start_at: l.u64(),
+  start_at: import_bcs.bcs.u64(),
   /** Timestamp when the incentive ends */
-  end_at: l.u64(),
+  end_at: import_bcs.bcs.u64(),
   /** Timestamp when the incentive was closed */
-  closed_at: l.u64(),
+  closed_at: import_bcs.bcs.u64(),
   /** Total supply of incentive tokens */
-  total_supply: l.u64(),
+  total_supply: import_bcs.bcs.u64(),
   /** Asset identifier for the incentive */
-  asset_id: l.u8(),
+  asset_id: import_bcs.bcs.u8(),
   /** Option type for the incentive */
-  option: l.u8(),
+  option: import_bcs.bcs.u8(),
   /** Factor used in incentive calculations */
-  factor: l.u256(),
+  factor: import_bcs.bcs.u256(),
   /** Amount of incentives already distributed */
-  distributed: l.u64(),
+  distributed: import_bcs.bcs.u64(),
   /** Amount of incentives currently available */
-  available: l.u256(),
+  available: import_bcs.bcs.u256(),
   /** Total amount of incentives */
-  total: l.u256()
+  total: import_bcs.bcs.u256()
 });
-var tt = l.struct("IncentivePoolInfoByPhase", {
+var tt = import_bcs.bcs.struct("IncentivePoolInfoByPhase", {
   /** Phase number */
-  phase: l.u64(),
+  phase: import_bcs.bcs.u64(),
   /** List of incentive pools in this phase */
-  pools: l.vector(we)
+  pools: import_bcs.bcs.vector(we)
 });
-var ot = l.struct("OracleInfo", {
+var ot = import_bcs.bcs.struct("OracleInfo", {
   /** Oracle identifier */
-  oracle_id: l.u8(),
+  oracle_id: import_bcs.bcs.u8(),
   /** Current price as a 256-bit integer */
-  price: l.u256(),
+  price: import_bcs.bcs.u256(),
   /** Number of decimal places for the price */
-  decimals: l.u8(),
+  decimals: import_bcs.bcs.u8(),
   /** Whether the oracle data is valid */
-  valid: l.bool()
+  valid: import_bcs.bcs.bool()
 });
-var rt = l.struct("FlashLoanAssetConfig", {
+var rt = import_bcs.bcs.struct("FlashLoanAssetConfig", {
   /** Unique identifier for the flash loan asset */
-  id: l.string(),
+  id: import_bcs.bcs.string(),
   /** Asset identifier */
-  asset_id: l.u8(),
+  asset_id: import_bcs.bcs.u8(),
   /** Coin type for the asset */
-  coin_type: l.string(),
+  coin_type: import_bcs.bcs.string(),
   /** Pool identifier for the flash loan */
-  pool_id: l.string(),
+  pool_id: import_bcs.bcs.string(),
   /** Rate paid to suppliers for flash loans */
-  rate_to_supplier: l.u64(),
+  rate_to_supplier: import_bcs.bcs.u64(),
   /** Rate paid to treasury for flash loans */
-  rate_to_treasury: l.u64(),
+  rate_to_treasury: import_bcs.bcs.u64(),
   /** Maximum flash loan amount */
-  max: l.u64(),
+  max: import_bcs.bcs.u64(),
   /** Minimum flash loan amount */
-  min: l.u64()
+  min: import_bcs.bcs.u64()
 });
-var ve = l.struct("ReserveDataInfo", {
+var ve = import_bcs.bcs.struct("ReserveDataInfo", {
   /** Reserve identifier */
-  id: l.u8(),
+  id: import_bcs.bcs.u8(),
   /** Oracle identifier for price feeds */
-  oracle_id: l.u8(),
+  oracle_id: import_bcs.bcs.u8(),
   /** Coin type for the reserve */
-  coin_type: l.string(),
+  coin_type: import_bcs.bcs.string(),
   /** Maximum supply capacity */
-  supply_cap: l.u256(),
+  supply_cap: import_bcs.bcs.u256(),
   /** Maximum borrow capacity */
-  borrow_cap: l.u256(),
+  borrow_cap: import_bcs.bcs.u256(),
   /** Current supply interest rate */
-  supply_rate: l.u256(),
+  supply_rate: import_bcs.bcs.u256(),
   /** Current borrow interest rate */
-  borrow_rate: l.u256(),
+  borrow_rate: import_bcs.bcs.u256(),
   /** Current supply index for interest calculation */
-  supply_index: l.u256(),
+  supply_index: import_bcs.bcs.u256(),
   /** Current borrow index for interest calculation */
-  borrow_index: l.u256(),
+  borrow_index: import_bcs.bcs.u256(),
   /** Total amount supplied to the reserve */
-  total_supply: l.u256(),
+  total_supply: import_bcs.bcs.u256(),
   /** Total amount borrowed from the reserve */
-  total_borrow: l.u256(),
+  total_borrow: import_bcs.bcs.u256(),
   /** Timestamp of last update */
-  last_update_at: l.u64(),
+  last_update_at: import_bcs.bcs.u64(),
   /** Loan-to-Value ratio for collateral */
-  ltv: l.u256(),
+  ltv: import_bcs.bcs.u256(),
   /** Treasury factor for fee calculations */
-  treasury_factor: l.u256(),
+  treasury_factor: import_bcs.bcs.u256(),
   /** Current treasury balance */
-  treasury_balance: l.u256(),
+  treasury_balance: import_bcs.bcs.u256(),
   /** Base interest rate */
-  base_rate: l.u256(),
+  base_rate: import_bcs.bcs.u256(),
   /** Interest rate multiplier */
-  multiplier: l.u256(),
+  multiplier: import_bcs.bcs.u256(),
   /** Jump rate multiplier for high utilization */
-  jump_rate_multiplier: l.u256(),
+  jump_rate_multiplier: import_bcs.bcs.u256(),
   /** Reserve factor for protocol fees */
-  reserve_factor: l.u256(),
+  reserve_factor: import_bcs.bcs.u256(),
   /** Optimal utilization rate */
-  optimal_utilization: l.u256(),
+  optimal_utilization: import_bcs.bcs.u256(),
   /** Liquidation ratio threshold */
-  liquidation_ratio: l.u256(),
+  liquidation_ratio: import_bcs.bcs.u256(),
   /** Liquidation bonus for liquidators */
-  liquidation_bonus: l.u256(),
+  liquidation_bonus: import_bcs.bcs.u256(),
   /** Liquidation threshold */
-  liquidation_threshold: l.u256()
+  liquidation_threshold: import_bcs.bcs.u256()
 });
-var be = l.struct("UserStateInfo", {
+var be = import_bcs.bcs.struct("UserStateInfo", {
   /** Asset identifier */
-  asset_id: l.u8(),
+  asset_id: import_bcs.bcs.u8(),
   /** User's current borrow balance */
-  borrow_balance: l.u256(),
+  borrow_balance: import_bcs.bcs.u256(),
   /** User's current supply balance */
-  supply_balance: l.u256()
+  supply_balance: import_bcs.bcs.u256()
 });
 var ke = "2.0.0-beta.0";
 var M = {
@@ -1904,8 +1981,8 @@ var Ie = () => {
   return typeof process < "u" && process.versions && process.versions.node && (e = `lending/${_e} (${je()})`), e;
 };
 var X = Ie();
-function Ce(e = ge("mainnet"), t = "mainnet") {
-  return new he({
+function Ce(e = (0, import_jsonRpc.getJsonRpcFullnodeUrl)("mainnet"), t = "mainnet") {
+  return new import_jsonRpc.SuiJsonRpcClient({
     network: t,
     url: e
   });
@@ -1924,7 +2001,7 @@ function Be(e, t) {
   return (e[t] << 8) + e[t + 1];
 }
 function Q(e) {
-  return l.vector(l.U8).serialize(Array.from(e), {
+  return import_bcs.bcs.vector(import_bcs.bcs.U8).serialize(Array.from(e), {
     maxSize: Te
   });
 }
@@ -2022,7 +2099,7 @@ var $e = class {
         arguments: [
           r.object(this.wormholeStateId),
           r.pure(Q(o)),
-          r.object(z)
+          r.object(import_utils.SUI_CLOCK_OBJECT_ID)
         ]
       });
       return a;
@@ -2039,7 +2116,7 @@ var $e = class {
         t.object(this.pythStateId),
         t.pure(Q(r[0])),
         a,
-        t.object(z)
+        t.object(import_utils.SUI_CLOCK_OBJECT_ID)
       ]
     });
     return c;
@@ -2057,7 +2134,7 @@ var $e = class {
           o,
           t.object(p),
           a[i],
-          t.object(z)
+          t.object(import_utils.SUI_CLOCK_OBJECT_ID)
         ]
       });
     }
@@ -2176,7 +2253,7 @@ function H(e, t, r) {
   return [];
 }
 function k(e) {
-  return fe(e);
+  return (0, import_utils.normalizeStructTag)(e);
 }
 function re(e) {
   const t = (e || 0) / Math.pow(10, 27);
@@ -2562,7 +2639,7 @@ var lt = S(
       });
       if (e?.address && typeof e?.asset < "u")
         try {
-          const o = await $(e.asset, e), a = e?.client ?? V, c = new F();
+          const o = await $(e.asset, e), a = e?.client ?? V, c = new import_transactions.Transaction();
           c.moveCall({
             target: `${t.package}::incentive_v3::get_borrow_fee_v2`,
             arguments: [
@@ -2576,7 +2653,7 @@ var lt = S(
           const i = await a.devInspectTransactionBlock({
             transactionBlock: c,
             sender: e.address
-          }), s = H(i, [l.u64()]);
+          }), s = H(i, [import_bcs.bcs.u64()]);
           return (Number(s[0]) || 0) / 100;
         } catch (o) {
           console.error(o);
@@ -2786,7 +2863,7 @@ var ne = S(
       const r = await _({
         cacheTime: b,
         ...t
-      }), n = new F(), o = t?.client ?? V;
+      }), n = new import_transactions.Transaction(), o = t?.client ?? V;
       n.moveCall({
         target: `${r.emode.contract.registryPackage}::registry::find_user_emode_account_caps`,
         arguments: [n.object(r.emode.contract.registryObject), n.pure.address(e)]
@@ -2794,7 +2871,7 @@ var ne = S(
       const c = (await o.devInspectTransactionBlock({
         transactionBlock: n,
         sender: e
-      })).results[0].returnValues, i = l.vector(l.u64()).parse(Uint8Array.from(c[0][0])), s = l.vector(l.u64()).parse(Uint8Array.from(c[1][0])), p = l.vector(l.Address).parse(Uint8Array.from(c[2][0]));
+      })).results[0].returnValues, i = import_bcs.bcs.vector(import_bcs.bcs.u64()).parse(Uint8Array.from(c[0][0])), s = import_bcs.bcs.vector(import_bcs.bcs.u64()).parse(Uint8Array.from(c[1][0])), p = import_bcs.bcs.vector(import_bcs.bcs.Address).parse(Uint8Array.from(c[2][0]));
       return i.map((m, h) => ({
         marketId: Number(m),
         emodeId: Number(s[h]),
@@ -2850,7 +2927,7 @@ async function Re(e, t, r) {
   return ae(e, t, 0, 0, 0, false, r);
 }
 async function ie(e, t, r) {
-  const n = new F(), o = r?.client ?? V, a = await R({
+  const n = new import_transactions.Transaction(), o = r?.client ?? V, a = await R({
     ...r,
     markets: Object.values(U)
   }), c = K(a), s = Array.from(new Set(t.map((u) => u.market))).map((u) => C(u));
@@ -2882,7 +2959,7 @@ async function ie(e, t, r) {
   })).results || [], h = {};
   s.forEach((u, f) => {
     try {
-      const v = m[f]?.returnValues?.map((T) => l.vector(ve).parse(Uint8Array.from(T[0])))[0] || [], I = {};
+      const v = m[f]?.returnValues?.map((T) => import_bcs.bcs.vector(ve).parse(Uint8Array.from(T[0])))[0] || [], I = {};
       for (const T of v)
         I[T.id] = {
           supplyIndex: T.supply_index,
@@ -2896,7 +2973,7 @@ async function ie(e, t, r) {
       );
     }
   });
-  const w = m.slice(s.length).map((u) => u.returnValues?.map((f) => l.vector(be).parse(Uint8Array.from(f[0])))[0] || []), y = [];
+  const w = m.slice(s.length).map((u) => u.returnValues?.map((f) => import_bcs.bcs.vector(be).parse(Uint8Array.from(f[0])))[0] || []), y = [];
   return w.forEach((u, f) => {
     const v = t[f], I = C(v.market), T = h[I.key] || {};
     u.forEach((j) => {
@@ -2927,16 +3004,16 @@ var yt = S(
   }
 );
 async function gt(e, t) {
-  const r = t?.client ?? V, n = new F();
+  const r = t?.client ?? V, n = new import_transactions.Transaction();
   await Re(n, e, t);
   const o = await r.devInspectTransactionBlock({
     transactionBlock: n,
     sender: e
-  }), a = H(o, [l.u256()]);
+  }), a = H(o, [import_bcs.bcs.u256()]);
   return re(Number(a[0]) || 0);
 }
 async function ht(e, t, r, n) {
-  const o = n?.client ?? V, a = new F();
+  const o = n?.client ?? V, a = new import_transactions.Transaction();
   let c = 0, i = 0;
   const s = await $(t, n);
   if (r.forEach((w) => {
@@ -2956,7 +3033,7 @@ async function ht(e, t, r, n) {
   const m = await o.devInspectTransactionBlock({
     transactionBlock: a,
     sender: e
-  }), h = H(m, [l.u256()]);
+  }), h = H(m, [import_bcs.bcs.u256()]);
   return re(Number(h[0]) || 0);
 }
 var wt = A(
@@ -3689,7 +3766,7 @@ async function Tt(e, t, r, n, o, a) {
   }
 }
 async function Ke(e, t, r) {
-  const n = r?.client ?? V, o = new F(), a = await R({
+  const n = r?.client ?? V, o = new import_transactions.Transaction(), a = await R({
     ...r,
     markets: Object.values(U),
     cacheTime: b
@@ -3725,15 +3802,15 @@ async function Ke(e, t, r) {
           results: [m]
         },
         [
-          l.vector(l.string()),
+          import_bcs.bcs.vector(import_bcs.bcs.string()),
           // Asset coin types
-          l.vector(l.string()),
+          import_bcs.bcs.vector(import_bcs.bcs.string()),
           // Reward coin types
-          l.vector(l.u8()),
+          import_bcs.bcs.vector(import_bcs.bcs.u8()),
           // Reward options
-          l.vector(l.Address),
+          import_bcs.bcs.vector(import_bcs.bcs.Address),
           // Rule IDs
-          l.vector(l.u256())
+          import_bcs.bcs.vector(import_bcs.bcs.u256())
           // Claimable amounts
         ]
       )
@@ -4012,74 +4089,75 @@ async function St(e, t, r) {
   }
   return a;
 }
-export {
-  Z as Address,
-  b as DEFAULT_CACHE_TIME,
-  O as DEFAULT_MARKET_IDENTITY,
-  rt as FlashLoanAssetConfig,
-  et as IncentiveAPYInfo,
-  we as IncentivePoolInfo,
-  tt as IncentivePoolInfoByPhase,
-  U as MARKETS,
-  Ue as Market,
-  ot as OracleInfo,
-  N as PoolOperator,
-  ve as ReserveDataInfo,
-  te as SuiPriceServiceConnection,
-  $e as SuiPythClient,
-  D as UserPositions,
-  be as UserStateInfo,
-  ct as borrowCoinPTB,
-  St as claimLendingRewardsPTB,
-  De as createAccountCapPTB,
-  dt as createEModeCapPTB,
-  Ce as createNaviSuiClient,
-  Ee as depositCoinPTB,
-  mt as emodeIdentityId,
-  Ne as enterEModePTB,
-  pt as exitEModePTB,
-  Ge as filterPriceFeeds,
-  It as flashloanPTB,
-  Fe as getAccountCapOwnerPTB,
-  Y as getAllFlashLoanAssets,
-  lt as getBorrowFee,
-  vt as getCoins,
-  _ as getConfig,
-  at as getFees,
-  jt as getFlashLoanAsset,
-  gt as getHealthFactor,
-  Re as getHealthFactorPTB,
-  qe as getLendingPositions,
-  yt as getLendingState,
-  ut as getMarket,
-  C as getMarketConfig,
-  Oe as getMarkets,
-  $ as getPool,
-  R as getPools,
-  se as getPriceFeeds,
-  kt as getPythStalePriceFeedId,
-  He as getPythStalePriceFeedIdV2,
-  ht as getSimulatedHealthFactor,
-  ae as getSimulatedHealthFactorPTB,
-  nt as getStats,
-  wt as getTransactions,
-  Pt as getUserAvailableLendingRewards,
-  $t as getUserClaimedRewardHistory,
-  ne as getUserEModeCaps,
-  At as getUserTotalClaimedReward,
-  Tt as liquidatePTB,
-  ft as mergeCoinsPTB,
-  k as normalizeCoinType,
-  Me as parsePoolUID,
-  g as parseTxValue,
-  st as repayCoinPTB,
-  Ct as repayFlashLoanPTB,
-  Bt as summaryLendingRewards,
-  _t as updateOraclePriceBeforeUserOperationPTB,
-  ze as updateOraclePricesPTB,
-  We as updatePythPriceFeeds,
-  bt as verifyHealthFactorPTB,
-  S as withCache,
-  A as withSingleton,
-  it as withdrawCoinPTB
-};
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  Address,
+  DEFAULT_CACHE_TIME,
+  DEFAULT_MARKET_IDENTITY,
+  FlashLoanAssetConfig,
+  IncentiveAPYInfo,
+  IncentivePoolInfo,
+  IncentivePoolInfoByPhase,
+  MARKETS,
+  Market,
+  OracleInfo,
+  PoolOperator,
+  ReserveDataInfo,
+  SuiPriceServiceConnection,
+  SuiPythClient,
+  UserPositions,
+  UserStateInfo,
+  borrowCoinPTB,
+  claimLendingRewardsPTB,
+  createAccountCapPTB,
+  createEModeCapPTB,
+  createNaviSuiClient,
+  depositCoinPTB,
+  emodeIdentityId,
+  enterEModePTB,
+  exitEModePTB,
+  filterPriceFeeds,
+  flashloanPTB,
+  getAccountCapOwnerPTB,
+  getAllFlashLoanAssets,
+  getBorrowFee,
+  getCoins,
+  getConfig,
+  getFees,
+  getFlashLoanAsset,
+  getHealthFactor,
+  getHealthFactorPTB,
+  getLendingPositions,
+  getLendingState,
+  getMarket,
+  getMarketConfig,
+  getMarkets,
+  getPool,
+  getPools,
+  getPriceFeeds,
+  getPythStalePriceFeedId,
+  getPythStalePriceFeedIdV2,
+  getSimulatedHealthFactor,
+  getSimulatedHealthFactorPTB,
+  getStats,
+  getTransactions,
+  getUserAvailableLendingRewards,
+  getUserClaimedRewardHistory,
+  getUserEModeCaps,
+  getUserTotalClaimedReward,
+  liquidatePTB,
+  mergeCoinsPTB,
+  normalizeCoinType,
+  parsePoolUID,
+  parseTxValue,
+  repayCoinPTB,
+  repayFlashLoanPTB,
+  summaryLendingRewards,
+  updateOraclePriceBeforeUserOperationPTB,
+  updateOraclePricesPTB,
+  updatePythPriceFeeds,
+  verifyHealthFactorPTB,
+  withCache,
+  withSingleton,
+  withdrawCoinPTB
+});

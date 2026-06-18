@@ -59,12 +59,10 @@ function isFixtureMode(): boolean {
   return process.env.NEXT_PUBLIC_DEMO_MODE === "fixture";
 }
 
-// The NAVI/Suilend SDKs are ESM-only (no CJS export). This package compiles to
-// CommonJS, so a plain `await import(pkg)` would be downleveled by tsc to require()
-// and fail on an ESM-only package ("No exports main defined"). Wrapping import in a
-// Function keeps it a TRUE native dynamic import at runtime — opaque to tsc AND to the
-// bundler's static analysis — so Node's ESM loader handles it.
-const esmImport = new Function("s", "return import(s)") as <T = unknown>(s: string) => Promise<T>;
+// The NAVI/Suilend SDKs are ESM-only and sit behind pnpm symlinks the Vercel serverless
+// packager strips. They're loaded from esbuild-prebundled CJS copies (sdk-bundles/*.cjs)
+// via STATIC relative require() in the build functions below — so Next's tracer follows
+// them and they ship in the function (a bare/dynamic import would not resolve at runtime).
 
 /**
  * Build an unsigned deposit/repay PTB. Throws LendBuildError on any error —
@@ -104,11 +102,13 @@ async function buildNaviLend(client: SuiClient, spec: LendSpec): Promise<LendBui
   const { senderAddress, coinType, amountNative, action } = spec;
   let navi: typeof import("@naviprotocol/lending");
   try {
-    // Load the esbuild-prebundled, self-contained ESM copy (sdk-bundles/navi.mjs) via a
-    // stable @dewlock/sui export — NOT the bare "@naviprotocol/lending" package, which on
-    // Vercel sits behind a pnpm symlink the serverless packager strips (→ "Cannot find
-    // package"). The bundle is force-included by file path. Types stay from the real package.
-    navi = await esmImport<typeof import("@naviprotocol/lending")>("@dewlock/sui/navi-bundle");
+    // STATIC require of the esbuild-prebundled CJS copy (sdk-bundles/navi.cjs). A static
+    // relative require is followed by Next's tracer (and inlined into the route chunk), so
+    // the SDK ships in the serverless function — unlike the bare "@naviprotocol/lending"
+    // package, which on Vercel sits behind a pnpm symlink the packager strips ("Cannot
+    // find package") and is invisible to the tracer via dynamic import. Types stay real.
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    navi = require("../sdk-bundles/navi.cjs") as typeof import("@naviprotocol/lending");
   } catch (err) {
     throw new LendBuildError(`Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -158,17 +158,16 @@ interface SuilendClientModule {
 async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<LendBuildResult> {
   const { senderAddress, coinType, amountNative, action, obligationId } = spec;
 
-  // SuilendClient + the market constants live on the `@suilend/sdk/client` SUBPATH
-  // (the root does not re-export them). Suilend is bundler-only (directory imports),
-  // so it stays a plain dynamic import (bundled by Next), NOT a native import().
-  // Load the PRE-BUNDLED Suilend client via its package export — a clean-ESM file whose
-  // directory imports esbuild already resolved, so native import() works (the raw
-  // @suilend/sdk loads as an empty module under Node/Turbopack). `@mysten/*` stayed
-  // external in the bundle, so it uses the repo's v2 client. Imported by package
-  // specifier (not __dirname, which Next rewrites to a virtual path).
+  // SuilendClient + the market constants live on the `@suilend/sdk/client` SUBPATH (the
+  // root does not re-export them). The raw @suilend/sdk uses bundler-only directory
+  // imports that load as an empty module under Node/Turbopack, so we STATIC require the
+  // esbuild-prebundled CJS copy (sdk-bundles/suilend-client.cjs) whose directory imports
+  // esbuild already resolved. A static relative require is traced + included by Next, so
+  // it ships in the serverless function. `@mysten/*` stayed external (repo's v2 client).
   let raw: Record<string, unknown>;
   try {
-    raw = await esmImport<Record<string, unknown>>("@dewlock/sui/suilend-client-bundle");
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    raw = require("../sdk-bundles/suilend-client.cjs") as Record<string, unknown>;
   } catch (err) {
     throw new LendBuildError(
       `Failed to load the vendored Suilend client: ${err instanceof Error ? err.message : String(err)}`,
