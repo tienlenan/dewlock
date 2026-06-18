@@ -12,11 +12,15 @@ const allowlisted = new Set<string>(Object.values(COIN_TYPES));
 const COIN_TYPE_RE = /^0x[0-9a-fA-F]+::[A-Za-z0-9_]+::[A-Za-z0-9_]+$/;
 
 describe("popular-tokens registry", () => {
-  it("every entry is a well-formed coin type with positive decimals", () => {
+  it("every entry is a well-formed coin type with positive decimals + a valid ticker", () => {
+    const TICKER_RE = /^[A-Za-z][A-Za-z0-9]*$/; // mixed-case allowed (e.g. haSUI, afSUI, vSUI)
     for (const t of POPULAR_TOKENS) {
       expect(t.coinType, t.symbol).toMatch(COIN_TYPE_RE);
       expect(t.decimals, t.symbol).toBeGreaterThan(0);
-      expect(t.symbol).toBe(t.symbol.toUpperCase());
+      // Symbol case is display-only — the resolver matches case-insensitively
+      // (parse-intent uppercases both the registry key and the query), so the
+      // canonical mixed-case staking tickers are safe and must not be mangled.
+      expect(t.symbol, `${t.symbol} ticker`).toMatch(TICKER_RE);
     }
   });
 
@@ -26,9 +30,9 @@ describe("popular-tokens registry", () => {
     }
   });
 
-  it("has no duplicate symbols", () => {
-    const symbols = POPULAR_TOKENS.map((t) => t.symbol);
-    expect(new Set(symbols).size).toBe(symbols.length);
+  it("has no duplicate symbols (case-insensitive — the resolver's key space)", () => {
+    const keys = POPULAR_TOKENS.map((t) => t.symbol.toUpperCase());
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it("serializes one memwal line per token", () => {

@@ -88,8 +88,16 @@ describe("parseIntent — LLM fallback (null)", () => {
     }
   });
   it("unknown / non-whitelisted symbol → null (clarify, never guess an address)", () => {
-    expect(parseIntent("sell BLUB")).toBeNull();
+    expect(parseIntent("sell ZORPCOIN")).toBeNull();
     expect(parseIntent("swap FOO to BAR")).toBeNull();
+  });
+  it("recognized-but-not-swappable symbol → swap intent flagged swappable:false (the directive layer explains it, the LLM never guesses)", () => {
+    // BLUB is a verified recognition-only token (in POPULAR_TOKENS, NOT in the
+    // Guardian allowlist). The parser must resolve it to its verified coin type
+    // and mark it not-swappable so the value move fail-closes downstream.
+    const intent = parseIntent("sell BLUB");
+    expect(intent).toMatchObject({ action: "swap", swappable: false });
+    expect(intent && "coinInType" in intent && intent.coinInType).toContain("::BLUB::BLUB");
   });
   it("same in/out → null", () => {
     expect(parseIntent("swap SUI to SUI")).toBeNull();
