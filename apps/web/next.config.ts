@@ -25,6 +25,14 @@ const nextConfig: NextConfig = {
   // and the @dewlock/* package dist outside apps/web, and dereferences pnpm symlinks
   // when packaging the serverless functions.
   outputFileTracingRoot: path.join(__dirname, "../../"),
+
+  // Force-include the prebundled ESM SDK files (Aftermath/NAVI/Suilend). They're loaded
+  // by a dynamic esmImport the tracer can't follow, and they live in @dewlock/sui's
+  // sdk-bundles/ outside apps/web. These are REAL self-contained .mjs files (no nested
+  // pnpm symlinks), so unlike a `.pnpm/<pkg>/**` glob they package cleanly on Vercel.
+  outputFileTracingIncludes: {
+    "/api/**/*": ["../../packages/sui/sdk-bundles/**"],
+  },
 };
 
 export default nextConfig;

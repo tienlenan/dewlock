@@ -39,7 +39,12 @@ const esmImport = new Function("s", "return import(s)") as <T = unknown>(s: stri
 type AftermathSdk = typeof import("aftermath-ts-sdk");
 
 async function loadAftermathSdk(): Promise<AftermathSdk> {
-  return esmImport<AftermathSdk>("aftermath-ts-sdk");
+  // Load the esbuild-prebundled, self-contained ESM copy (sdk-bundles/aftermath.mjs)
+  // rather than the bare "aftermath-ts-sdk" package. On Vercel the package lives behind
+  // a pnpm symlink the serverless packager strips, so a bare import fails at runtime
+  // ("Cannot find package"); the bundle is force-included by file path and resolves via
+  // this stable @dewlock/sui export. Types still come from the real package above.
+  return esmImport<AftermathSdk>("@dewlock/sui/aftermath-bundle");
 }
 
 /**

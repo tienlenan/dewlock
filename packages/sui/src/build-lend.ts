@@ -104,7 +104,11 @@ async function buildNaviLend(client: SuiClient, spec: LendSpec): Promise<LendBui
   const { senderAddress, coinType, amountNative, action } = spec;
   let navi: typeof import("@naviprotocol/lending");
   try {
-    navi = await esmImport<typeof import("@naviprotocol/lending")>("@naviprotocol/lending");
+    // Load the esbuild-prebundled, self-contained ESM copy (sdk-bundles/navi.mjs) via a
+    // stable @dewlock/sui export — NOT the bare "@naviprotocol/lending" package, which on
+    // Vercel sits behind a pnpm symlink the serverless packager strips (→ "Cannot find
+    // package"). The bundle is force-included by file path. Types stay from the real package.
+    navi = await esmImport<typeof import("@naviprotocol/lending")>("@dewlock/sui/navi-bundle");
   } catch (err) {
     throw new LendBuildError(`Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`);
   }

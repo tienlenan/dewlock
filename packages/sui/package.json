@@ -18,6 +18,8 @@
     "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
     "./build-lend": "./dist/build-lend.js",
     "./suilend-client-bundle": "./sdk-bundles/suilend-client.mjs",
+    "./aftermath-bundle": "./sdk-bundles/aftermath.mjs",
+    "./navi-bundle": "./sdk-bundles/navi.mjs",
     "./wormhole-vaa": "./dist/wormhole/vaa.js",
     "./build-redeem": "./dist/wormhole/build-redeem.js",
     "./client": "./dist/client.js",
@@ -28,8 +30,8 @@
     "./suins-resolver": "./dist/suins-resolver.js"
   },
   "scripts": {
-    "build": "node scripts/bundle-suilend.mjs && tsc --noCheck",
-    "build:sdk-bundles": "node scripts/bundle-suilend.mjs",
+    "build": "node scripts/bundle-sdks.mjs && tsc --noCheck",
+    "build:sdk-bundles": "node scripts/bundle-sdks.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
