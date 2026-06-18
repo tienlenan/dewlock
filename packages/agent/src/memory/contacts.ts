@@ -83,6 +83,25 @@ export function parseContactFromMemory(text: string): StoredContact | null {
 }
 
 /**
+ * Pure name matcher for the address book — exact (case-insensitive) wins; else prefix;
+ * else substring. Returns 0 / 1 / many matches. No IO: callers pass the contact array
+ * (the route projects the canonical book → {name,address} before calling this). This is
+ * the deterministic resolver for "send to <name>" — the LLM never matches or supplies a 0x.
+ */
+export function matchContacts(
+  contacts: StoredContact[],
+  query: string,
+): StoredContact[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const exact = contacts.filter((c) => c.name.toLowerCase() === q);
+  if (exact.length) return exact;
+  const prefix = contacts.filter((c) => c.name.toLowerCase().startsWith(q));
+  if (prefix.length) return prefix;
+  return contacts.filter((c) => c.name.toLowerCase().includes(q));
+}
+
+/**
  * Check whether a freshly resolved address differs from the stored contact record.
  *
  * Absence of memory (storedAddress === null) is not a block — just no prior data.

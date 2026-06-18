@@ -88,3 +88,69 @@ export function deriveStats(lines: string[]): UserStats {
   const distinctActions = Object.values(actions).filter((n) => n > 0).length;
   return { txCount, volumeUsd, actions, distinctActions, firstTs };
 }
+
+// ---------------------------------------------------------------------------
+// BadgeInput — the richer input the level/badge engine consumes. Superset of
+// UserStats: receipt-derivable extras (protocolsUsed, daysActive) plus fields
+// injected by the caller from other sources (portfolio value from BlockVision,
+// conviction days + security events from memwal). Every extra is OPTIONAL — a
+// badge whose data source is missing stays locked, never fabricated.
+// ---------------------------------------------------------------------------
+
+export interface BadgeInput extends UserStats {
+  /** Distinct DeFi protocols touched (best-effort, parsed from receipt labels). */
+  protocolsUsed?: number;
+  /** Wallet age in whole days since the first receipt. */
+  daysActive?: number;
+  /** Total portfolio USD (from BlockVision; null/undefined when unavailable). */
+  portfolioUsd?: number | null;
+  /** Consecutive days the committed risk cap was kept (conviction-streak memory). */
+  convictionDays?: number | null;
+  /** Guardian BLOCKs the user encountered + heeded. */
+  blocksHeeded?: number;
+  /** SuiNS lookalike near-misses the Guardian caught. */
+  lookalikeDodged?: number;
+  /** Computed level (set by the caller via computeLevel) for level-milestone badges. */
+  level?: number;
+}
+
+/** Protocol keywords matched against receipt labels for the protocolsUsed count. */
+const PROTOCOL_KEYWORDS = [
+  "cetus", "deepbook", "navi", "suilend", "scallop", "aftermath", "turbos",
+  "momentum", "flowx", "haedal", "wormhole", "bluefin", "7k", "aggregator",
+];
+
+/** Best-effort count of distinct protocols named across receipt labels. */
+export function countProtocolsUsed(lines: string[]): number {
+  const found = new Set<string>();
+  for (const r of parseReceipts(lines)) {
+    const l = r.actionLabel.toLowerCase();
+    for (const kw of PROTOCOL_KEYWORDS) if (l.includes(kw)) found.add(kw);
+  }
+  return found.size;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Build the full BadgeInput from receipt lines + injected external fields.
+ * `nowMs` is injectable for deterministic tests.
+ */
+export function deriveBadgeInput(
+  lines: string[],
+  injected: Partial<Pick<BadgeInput, "portfolioUsd" | "convictionDays" | "blocksHeeded" | "lookalikeDodged" | "level">> = {},
+  nowMs: number = Date.now(),
+): BadgeInput {
+  const base = deriveStats(lines);
+  let daysActive = 0;
+  if (base.firstTs) {
+    const firstMs = Date.parse(base.firstTs);
+    if (Number.isFinite(firstMs)) daysActive = Math.max(0, Math.floor((nowMs - firstMs) / DAY_MS));
+  }
+  return {
+    ...base,
+    protocolsUsed: countProtocolsUsed(lines),
+    daysActive,
+    ...injected,
+  };
+}
