@@ -21,9 +21,9 @@ export {
   editDistance,
   LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
 } from "./allowlist";
-// Pyth live-price oracle — importing this registers the live-price provider into
-// getTrustedUsdPrice (side effect). Server-only (uses fetch).
-export { refreshPythPrices, getCachedPythPrice } from "./pyth-price";
+// Live-price oracle (CoinGecko) — importing this registers the live-price provider
+// into getTrustedUsdPrice (side effect). Server-only (uses fetch).
+export { refreshUsdPrices, getCachedUsdPrice } from "./price-oracle";
 export type { SupportedCoinType } from "./allowlist";
 // Protocol registry — single source of truth for protocol posture + active targets.
 export {

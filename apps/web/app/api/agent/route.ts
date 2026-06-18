@@ -193,12 +193,12 @@ export async function POST(req: NextRequest) {
   // Seed the committed risk cap (mirrors the server-enforced caps) so the memory
   // chip recalls real preferences instead of an empty state. Fire-and-forget.
   void seedCommittedCap(walletAddress);
-  // Warm the Pyth price cache (importing it also registers the live-price provider
+  // Warm the USD price cache (importing it also registers the live-price provider
   // into getTrustedUsdPrice). Fire-and-forget — conservative floors cover a cold cache.
   try {
     /* eslint-disable-next-line @typescript-eslint/no-require-imports */
-    const { refreshPythPrices } = require("@dewlock/sui/pyth-price") as { refreshPythPrices: () => Promise<void> };
-    void refreshPythPrices();
+    const { refreshUsdPrices } = require("@dewlock/sui/price-oracle") as { refreshUsdPrices: () => Promise<void> };
+    void refreshUsdPrices();
   } catch {
     // best-effort warm; floors apply until the cache populates
   }

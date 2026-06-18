@@ -14,7 +14,7 @@
     "./aggregator-quotes": "./dist/aggregator-quotes.js",
     "./aftermath-quotes": "./dist/aftermath-quotes.js",
     "./build-aftermath-swap": "./dist/build-aftermath-swap.js",
-    "./pyth-price": "./dist/pyth-price.js",
+    "./price-oracle": "./dist/price-oracle.js",
     "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
     "./build-lend": "./dist/build-lend.js",
     "./suilend-client-bundle": "./sdk-bundles/suilend-client.mjs",

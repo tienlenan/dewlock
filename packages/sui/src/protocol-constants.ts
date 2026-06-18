@@ -73,10 +73,10 @@ export function normalizeCoinType(coinType: string): string {
 }
 
 /**
- * Optional live-price provider (Pyth oracle), registered at RUNTIME to avoid a static
- * import cycle — pyth-price.ts imports COIN_TYPES from here, so this file must not import
- * it back. `null` until pyth-price is loaded (e.g. by the agent route warmer) → callers
- * fall back to the conservative floors below. Never throws.
+ * Optional live-price provider (CoinGecko oracle), registered at RUNTIME to avoid a
+ * static import cycle — price-oracle.ts imports COIN_TYPES from here, so this file must
+ * not import it back. `null` until price-oracle is loaded (e.g. by the agent route
+ * warmer) → callers fall back to the conservative floors below. Never throws.
  */
 let livePriceProvider: ((coinType: string) => number | undefined) | null = null;
 export function registerLivePriceProvider(fn: (coinType: string) => number | undefined): void {
