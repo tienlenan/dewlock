@@ -7,6 +7,7 @@ export {
   remember,
   rememberBulk,
   recall,
+  recallByPrefix,
   memoryHealth,
 } from "./memory.js";
 

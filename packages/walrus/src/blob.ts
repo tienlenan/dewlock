@@ -83,6 +83,9 @@ async function publishWithHttpPublisher(
       method: "PUT",
       headers,
       body: JSON.stringify(value),
+      // Bound the publisher call so an unreachable/slow publisher can't hang the
+      // receipt request (the workflow has its own outer budget too).
+      signal: AbortSignal.timeout(Number(process.env.WALRUS_PUBLISH_TIMEOUT_MS ?? 10_000)),
     });
     const data = unwrapStoreResponse(
       ((await res.json().catch(() => ({}))) as
@@ -291,7 +294,9 @@ export async function readJsonBlob<T = unknown>(
     process.env.WALRUS_AGGREGATOR_URL ??
     "https://aggregator.walrus-mainnet.walrus.space";
   try {
-    const res = await fetch(`${aggregator}/v1/blobs/${blobId}`);
+    const res = await fetch(`${aggregator}/v1/blobs/${blobId}`, {
+      signal: AbortSignal.timeout(Number(process.env.WALRUS_READ_TIMEOUT_MS ?? 8_000)),
+    });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {

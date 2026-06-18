@@ -87,7 +87,11 @@ export async function recall(
   topK = 5,
 ): Promise<string[]> {
   if (!isMemoryEnabled()) return [];
-  const res = (await clientFor(namespace).recall({ query })) as {
+  // Pass the limit through — the SDK defaults to 10 when omitted, which silently
+  // caps every recall at ~10 hits regardless of topK. For append-only pointer
+  // streams (e.g. the conversation index) the newest entry then often falls
+  // outside the returned set, so "latest by timestamp" reads stale.
+  const res = (await clientFor(namespace).recall({ query, limit: topK })) as {
     results?: RecallItemLike[];
   };
   const items = res?.results ?? [];
@@ -96,6 +100,23 @@ export async function recall(
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, topK);
+}
+
+/**
+ * Recall entries for a category and keep only those whose text starts with `prefix`.
+ * memwal recall is SEMANTIC (fuzzy) and the SDK has no enumerate/list API, so this
+ * is best-effort "recent matches", NOT an exhaustive listing — callers must treat
+ * the result count as approximate. Returns [] when memory is off.
+ */
+export async function recallByPrefix(
+  namespace: string,
+  prefix: string,
+  topK = 50,
+): Promise<string[]> {
+  if (!isMemoryEnabled()) return [];
+  const lines = await recall(namespace, prefix, topK);
+  const norm = prefix.trim().toLowerCase();
+  return lines.filter((l) => l.trim().toLowerCase().startsWith(norm));
 }
 
 /** Check whether the MemWal relayer is alive. Returns false when not configured. */
