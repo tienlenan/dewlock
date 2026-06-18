@@ -1,84 +1,99 @@
 "use client";
 
 /**
- * SessionList — sidebar session history entries.
+ * SessionList — sidebar conversation history.
  *
- * SAMPLE/PREVIEW data only — sessions are not persisted on the backend yet
- * (persistence is a future roadmap item). Entries are clearly labeled as
- * sample to avoid presenting them as real on-chain state.
- *
- * The active session is distinguished with an elevated bg and "active session" label.
+ * Renders REAL persisted conversations (Walrus-backed, per-wallet) passed from
+ * the app shell. The active session is highlighted; each row can be deleted.
+ * Honest empty state when there are none (or persistence is unavailable).
  */
+
+import { Trash2, Loader2 } from "lucide-react";
 
 export interface SessionEntry {
   id: string;
-  label: string;
-  active?: boolean;
+  title: string;
 }
-
-// Sample entries matching the mockup — labeled as non-live
-const SAMPLE_SESSIONS: SessionEntry[] = [
-  { id: "active", label: "Portfolio & swap", active: true },
-  { id: "lp-review", label: "SUI/USDC LP review" },
-  { id: "blocked", label: "Near-miss · blocked transfer" },
-];
 
 interface SessionListProps {
-  /** Called when a session entry is clicked. No-op until sessions are persisted. */
+  sessions: SessionEntry[];
+  activeId?: string | null;
+  /** The conversation currently loading (shows a spinner on its row). */
+  loadingId?: string | null;
   onSelect?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onClearAll?: () => void;
 }
 
-export function SessionList({ onSelect }: SessionListProps) {
+export function SessionList({ sessions, activeId = null, loadingId = null, onSelect, onDelete, onClearAll }: SessionListProps) {
   return (
-    <div className="flex flex-col gap-0.5">
-      {/* Section label — matches mockup "RECENT" mono cap */}
-      <div
-        className="split-mono px-2 pb-1.5 pt-3.5"
-        style={{ fontSize: "9.5px", color: "var(--fg-faint)", letterSpacing: "0.14em" }}
-      >
-        Recent
-      </div>
-
-      {SAMPLE_SESSIONS.map((session) =>
-        session.active ? (
-          /* Active session — elevated bg + sub-label */
-          <div
-            key={session.id}
-            className="flex flex-col gap-0.5 rounded-lg border border-border px-3 py-2.5"
-            style={{ background: "var(--bg-elev)" }}
-          >
-            <span className="text-sm text-fg font-medium leading-snug">{session.label}</span>
-            <span style={{ fontSize: "11px", color: "var(--fg-faint)" }}>active session</span>
-          </div>
-        ) : (
-          /* Inactive session entry */
+    <div className="flex flex-col gap-0.5 overflow-y-auto" style={{ minHeight: 0 }}>
+      <div className="flex items-center justify-between px-2 pb-1.5 pt-3.5">
+        <span
+          className="split-mono"
+          style={{ fontSize: "9.5px", color: "var(--fg-faint)", letterSpacing: "0.14em" }}
+        >
+          Recent
+        </span>
+        {onClearAll && sessions.length > 0 && (
           <button
-            key={session.id}
             type="button"
-            onClick={() => onSelect?.(session.id)}
-            className="text-left rounded-lg px-3 py-2.5 text-sm transition-colors"
-            style={{ color: "var(--fg-muted)" }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = "var(--bg-elev)";
-              (e.currentTarget as HTMLElement).style.color = "var(--fg)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.background = "";
-              (e.currentTarget as HTMLElement).style.color = "var(--fg-muted)";
-            }}
+            onClick={onClearAll}
+            className="split-mono transition-colors"
+            style={{ fontSize: "9.5px", color: "var(--fg-faint)", letterSpacing: "0.1em" }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--destructive)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--fg-faint)"; }}
+            title="Delete all saved conversations"
           >
-            {session.label}
+            Clear all
           </button>
-        ),
-      )}
-
-      {/* Preview label — honest disclosure */}
-      <div
-        className="mt-1 px-2 py-1 rounded"
-        style={{ fontSize: "10px", color: "var(--fg-faint)" }}
-      >
-        sample · session history coming soon
+        )}
       </div>
+
+      {sessions.length === 0 ? (
+        <div style={{ padding: "8px 11px", fontSize: "11.5px", color: "var(--fg-faint)", lineHeight: 1.45 }}>
+          No saved conversations yet.
+        </div>
+      ) : (
+        sessions.map((s) => {
+          const isActive = s.id === activeId;
+          const isLoading = s.id === loadingId;
+          return (
+            <div
+              key={s.id}
+              className="group flex items-center gap-1 rounded-lg"
+              style={{
+                background: isActive ? "var(--bg-elev)" : "transparent",
+                border: isActive ? "1px solid var(--border)" : "1px solid transparent",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => onSelect?.(s.id)}
+                className="flex-1 flex items-center gap-2 text-left rounded-lg px-3 py-2.5 text-sm transition-colors min-w-0"
+                style={{ color: isActive ? "var(--fg)" : "var(--fg-muted)", fontWeight: isActive ? 500 : 400 }}
+                title={s.title}
+              >
+                {isLoading && <Loader2 size={13} className="shrink-0 animate-spin" style={{ color: "var(--accent)" }} aria-hidden />}
+                <span className="truncate">{s.title}</span>
+              </button>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(s.id)}
+                  aria-label={`Delete conversation: ${s.title}`}
+                  className="flex shrink-0 items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded px-1.5 py-1"
+                  style={{ color: "var(--fg-faint)" }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--destructive)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--fg-faint)"; }}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              )}
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
