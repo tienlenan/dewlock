@@ -53,3 +53,5 @@ export { getProtocolMetrics } from "./tools/get-protocol-metrics";
 export { requestContactPicker } from "./tools/request-contact-picker";
 export { matchContacts } from "./memory/contacts";
 export type { StoredContact } from "./memory/contacts";
+export { detectMultiAction } from "./intent/detect-multi-action";
+export type { MultiActionResult } from "./intent/detect-multi-action";

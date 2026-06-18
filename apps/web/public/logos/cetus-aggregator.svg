@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="Cetus Aggregator">
+  <defs>
+    <linearGradient id="agg-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#16c2c2"/>
+      <stop offset="1" stop-color="#0a87b8"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="11" fill="url(#agg-bg)"/>
+  <path d="M11 13h6c4 0 4 7 8 7M11 27h6c4 0 4-7 8-7" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="28.5" cy="20" r="2.6" fill="#ffffff"/>
+</svg>

@@ -184,7 +184,7 @@ type ChatApi = ReturnType<typeof useCopilotChat>;
 
 const CONVOS_COLLAPSE_KEY = "dewlock:convos-collapsed";
 
-function ChatShell({ chat, walletAddress }: { chat: ChatApi; walletAddress: string }) {
+function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAddress: string; contacts: { name: string; address: string }[] }) {
   // Conversation list + persistence live HERE (always mounted) so saving keeps
   // working while the panel is collapsed/hidden.
   const convos = useConversations(walletAddress, { onLoad: chat.loadMessages, onReset: chat.reset });
@@ -255,6 +255,7 @@ function ChatShell({ chat, walletAddress }: { chat: ChatApi; walletAddress: stri
           onSendText={(t) => void chat.sendMessage(t)}
           disabled={chat.isStreaming}
           suggestions={suggestions}
+          contacts={contacts}
         />
       </div>
     </div>
@@ -511,7 +512,7 @@ export default function AppPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
         >
           {view === "chat" ? (
-            account ? <ChatShell chat={chat} walletAddress={account.address} /> : <ConnectGate />
+            account ? <ChatShell chat={chat} walletAddress={account.address} contacts={contactsApi.contacts} /> : <ConnectGate />
           ) : (
             <div
               className="flex-1 overflow-y-auto"

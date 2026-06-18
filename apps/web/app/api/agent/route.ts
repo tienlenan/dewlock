@@ -213,6 +213,45 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Single-action guard: a message bundling 2+ distinct value actions (e.g. "send … and
+  // swap …") is refused BEFORE the LLM — we stream guidance to do one action per message
+  // and call no value tool. Deterministic; never throws into the turn.
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const { detectMultiAction } = require("@dewlock/agent/intent/detect-multi-action") as {
+      detectMultiAction: (text: string) => { multi: boolean; actions: string[] };
+    };
+    const ma = detectMultiAction(lastMessage.content);
+    if (ma.multi) {
+      const labels: Record<string, string> = {
+        send: "send", swap: "swap/sell", lend: "lend", bridge: "bridge", limit: "place a limit order",
+      };
+      const numbered = ma.actions.map((a, i) => `(${i + 1}) ${labels[a] ?? a}`).join(" and ");
+      const guidance =
+        `I handle one action per message — that keeps each transaction clear and lets the Guardian ` +
+        `verify exactly what you'll sign. You asked to ${numbered}. Which would you like to start with? ` +
+        `Send that one on its own and I'll prepare it.`;
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(ndjsonLine({ type: "text", text: guidance }));
+          controller.enqueue(ndjsonLine({ type: "done" }));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson; charset=utf-8",
+          "x-content-type-options": "nosniff",
+          "cache-control": "no-cache",
+          ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
+          ...corsHeaders(origin),
+        },
+      });
+    }
+  } catch {
+    // Detection failure must never block the turn — fall through to normal routing.
+  }
+
   try {
     const agent = await buildAgent(walletAddress);
 

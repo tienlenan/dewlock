@@ -12,6 +12,11 @@ type ForwardResolver = {
   resolveNameServiceAddress(args: { name: string }): Promise<string | null>;
 };
 
+/** Minimal structural type for the reverse-resolution RPC (address → owned .sui names). */
+type ReverseResolver = {
+  resolveNameServiceNames(args: { address: string }): Promise<{ data?: string[] } | null>;
+};
+
 const SUINS_NAME_RE = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*(\.sui)?$/i;
 
 /** True when the input looks like a SuiNS name (not a 0x address). */
@@ -34,6 +39,22 @@ export async function resolveSuinsAddress(client: unknown, input: string): Promi
       name: normalizeSuinsName(input),
     });
     return addr ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reverse-resolve a 0x address to its primary .sui name for DISPLAY only; null on miss,
+ * RPC error, or when the RPC method is unavailable on the installed client version.
+ * Display convenience — the security path never relies on a reverse name.
+ */
+export async function reverseResolveSuins(client: unknown, address: string): Promise<string | null> {
+  try {
+    const resolver = (client as ReverseResolver).resolveNameServiceNames;
+    if (typeof resolver !== "function") return null;
+    const res = await resolver.call(client, { address });
+    return res?.data?.[0] ?? null;
   } catch {
     return null;
   }

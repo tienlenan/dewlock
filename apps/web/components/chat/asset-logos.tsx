@@ -129,29 +129,51 @@ const PROTOCOL_MARKS: Record<string, () => React.JSX.Element> = {
 };
 
 export function ProtocolLogo({ id, size = 34 }: { id: string; size?: number }) {
+  const [broken, setBroken] = useState(false);
   const Mark = PROTOCOL_MARKS[id];
-  if (!Mark) {
-    // Unknown protocol → neutral monogram tile.
+
+  // 1) Real brand logo image (apps/web/public/logos/<id>.svg). Swap in an official asset
+  //    by dropping it at that path — no code change needed.
+  if (!broken) {
     return (
-      <div
-        aria-hidden
-        className="shrink-0 flex items-center justify-center"
-        style={{ width: size, height: size, borderRadius: size * 0.28, background: "var(--bg-sub)", color: "var(--fg-muted)", fontWeight: 800, fontSize: size * 0.42 }}
-      >
-        {id.slice(0, 1).toUpperCase()}
-      </div>
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`/logos/${id}.svg`}
+        alt={id}
+        width={size}
+        height={size}
+        loading="lazy"
+        onError={() => setBroken(true)}
+        className="shrink-0"
+        style={{ width: size, height: size, borderRadius: size * 0.28, display: "block", boxShadow: "var(--shadow-sm)" }}
+      />
     );
   }
+
+  // 2) Inline-SVG mark fallback (when no image asset exists / it 404s).
+  if (Mark) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 40 40"
+        aria-hidden
+        className="shrink-0"
+        style={{ display: "block", boxShadow: "var(--shadow-sm)", borderRadius: size * 0.28 }}
+      >
+        <Mark />
+      </svg>
+    );
+  }
+
+  // 3) Neutral monogram tile (unknown protocol, no asset, no mark).
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 40 40"
+    <div
       aria-hidden
-      className="shrink-0"
-      style={{ display: "block", boxShadow: "var(--shadow-sm)", borderRadius: size * 0.28 }}
+      className="shrink-0 flex items-center justify-center"
+      style={{ width: size, height: size, borderRadius: size * 0.28, background: "var(--bg-sub)", color: "var(--fg-muted)", fontWeight: 800, fontSize: size * 0.42 }}
     >
-      <Mark />
-    </svg>
+      {id.slice(0, 1).toUpperCase()}
+    </div>
   );
 }

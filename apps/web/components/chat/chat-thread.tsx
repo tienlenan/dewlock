@@ -46,6 +46,8 @@ import { useSignAndExecuteTx, WysiwysError } from "@/lib/use-sign-and-execute-tx
 import { emitTxConfirmed } from "@/lib/tx-events";
 import { useReceiptStream } from "./use-receipt-stream";
 import { ReceiptProgressInline } from "./receipt-progress-inline";
+import { WelcomeActions } from "./welcome-actions";
+import { SupportedProtocolsCard } from "./supported-protocols-card";
 
 // ---------------------------------------------------------------------------
 // Shared types — keep identical to preserve contract with use-copilot-chat
@@ -182,8 +184,8 @@ export function ChatThread({ messages, onReplaceCard, walletAddress, onSend }: C
           gap: "20px",
         }}
       >
-        {/* Welcome + memory chips — shown on empty thread */}
-        <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} />
+        {/* Welcome + action cards + memory chips — shown on empty thread */}
+        <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} onSend={onSend} />
 
         {/* Message list */}
         {messages.map((msg) => (
@@ -209,9 +211,11 @@ export function ChatThread({ messages, onReplaceCard, walletAddress, onSend }: C
 function WelcomeRow({
   showMemory,
   walletAddress,
+  onSend,
 }: {
   showMemory: boolean;
   walletAddress?: string;
+  onSend?: (text: string) => void;
 }) {
   // Fetch recalled memory from memwal via /api/memory-recall.
   // Returns null while loading; { hasReal: false } when memwal not configured.
@@ -231,6 +235,14 @@ function WelcomeRow({
           I build one unsigned transaction; the Guardian re-derives and dry-runs it before{" "}
           <strong>you</strong> sign.
         </div>
+
+        {/* Default action cards + supported protocols — empty thread only */}
+        {showMemory && (
+          <>
+            <WelcomeActions onSend={onSend} />
+            <SupportedProtocolsCard onSend={onSend} />
+          </>
+        )}
 
         {showMemory && isReal && chips.length > 0 && (
           <>

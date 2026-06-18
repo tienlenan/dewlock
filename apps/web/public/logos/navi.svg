@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="NAVI">
+  <defs>
+    <linearGradient id="navi-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0a3a4d"/>
+      <stop offset="1" stop-color="#0d5566"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="11" fill="url(#navi-bg)"/>
+  <path d="M11 27 L20 11 L29 27 Z" fill="none" stroke="#34e0c8" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M14.5 27 L20 17 L25.5 27" fill="none" stroke="#7ff0e0" stroke-width="2" stroke-linejoin="round" opacity="0.8"/>
+</svg>

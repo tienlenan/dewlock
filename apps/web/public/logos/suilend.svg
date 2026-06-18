@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="Suilend">
+  <defs>
+    <linearGradient id="suilend-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b8cff"/>
+      <stop offset="1" stop-color="#1f5fe0"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="11" fill="url(#suilend-bg)"/>
+  <path d="M20 9c0 0 8 8.4 8 13.4a8 8 0 0 1-16 0C12 17.4 20 9 20 9Z" fill="#ffffff" opacity="0.96"/>
+  <path d="M16.4 21.5c.2 2.6 1.9 4.4 4 4.6" fill="none" stroke="#1f5fe0" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>
+</svg>
