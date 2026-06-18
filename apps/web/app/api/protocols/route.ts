@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
 
   const ip = clientIp(req.headers);
-  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX, scope: "protocols" });
   if (rl.limited) {
     return Response.json(
       { error: "Too many requests — please slow down." },

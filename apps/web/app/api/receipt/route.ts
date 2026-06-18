@@ -23,8 +23,8 @@ export const maxDuration = 60;
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { buildAndPublishReceipt, contentHash, memNamespace, remember, isMemoryEnabled } from "@dewlock/walrus";
-import { anchorReceiptHead } from "@dewlock/sui";
+import { contentHash } from "@dewlock/walrus";
+import { runPostActionEffects } from "@/lib/workflows/post-action-effects";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
 // 20 req/min per IP — receipt writes are async/cheap but we still protect.
@@ -38,8 +38,11 @@ const RATE_LIMIT_MAX = 20;
 interface ReceiptCacheEntry {
   status: "pending" | "blob_ready" | "anchored" | "blob_only";
   blobId: string | null;
+  blobObjectId: string | null;
   anchorObjectId: string | null;
   anchorTxDigest: string | null;
+  /** Sui object to surface (HEAD anchor if configured, else the Walrus Blob object). */
+  suiObjectId: string | null;
   contentHashHex: string | null;
   error?: string;
 }
@@ -62,6 +65,8 @@ const postSchema = z.object({
    * walletAddress is the signer's public address, never a key.
    */
   args: z.record(z.unknown()).default({}),
+  /** Guardian-computed USD value of the action — recorded for real volume/receipt USD. */
+  estimatedUsdValue: z.number().nonnegative().optional(),
   /** Dry-run balance deltas for approved; block reasons for BLOCK. */
   dryRunEffects: z.unknown().optional(),
   /** "approved" or "blocked" verdict from the Guardian. */
@@ -111,85 +116,6 @@ function cacheKey(body: PostBody): string {
   return `block:${hash}`;
 }
 
-// ---------------------------------------------------------------------------
-// Receipt publish + anchor (called once per unique txDigest)
-// ---------------------------------------------------------------------------
-
-async function processReceipt(body: PostBody, key: string): Promise<void> {
-  // Mark as pending immediately so GET polls return a consistent state.
-  receiptCache.set(key, {
-    status: "pending",
-    blobId: null,
-    anchorObjectId: null,
-    anchorTxDigest: null,
-    contentHashHex: null,
-  });
-
-  try {
-    // Step 1: Publish the blob receipt (cascade: HTTP → SDK → CLI).
-    const { blob, receipt } = await buildAndPublishReceipt({
-      txDigest: body.txDigest,
-      approvedDigest: body.approvedDigest,
-      action: body.action,
-      args: body.args,
-      dryRunEffects: body.dryRunEffects,
-      verdict: body.verdict,
-      blockReasons: body.blockReasons,
-      blockGates: body.blockGates,
-    });
-
-    const blobId = blob.blobId;
-
-    // Async decision log alongside the blob receipt — fire-and-forget, never blocking.
-    // [needs live-env] memwal relayer must be reachable for this write to persist.
-    if (body.txDigest && body.verdict === "approved" && isMemoryEnabled()) {
-      const ts = new Date().toISOString();
-      const blobPart = blobId ? `blob:${blobId}` : "blob:pending";
-      const logText =
-        `action log: ${ts} | ${body.action} | tx:${body.txDigest} | usd:$0.00 | ${blobPart}`;
-      void remember(memNamespace(body.walletAddress), logText).catch(() => undefined);
-    }
-
-    if (!blobId || blob.status === "not_configured" || blob.status === "failed") {
-      // Blob write failed or not configured — update cache with error state.
-      receiptCache.set(key, {
-        status: "blob_only",
-        blobId: null,
-        anchorObjectId: null,
-        anchorTxDigest: null,
-        contentHashHex: blob.hash,
-        error: blob.error ?? "blob not configured",
-      });
-      return;
-    }
-
-    // Step 2: Anchor HEAD on-chain (operational key; degrade on failure).
-    const anchor = await anchorReceiptHead({
-      walletAddress: body.walletAddress,
-      action: body.action,
-      blobId,
-      contentHash: receipt.approvedDigest ?? blob.hash,
-    });
-
-    receiptCache.set(key, {
-      status: anchor.status === "anchored" ? "anchored" : "blob_only",
-      blobId,
-      anchorObjectId: anchor.anchorObjectId,
-      anchorTxDigest: anchor.txDigest,
-      contentHashHex: blob.hash,
-      error: anchor.error,
-    });
-  } catch (err) {
-    receiptCache.set(key, {
-      status: "blob_only",
-      blobId: null,
-      anchorObjectId: null,
-      anchorTxDigest: null,
-      contentHashHex: null,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -206,7 +132,7 @@ export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
 
   const ip = clientIp(req.headers);
-  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX, scope: "receipt" });
   if (rl.limited) {
     return Response.json(
       { error: "Too many requests — please slow down." },
@@ -244,14 +170,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Start the async receipt pipeline (do NOT await — return immediately).
-  // The client polls GET /api/receipt?txDigest=… for the result.
-  void processReceipt(body, key);
+  // AWAIT the post-action workflow within the request — a serverless lambda may
+  // freeze after responding, so fire-and-forget would silently drop the XP write.
+  // It fits under maxDuration; the client gets the terminal result directly (the
+  // GET poll remains as a compatibility no-op / cache read).
+  receiptCache.set(key, { status: "pending", blobId: null, blobObjectId: null, anchorObjectId: null, anchorTxDigest: null, suiObjectId: null, contentHashHex: null });
+  const result = await runPostActionEffects(body);
+  const entry: ReceiptCacheEntry = {
+    status: result.status,
+    blobId: result.blobId,
+    blobObjectId: result.blobObjectId,
+    anchorObjectId: result.anchorObjectId,
+    anchorTxDigest: result.anchorTxDigest,
+    suiObjectId: result.suiObjectId,
+    contentHashHex: result.contentHashHex,
+    error: result.error,
+  };
+  receiptCache.set(key, entry);
 
-  return Response.json(
-    { key, status: "pending", blobId: null, anchorObjectId: null, anchorTxDigest: null },
-    { status: 202, headers: corsHeaders(origin) },
-  );
+  return Response.json({ key, ...entry }, { status: 200, headers: corsHeaders(origin) });
 }
 
 export async function GET(req: NextRequest) {

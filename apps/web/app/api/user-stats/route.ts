@@ -21,9 +21,11 @@ export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
 import { memNamespace, recall, isMemoryEnabled } from "@dewlock/walrus";
-import { deriveStats, parseReceipts, sumVolumeForDate } from "@dewlock/agent/memory/user-stats";
-import { computeBadges } from "@dewlock/agent/memory/badges";
+import { deriveStats, deriveBadgeInput, parseReceipts, sumVolumeForDate } from "@dewlock/agent/memory/user-stats";
+import { computeBadges, badgesFromEarnedIds } from "@dewlock/agent/memory/badges";
+import { computeLevel } from "@dewlock/agent/memory/level";
 import { getWalletOverview } from "@/lib/blockvision/client";
+import { readProfile, reconcileProfile } from "@/lib/profile/profile-store";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
 const WALLET_RE = /^0x[0-9a-fA-F]{1,64}$/;
@@ -58,7 +60,7 @@ export async function GET(req: NextRequest) {
   const origin = req.headers.get("origin");
 
   const ip = clientIp(req.headers);
-  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX, scope: "user-stats" });
   if (rl.limited) {
     return Response.json(
       { error: "Too many requests — please slow down." },
@@ -81,14 +83,31 @@ export async function GET(req: NextRequest) {
     ...corsHeaders(origin),
   };
 
-  // Badges (from receipts) + wallet footprint (from BlockVision) in parallel.
-  const [receipts, wallet_] = await Promise.all([
+  // Receipts (badge/level source) + wallet footprint (BlockVision) + the durable
+  // monotonic profile, all in parallel. readProfile is fail-soft (null on miss).
+  const [receipts, wallet_, persisted] = await Promise.all([
     recallReceipts(wallet),
     getWalletOverview(wallet),
+    readProfile(wallet),
   ]);
 
   const stats = deriveStats(receipts);
-  const badges = computeBadges(stats);
+  // Richer badge input: receipt-derived stats + the wallet's portfolio value
+  // (from BlockVision) + wallet age, then level from the combined XP.
+  const badgeInput = deriveBadgeInput(receipts, { portfolioUsd: wallet_.totalUsdValue }, Date.now());
+  const level = computeLevel(badgeInput);
+  const derivedBadges = computeBadges({ ...badgeInput, level: level.level });
+
+  // Render from the MONOTONIC union (durable ∪ derived-now): a badge once earned
+  // stays lit even when a volatile source (e.g. BlockVision portfolio value) would
+  // not re-award it now. The durable WRITE is scheduled in the background, so the
+  // response never blocks on Walrus/memwal.
+  const merged = reconcileProfile(
+    persisted,
+    { walletAddress: wallet, level: level.level, xp: level.xp, earnedBadgeIds: derivedBadges.earned.map((b) => b.id) },
+    new Date().toISOString(),
+  );
+  const badges = badgesFromEarnedIds(merged.earnedBadges.map((b) => b.id));
 
   // Recent receipts (newest first) + today's volume vs the daily cap — both
   // derived from the same immutable receipt source. This daily figure is an
@@ -106,6 +125,7 @@ export async function GET(req: NextRequest) {
     {
       walletAddress: wallet,
       stats,
+      level,
       badges,
       wallet: wallet_,
       recentReceipts,

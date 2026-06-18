@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
 
   // Rate-limit: fail before body parsing.
   const ip = clientIp(req.headers);
-  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX });
+  const rl = checkRateLimit(ip, { max: RATE_LIMIT_MAX, scope: "prepare-trade" });
   if (rl.limited) {
     return Response.json(
       { error: "Too many requests — please slow down." },

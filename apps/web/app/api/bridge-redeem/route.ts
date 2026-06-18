@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
   const cors = corsHeaders(origin);
 
-  const rl = checkRateLimit(clientIp(req.headers), { max: RATE_LIMIT_MAX });
+  const rl = checkRateLimit(clientIp(req.headers), { max: RATE_LIMIT_MAX, scope: "bridge-redeem" });
   if (rl.limited) {
     return Response.json(
       { ok: false, reasons: ["Too many requests — please slow down."], gates: ["rate_limit"] },
