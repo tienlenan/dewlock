@@ -18,3 +18,17 @@ export function emitTxConfirmed(): void {
     window.dispatchEvent(new CustomEvent(TX_CONFIRMED_EVENT));
   }
 }
+
+/**
+ * User-triggered "hard reload" of the dashboard data. Every self-fetching dashboard
+ * surface (passport, activity stats, friends, network metrics) listens and refetches
+ * immediately — decoupled, no prop drilling.
+ */
+export const DASHBOARD_RELOAD_EVENT = "dewlock:dashboard-reload";
+
+/** Emit to force every dashboard card to refetch now. No-op on the server. */
+export function emitDashboardReload(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(DASHBOARD_RELOAD_EVENT));
+  }
+}

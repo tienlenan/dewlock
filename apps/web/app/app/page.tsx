@@ -23,8 +23,8 @@ import { Menu, Settings, LogOut, PanelLeftOpen, Users } from "lucide-react";
 import {
   useCurrentAccount,
   useDisconnectWallet,
-  ConnectButton,
 } from "@mysten/dapp-kit";
+import { ConnectWalletButton } from "@/components/connect-wallet-button";
 import { useSuiGasBalance } from "@/lib/use-sui-gas-balance";
 import { useSuinsName } from "@/lib/use-suins-name";
 import { CopyAddressButton } from "@/components/copy-address-button";
@@ -169,7 +169,7 @@ function ConnectGate() {
           </p>
         </div>
         <div className="mt-1">
-          <ConnectButton connectText="Connect Wallet" />
+          <ConnectWalletButton label="Connect Wallet" />
         </div>
       </div>
     </div>
@@ -443,7 +443,7 @@ export default function AppPage() {
           {/* Connect button when no wallet */}
           {!account && (
             <div className="hidden sm:block">
-              <ConnectButton connectText="Connect" />
+              <ConnectWalletButton label="Connect" size="sm" />
             </div>
           )}
 

@@ -12,6 +12,7 @@ import { X, Trash2, Pencil } from "lucide-react";
 import { useSuiClient } from "@mysten/dapp-kit";
 import type { ContactsApi } from "@/lib/contacts/use-contacts";
 import { useSuinsNames } from "@/lib/use-suins-names";
+import { FriendListRowsSkeleton } from "@/components/dashboard/dashboard-skeletons";
 import { resolveSuinsAddress, looksLikeSuinsName, normalizeSuinsName } from "@/lib/contacts/suins-forward";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -141,7 +142,7 @@ export function FriendListDialog({
             {!readOk ? (
               <p style={{ fontSize: 12.5, color: "var(--destructive)" }}>Couldn’t load your friends — try again.</p>
             ) : loading && contacts.length === 0 ? (
-              <p style={{ fontSize: 12.5, color: "var(--fg-faint)" }}>Loading…</p>
+              <FriendListRowsSkeleton rows={4} />
             ) : contacts.length === 0 ? (
               <p style={{ fontSize: 12.5, color: "var(--fg-faint)" }}>No friends saved yet.</p>
             ) : (

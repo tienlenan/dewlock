@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 import { ShieldCheck, ExternalLink, Share2, Check } from "lucide-react";
-import { TX_CONFIRMED_EVENT } from "@/lib/tx-events";
+import { TX_CONFIRMED_EVENT, DASHBOARD_RELOAD_EVENT } from "@/lib/tx-events";
+import { readDashCache, writeDashCache } from "@/lib/dashboard/dashboard-cache";
 import { buildSuiObjectUrl, buildWalrusAggregatorUrl, shortHash } from "@/lib/explorer-urls";
 import { shortAddress } from "@/lib/utils";
 
@@ -84,11 +85,20 @@ export function PassportCard() {
     if (!wallet) return;
     try {
       const res = await fetch(`/api/passport?wallet=${encodeURIComponent(wallet)}`);
-      if (res.ok) setData(await res.json());
+      if (res.ok) {
+        const json = (await res.json()) as PassportApi;
+        setData(json);
+        writeDashCache(`passport:${wallet}`, json); // refresh last-good cache
+      }
     } catch { /* fail-soft */ }
   }, [wallet]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Seed from the last-good cache INSTANTLY (no cold/empty passport while memwal is slow),
+  // then revalidate via load(). memwal recall is slow + variable; cache stabilizes the paint.
+  useEffect(() => {
+    setData(wallet ? readDashCache<PassportApi>(`passport:${wallet}`) : null);
+    void load();
+  }, [wallet, load]);
   useEffect(() => {
     if (!wallet) return;
     function onTx() {
@@ -97,8 +107,14 @@ export function PassportCard() {
       // refetch (70s) — 40s alone can land just before it's queryable.
       timers.current = [8_000, 20_000, 40_000, 70_000].map((d) => setTimeout(() => void load(), d));
     }
+    const onReload = () => void load(); // user-triggered hard reload → refetch now
     window.addEventListener(TX_CONFIRMED_EVENT, onTx);
-    return () => { window.removeEventListener(TX_CONFIRMED_EVENT, onTx); timers.current.forEach(clearTimeout); };
+    window.addEventListener(DASHBOARD_RELOAD_EVENT, onReload);
+    return () => {
+      window.removeEventListener(TX_CONFIRMED_EVENT, onTx);
+      window.removeEventListener(DASHBOARD_RELOAD_EVENT, onReload);
+      timers.current.forEach(clearTimeout);
+    };
   }, [wallet, load]);
 
   if (!wallet) return null;

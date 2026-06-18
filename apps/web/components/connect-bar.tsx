@@ -9,10 +9,10 @@
 
 import { useState } from "react";
 import {
-  ConnectButton,
   useCurrentAccount,
   useDisconnectWallet,
 } from "@mysten/dapp-kit";
+import { ConnectWalletButton } from "@/components/connect-wallet-button";
 import { useSuiGasBalance } from "@/lib/use-sui-gas-balance";
 import { useSuinsName } from "@/lib/use-suins-name";
 import { CopyAddressButton } from "@/components/copy-address-button";
@@ -45,8 +45,8 @@ export function ConnectBar({ className }: { className?: string }) {
       <span className="split-mono text-fg-subtle">sui:{gas.network}</span>
 
       {!account ? (
-        /* dApp Kit connect button — uses its own styling; wrapped here for layout */
-        <ConnectButton connectText="Connect Wallet" />
+        /* Themed connect button (dapp-kit ConnectModal under the hood) */
+        <ConnectWalletButton label="Connect Wallet" size="sm" />
       ) : (
         <div className="flex items-center gap-3 ml-auto">
           {/* Gas balance — monospace, red tint when empty */}

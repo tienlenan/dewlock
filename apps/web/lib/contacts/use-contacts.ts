@@ -13,6 +13,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSignPersonalMessage } from "@mysten/dapp-kit";
+import { DASHBOARD_RELOAD_EVENT } from "@/lib/tx-events";
 
 export interface Contact {
   name: string;
@@ -60,6 +61,13 @@ export function useContacts(wallet: string | undefined) {
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  // User-triggered hard reload → refetch the friend book now.
+  useEffect(() => {
+    const onReload = () => void reload();
+    window.addEventListener(DASHBOARD_RELOAD_EVENT, onReload);
+    return () => window.removeEventListener(DASHBOARD_RELOAD_EVENT, onReload);
   }, [reload]);
 
   /** Add or edit a contact (upsert by case-insensitive name). Returns ok. */

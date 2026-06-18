@@ -14,7 +14,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { TX_CONFIRMED_EVENT } from "@/lib/tx-events";
+import { TX_CONFIRMED_EVENT, DASHBOARD_RELOAD_EVENT } from "@/lib/tx-events";
+import { readDashCache, writeDashCache } from "@/lib/dashboard/dashboard-cache";
 import type { UserStatsApiResponse } from "@/components/dashboard/types";
 
 interface PolledState<T> {
@@ -37,6 +38,7 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
       lastWallet.current = undefined;
       return;
     }
+    const cacheKey = `${path}:${wallet}`;
     let cancelled = false;
     let timedOut = false;
     const ctrl = new AbortController();
@@ -44,15 +46,20 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
     // loads) — a tight abort fired before the recall returned, leaving cards stuck while the
     // no-timeout passport card loaded fine. Generous budget + retry-on-timeout (never infinite).
     const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, 60_000);
-    // Only blank on a genuine wallet change (a silent reloadKey refetch keeps prior data).
+    // On a genuine wallet change, seed from the last-good cache INSTANTLY (no cold skeleton),
+    // then revalidate below. A silent reloadKey refetch keeps the current data on screen.
     if (lastWallet.current !== wallet) {
-      setData(null);
+      setData(readDashCache<T>(cacheKey));
       setError(null);
       lastWallet.current = wallet;
     }
     fetch(`${path}?wallet=${encodeURIComponent(wallet)}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: T) => !cancelled && setData(d))
+      .then((d: T) => {
+        if (cancelled) return;
+        setData(d);
+        writeDashCache(cacheKey, d); // refresh last-good cache
+      })
       .catch((e) => {
         if (cancelled) return;
         if (timedOut) { setError("Taking longer than usual — tap retry."); return; }
@@ -77,9 +84,13 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
         setTimeout(() => setReloadKey((k) => k + 1), d),
       );
     }
+    // User-triggered hard reload → refetch immediately.
+    const onReload = () => setReloadKey((k) => k + 1);
     window.addEventListener(TX_CONFIRMED_EVENT, onTxConfirmed);
+    window.addEventListener(DASHBOARD_RELOAD_EVENT, onReload);
     return () => {
       window.removeEventListener(TX_CONFIRMED_EVENT, onTxConfirmed);
+      window.removeEventListener(DASHBOARD_RELOAD_EVENT, onReload);
       retryTimers.current.forEach(clearTimeout);
       retryTimers.current = [];
     };

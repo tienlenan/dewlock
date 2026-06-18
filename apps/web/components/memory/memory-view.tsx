@@ -8,8 +8,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useCurrentAccount, useSignPersonalMessage, ConnectButton } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignPersonalMessage } from "@mysten/dapp-kit";
 import { Brain } from "lucide-react";
+import { ConnectWalletButton } from "@/components/connect-wallet-button";
 import { MemoryCategoryCard, type MemoryCategoryDto } from "./memory-category-card";
 
 interface MemoryApiResponse {
@@ -78,7 +79,7 @@ export function MemoryView() {
       <div style={{ padding: 24, maxWidth: 560 }}>
         <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Memory</h1>
         <p style={{ fontSize: 13, color: "var(--fg-muted)", marginBottom: 14 }}>Connect a wallet to view what Dewlock remembers for you.</p>
-        <ConnectButton />
+        <ConnectWalletButton label="Connect Wallet" />
       </div>
     );
   }

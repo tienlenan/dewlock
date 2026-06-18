@@ -12,42 +12,48 @@
  * disconnected → connect prompt; load failure → per-group retry; empty → newbie state.
  */
 
-import { useCurrentAccount, ConnectButton } from "@mysten/dapp-kit";
+import { useState } from "react";
+import { useCurrentAccount } from "@mysten/dapp-kit";
+import { RotateCw } from "lucide-react";
+import { emitDashboardReload } from "@/lib/tx-events";
+import { ConnectWalletButton } from "@/components/connect-wallet-button";
 import { UserStatsCard } from "./user-stats-card";
-import { LevelCard } from "./level-card";
 import { BadgeGrid } from "./badge-grid";
 import { DailyCapAndReceipts } from "./daily-cap-and-receipts";
 import { ProtocolMetricsSection } from "./protocol-metrics-section";
 import { PassportCard } from "./passport-card";
 import { FriendListCard } from "./friend-list-card";
+import { StatsCardSkeleton, BadgeGridSkeleton, ReceiptsSkeleton } from "./dashboard-skeletons";
 import { useUserStats } from "@/lib/dashboard/use-dashboard-data";
 import type { ContactsApi } from "@/lib/contacts/use-contacts";
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+/** Section header: a label with an optional right-aligned action (e.g. Reload). */
+function SectionHeader({ label, action }: { label: string; action?: React.ReactNode }) {
   return (
-    <div className="split-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: "var(--fg-muted)", marginBottom: 12 }}>
-      {children}
+    <div className="flex items-center justify-between" style={{ marginBottom: 12, gap: 12 }}>
+      <span className="split-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: "var(--fg-muted)" }}>
+        {label}
+      </span>
+      {action}
     </div>
   );
 }
 
-/** A shimmering placeholder block — w-full up to maxWidth, matching the real cards. */
-function SkeletonBlock({ height, maxWidth = 440 }: { height: number; maxWidth?: number }) {
+/** Reload button — emits a hard-reload event that every dashboard card refetches on. */
+function ReloadButton() {
+  const [spinning, setSpinning] = useState(false);
   return (
-    <div
-      aria-hidden
-      className="w-full"
-      role="status"
-      aria-label="Loading"
-      style={{
-        maxWidth,
-        height,
-        borderRadius: 14,
-        background: "linear-gradient(90deg, var(--bg-sub) 25%, var(--border) 50%, var(--bg-sub) 75%)",
-        backgroundSize: "200% 100%",
-        animation: "dashShimmer 1.6s ease-in-out infinite",
-      }}
-    />
+    <button
+      type="button"
+      onClick={() => { emitDashboardReload(); setSpinning(true); setTimeout(() => setSpinning(false), 800); }}
+      aria-label="Reload data"
+      title="Reload data"
+      className="flex items-center transition-colors"
+      style={{ gap: 5, border: "1px solid var(--border)", borderRadius: 99, padding: "4px 11px", background: "var(--bg-elev)", color: "var(--fg-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
+    >
+      <RotateCw size={12} aria-hidden style={{ animation: spinning ? "dashSpin 0.8s linear" : "none" }} />
+      Reload
+    </button>
   );
 }
 
@@ -89,14 +95,13 @@ export function UserDashboard({
 
   return (
     <section className="flex flex-col w-full" style={{ gap: 0, maxWidth: 980 }}>
-      <style>{`@keyframes dashShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
-      <SectionLabel>your activity</SectionLabel>
+      <SectionHeader label="your activity" action={wallet ? <ReloadButton /> : undefined} />
       {!wallet ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 14 }}>
           <p style={{ fontSize: 13.5, color: "var(--fg-muted)", margin: 0, lineHeight: 1.55 }}>
             Connect your wallet to see your activity, volume, and the reward badges you’ve earned through Dewlock.
           </p>
-          <ConnectButton />
+          <ConnectWalletButton label="Connect Wallet" />
         </div>
       ) : (
         <div className="flex flex-col gap-5">
@@ -104,28 +109,15 @@ export function UserDashboard({
           <PassportCard />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-            {/* Left column — everything except badges (level, stats, friends, spend) */}
+            {/* Left column — stats, friends, spend (level/badges live on the passport above) */}
             <div className="flex flex-col gap-5">
-              {/* Activity (level + stats) — one fetch, its own skeleton/error */}
+              {/* Activity stats — one fetch, its own skeleton/error */}
               {statsFailed ? (
                 <ErrorRetry message={stats.error!} onRetry={stats.retry} />
+              ) : statsReady ? (
+                <UserStatsCard stats={stats.data!.stats} wallet={stats.data!.wallet} memoryEnabled={stats.data!.memoryEnabled} />
               ) : (
-                <>
-                  {statsReady && stats.data!.level ? (
-                    <LevelCard
-                      level={stats.data!.level}
-                      earnedBadges={stats.data!.badges.earned.length}
-                      totalBadges={stats.data!.badges.earned.length + stats.data!.badges.locked.length}
-                    />
-                  ) : (
-                    <SkeletonBlock height={86} />
-                  )}
-                  {statsReady ? (
-                    <UserStatsCard stats={stats.data!.stats} wallet={stats.data!.wallet} memoryEnabled={stats.data!.memoryEnabled} />
-                  ) : (
-                    <SkeletonBlock height={150} />
-                  )}
-                </>
+                <StatsCardSkeleton />
               )}
 
               {/* Friends — self-fetches via useContacts (independent) */}
@@ -137,7 +129,7 @@ export function UserDashboard({
               {statsReady ? (
                 <DailyCapAndReceipts dailyUsage={stats.data!.dailyUsage} receipts={stats.data!.recentReceipts} />
               ) : !statsFailed ? (
-                <SkeletonBlock height={200} />
+                <ReceiptsSkeleton />
               ) : null}
             </div>
 
@@ -146,7 +138,7 @@ export function UserDashboard({
               {statsReady ? (
                 <BadgeGrid earned={stats.data!.badges.earned} locked={stats.data!.badges.locked} />
               ) : (
-                <SkeletonBlock height={220} />
+                <BadgeGridSkeleton />
               )}
             </div>
           </div>
@@ -159,8 +151,8 @@ export function UserDashboard({
 /** Network Dashboard — system-wide protocol registry + live TVL (not wallet-scoped). */
 export function NetworkDashboard() {
   return (
-    <section className="flex flex-col" style={{ gap: 0 }}>
-      <SectionLabel>protocol-wide · network</SectionLabel>
+    <section className="flex flex-col w-full" style={{ gap: 0, maxWidth: 560 }}>
+      <SectionHeader label="protocol-wide · network" action={<ReloadButton />} />
       <ProtocolMetricsSection />
     </section>
   );

@@ -9,6 +9,7 @@
 import { Users, Plus } from "lucide-react";
 import type { ContactsApi } from "@/lib/contacts/use-contacts";
 import { useSuinsNames } from "@/lib/use-suins-names";
+import { FriendListRowsSkeleton } from "./dashboard-skeletons";
 import { shortAddress } from "@/lib/utils";
 
 export function FriendListCard({ api, onManage }: { api: ContactsApi; onManage: () => void }) {
@@ -39,7 +40,7 @@ export function FriendListCard({ api, onManage }: { api: ContactsApi; onManage: 
       {!readOk ? (
         <p style={{ fontSize: 12, color: "var(--destructive)", margin: 0 }}>Couldn’t load your friends.</p>
       ) : loading && contacts.length === 0 ? (
-        <p style={{ fontSize: 12, color: "var(--fg-faint)", margin: 0 }}>Loading…</p>
+        <FriendListRowsSkeleton rows={3} />
       ) : contacts.length === 0 ? (
         <p style={{ fontSize: 12.5, color: "var(--fg-faint)", margin: 0, lineHeight: 1.5 }}>
           No friends yet. Add one to send by name — “send 1 SUI to Thomas”.

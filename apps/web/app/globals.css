@@ -643,6 +643,17 @@ main > article + section { margin-top: -1px; }
   50%       { opacity: 0.3; }
 }
 
+/* Shimmer sweep for loading skeletons (dashboard cards, friend list). */
+@keyframes dashShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* One-shot spin for the dashboard Reload button icon. */
+@keyframes dashSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* ==========================================================================
    REDUCED-MOTION — pause all decorative animations.
    Aurora already handled above; this block covers the app-copilot animations
