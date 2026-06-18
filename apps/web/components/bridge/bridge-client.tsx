@@ -13,9 +13,9 @@
 
 import { useState } from "react";
 import { useCurrentAccount } from "@mysten/dapp-kit";
-import { useSignAndExecuteTx, WysiwysError } from "@dewlock/sui/sign";
+import { useSignAndExecuteTx, WysiwysError } from "@/lib/use-sign-and-execute-tx";
 import { BridgeRedeemCard, type BridgeRedeemPreview } from "@/components/bridge/bridge-redeem-card";
-import { WormholeConnectEmbed } from "@/components/bridge/wormhole-connect-embed";
+import { MayanBridgeEmbed } from "@/components/bridge/mayan-bridge-embed";
 
 type RedeemResult =
   | { ok: true; txBytes: string; approvedDigest: string; preview: BridgeRedeemPreview }
@@ -49,18 +49,18 @@ export function BridgeClient() {
 
   return (
     <div className="flex flex-col gap-5" style={{ maxWidth: 480, width: "100%" }}>
-      {/* Leg 1: source (wallet-driven) — the real Wormhole Connect widget */}
+      {/* Source leg — Mayan widget (wallet-driven, full cross-chain swap + delivery into Sui) */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--bg-elev)", padding: 16 }}>
-        <div className="split-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: "var(--fg-muted)" }}>1 · SOURCE LEG · WALLET-DRIVEN (WORMHOLE CONNECT)</div>
+        <div className="split-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: "var(--fg-muted)" }}>BRIDGE INTO SUI · WALLET-DRIVEN (MAYAN)</div>
         <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: "8px 0 12px", lineHeight: 1.5 }}>
-          Lock/burn + bridge into Sui with the Wormhole Connect widget — you sign in your own wallet; Dewlock never signs the source leg.
+          Swap + bridge from another chain into Sui with Mayan — you sign in your own wallet; Dewlock never signs the source leg.
         </p>
-        <WormholeConnectEmbed />
+        <MayanBridgeEmbed />
       </div>
 
-      {/* Leg 2: redeem via Dewlock's Guardian (optional — for a manual VAA redeem) */}
+      {/* Optional: redeem a raw VAA behind Dewlock's Guardian (advanced path) */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--bg-elev)", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <div className="split-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: "var(--accent-ink)" }}>2 · OR REDEEM A VAA VIA DEWLOCK'S GUARDIAN</div>
+        <div className="split-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: "var(--accent-ink)" }}>ADVANCED · REDEEM A VAA VIA DEWLOCK'S GUARDIAN</div>
         <p style={{ fontSize: 12.5, color: "var(--fg-muted)", margin: 0, lineHeight: 1.45 }}>
           Have a signed VAA already? Redeem it behind Dewlock's 9 fail-closed bridge gates (recipient==self, priced-asset allowlist, VAA verify) instead of the default relayer.
         </p>

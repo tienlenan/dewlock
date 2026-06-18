@@ -31,14 +31,21 @@ const WormholeConnect = dynamic(
 );
 
 // Mainnet config — bridge INTO Sui from the major source chains.
+//
+// rpcs: the public Sui fullnode rate-limits Connect's balance polling and returns
+// the plain-text body "Throttled" (which Connect then JSON.parses → SyntaxError).
+// Point Sui at a non-throttled RPC via NEXT_PUBLIC_SUI_RPC_URL to avoid it.
 const config: ConnectConfig = {
   network: "Mainnet",
-  chains: ["Sui", "Ethereum", "Solana", "Arbitrum", "Base", "Polygon", "Avalanche", "Optimism"],
+  chains: ["Sui", "Ethereum", "Solana", "Arbitrum", "Base"],
+  rpcs: {
+    Sui: process.env.NEXT_PUBLIC_SUI_RPC_URL ?? "https://fullnode.mainnet.sui.io:443",
+  },
 };
 
 export function WormholeConnectEmbed() {
   return (
-    <div style={{ borderRadius: 12, overflow: "hidden" }}>
+    <div style={{ width: "100%", maxWidth: 420, margin: "0 auto", borderRadius: 12, overflow: "hidden" }}>
       <WormholeConnect config={config} />
     </div>
   );
