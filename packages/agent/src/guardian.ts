@@ -718,15 +718,19 @@ export async function checkActionShape(proposal: TradeProposal): Promise<GateRes
     const tx = Transaction.from(bytes);
     const commands = tx.getData().commands ?? [];
     const allowed = allowedTargetsForAction(proposal.actionType);
-    // Zero-value framework calls permitted inside ANY action's shape: the SuiNS
-    // forward resolve (read-only), coin::destroy_zero (aborts unless the coin
-    // balance is 0, so it provably moves no value — the aggregator emits it to
-    // drop the emptied input coin after a full-balance swap), and coin::from_balance
-    // (wraps an intermediate swap-output Balance into a Coin — creates no value).
+    // Zero-value framework calls permitted inside ANY action's shape: the SuiNS forward
+    // resolve (read-only), coin::destroy_zero (aborts unless the coin balance is 0 — drops
+    // the emptied input coin), coin::from_balance (wraps a swap-output Balance into a Coin),
+    // and the Balance/Coin plumbing a multi-hop aggregator route uses to merge/split/unwrap
+    // intermediate balances WITHIN the PTB (balance::join/split, coin::into_balance). None
+    // move value out of the wallet — the dry-run net-outflow cap is the value bound.
     const noValueFrameworkCalls = new Set([
       `${SUINS_PACKAGE}::registry::lookup`,
       `${NATIVE_PACKAGE}::coin::destroy_zero`,
       `${NATIVE_PACKAGE}::coin::from_balance`,
+      `${NATIVE_PACKAGE}::balance::join`,
+      `${NATIVE_PACKAGE}::balance::split`,
+      `${NATIVE_PACKAGE}::coin::into_balance`,
     ]);
 
     for (const cmd of commands) {

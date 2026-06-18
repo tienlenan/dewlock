@@ -374,6 +374,15 @@ export const CORE_TARGETS: readonly string[] = [
   // router emits this on the output leg. The Balance is an intermediate swap result,
   // so wrapping it creates no value and can never increase wallet outflow.
   `${NATIVE_PACKAGE}::coin::from_balance`,
+  // Value-neutral Balance/Coin plumbing the multi-hop aggregator routes emit to
+  // merge/split/unwrap intermediate balances WITHIN the PTB (a 3-leg Aftermath route
+  // uses balance::join to combine per-leg outputs). None move value out of the wallet —
+  // they only rearrange balances already inside the transaction; the dry-run net-outflow
+  // cap is the authoritative value bound. coin::into_balance / balance::split are the
+  // unwrap / split complements of from_balance / coin selection.
+  `${NATIVE_PACKAGE}::balance::join`,
+  `${NATIVE_PACKAGE}::balance::split`,
+  `${NATIVE_PACKAGE}::coin::into_balance`,
   // SuiNS forward resolve (read-only; included so resolving within a PTB is permitted)
   `${SUINS_PACKAGE}::registry::lookup`,
 ];

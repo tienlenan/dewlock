@@ -201,6 +201,10 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::coin::destroy_zero") ||
         // Native balance→coin wrap on a swap output leg (Aftermath router)
         t.includes("::coin::from_balance") ||
+        // Value-neutral Balance/Coin plumbing in multi-hop aggregator routes
+        t.includes("::balance::join") ||
+        t.includes("::balance::split") ||
+        t.includes("::coin::into_balance") ||
         // DeepBook V3 — limit orders + BalanceManager bootstrap
         t.includes("::pool::place_limit_order") ||
         t.includes("::pool::cancel_order") ||
