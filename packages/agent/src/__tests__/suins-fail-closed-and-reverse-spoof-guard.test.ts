@@ -16,25 +16,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mock @mysten/suins so SuinsClient is controllable in tests
-// ---------------------------------------------------------------------------
-
-const mockGetNameRecord = vi.fn();
-
-// SuinsClient must be mocked as a class (constructor), not a plain object.
-// vi.fn() used as a constructor: each call returns the mock instance.
-vi.mock("@mysten/suins", () => {
-  function MockSuinsClient(_opts: unknown) {
-    return { getNameRecord: mockGetNameRecord };
-  }
-  return { SuinsClient: MockSuinsClient };
-});
-
 import { resolveSuiNSName, SuiNSResolveError } from "@dewlock/sui/suins-resolver";
 
 // ---------------------------------------------------------------------------
-// Mock SuiClient factory
+// Mock SuiClient factory — the resolver uses the native JSON-RPC methods
+// resolveNameServiceAddress (forward) + resolveNameServiceNames (reverse).
 // ---------------------------------------------------------------------------
 
 const RESOLVED_ADDR = "0x" + "b".repeat(64);
@@ -45,15 +31,12 @@ function makeClient(options: {
   reverseData?: string[];
   reverseThrows?: Error;
 }) {
-  // Forward is handled by SuinsClient mock (mockGetNameRecord)
-  if (options.forwardThrows) {
-    mockGetNameRecord.mockRejectedValue(options.forwardThrows);
-  } else {
-    mockGetNameRecord.mockResolvedValue(options.forwardResult ?? null);
-  }
-
   return {
-    // Native RPC reverse lookup
+    // Native RPC forward lookup → 0x address | null.
+    resolveNameServiceAddress: options.forwardThrows
+      ? vi.fn().mockRejectedValue(options.forwardThrows)
+      : vi.fn().mockResolvedValue(options.forwardResult?.targetAddress ?? null),
+    // Native RPC reverse lookup.
     resolveNameServiceNames: options.reverseThrows
       ? vi.fn().mockRejectedValue(options.reverseThrows)
       : vi.fn().mockResolvedValue({
@@ -61,8 +44,6 @@ function makeClient(options: {
           hasNextPage: false,
           nextCursor: null,
         }),
-    // Required for SuinsClient constructor (ClientWithCoreApi)
-    core: {},
   };
 }
 

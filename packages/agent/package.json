@@ -7,9 +7,21 @@
     ".": "./dist/index.js",
     "./allowlist": "./dist/allowlist.js",
     "./guardian": "./dist/guardian.js",
+    "./copilot-persona": "./dist/copilot-persona.js",
+    "./intent/intent-directive": "./dist/intent/intent-directive.js",
+    "./intent/parse-intent": "./dist/intent/parse-intent.js",
     "./tools/prepare-trade": "./dist/tools/prepare-trade.js",
     "./tools/prepare-bridge-redeem": "./dist/tools/prepare-bridge-redeem.js",
     "./tools/get-portfolio": "./dist/tools/get-portfolio.js",
+    "./tools/list-protocols": "./dist/tools/list-protocols.js",
+    "./tools/get-swap-options": "./dist/tools/get-swap-options.js",
+    "./tools/get-lend-options": "./dist/tools/get-lend-options.js",
+    "./tools/get-swap-form": "./dist/tools/get-swap-form.js",
+    "./tools/get-receive-info": "./dist/tools/get-receive-info.js",
+    "./tools/get-user-stats": "./dist/tools/get-user-stats.js",
+    "./tools/get-protocol-metrics": "./dist/tools/get-protocol-metrics.js",
+    "./tools/request-action-form": "./dist/tools/request-action-form.js",
+    "./tools/request-contact-picker": "./dist/tools/request-contact-picker.js",
     "./guardian-bridge": "./dist/guardian-bridge.js",
     "./memory/conviction-streak": {
       "import": "./dist/memory/conviction-streak.js",
@@ -30,6 +42,18 @@
     "./memory/badges": {
       "import": "./dist/memory/badges.js",
       "types": "./dist/memory/badges.d.ts"
+    },
+    "./memory/level": {
+      "import": "./dist/memory/level.js",
+      "types": "./dist/memory/level.d.ts"
+    },
+    "./memory/wallet-profile": {
+      "import": "./dist/memory/wallet-profile.js",
+      "types": "./dist/memory/wallet-profile.d.ts"
+    },
+    "./memory/passport": {
+      "import": "./dist/memory/passport.js",
+      "types": "./dist/memory/passport.d.ts"
     }
   },
   "scripts": {

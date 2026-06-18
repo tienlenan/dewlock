@@ -10,7 +10,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SwapQuote } from "@dewlock/sui/quotes-source";
 
 vi.mock("@dewlock/sui/quotes-source", () => ({ fetchSwapQuote: vi.fn() }));
-vi.mock("@dewlock/sui/aggregator-quotes", () => ({ fetchAggregatorQuote: vi.fn() }));
+vi.mock("@dewlock/sui/aggregator-quotes", () => ({
+  fetchAggregatorQuote: vi.fn(),
+  fetchSuiUsdPrice: vi.fn().mockResolvedValue(3),
+}));
 
 import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
@@ -71,8 +74,8 @@ describe("getReceiveInfo", () => {
 describe("getSwapOptions", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns both sources + picks the higher-output as best", async () => {
-    mockCetus.mockResolvedValue(quote({ estimatedAmountOut: 3_000_000n }));
+  it("returns the aggregator route as the (only) source + best", async () => {
+    // Cetus CLMM "direct" is v1-incompatible → not offered; swaps go via aggregator.
     mockAgg.mockResolvedValue(quote({ estimatedAmountOut: 3_009_000n, routeProviders: ["CETUS", "DEEPBOOK"] }));
     const r = await run(getSwapOptions, {
       coinTypeIn: COIN_TYPES.SUI,
@@ -82,12 +85,11 @@ describe("getSwapOptions", () => {
     });
     expect(r.best).toBe("aggregator");
     const options = r.options as Array<{ source: string; available: boolean }>;
-    expect(options.map((o) => o.source).sort()).toEqual(["aggregator", "cetus"]);
-    expect(options.every((o) => o.available)).toBe(true);
+    expect(options.map((o) => o.source)).toEqual(["aggregator"]);
+    expect(options[0].available).toBe(true);
   });
 
-  it("marks a failing source unavailable and still returns the working one as best", async () => {
-    mockCetus.mockResolvedValue(quote({ estimatedAmountOut: 3_000_000n }));
+  it("marks the aggregator unavailable (no best) when the route fetch fails", async () => {
     mockAgg.mockRejectedValue(new Error("aggregator route unavailable"));
     const r = await run(getSwapOptions, {
       coinTypeIn: COIN_TYPES.SUI,
@@ -95,9 +97,10 @@ describe("getSwapOptions", () => {
       amountInNative: "1000000000",
       slippageBps: 50,
     });
-    expect(r.best).toBe("cetus");
+    expect(r.best).toBeUndefined();
     const options = r.options as Array<{ source: string; available: boolean; error?: string }>;
-    expect(options.find((o) => o.source === "aggregator")?.available).toBe(false);
+    expect(options).toHaveLength(1);
+    expect(options[0].available).toBe(false);
   });
 });
 

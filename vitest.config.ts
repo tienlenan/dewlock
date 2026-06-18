@@ -92,6 +92,8 @@ export default defineConfig({
       { find: "@dewlock/agent/tools/get-portfolio", replacement: src("agent", "tools/get-portfolio.ts") },
       { find: "@dewlock/agent/memory/user-stats", replacement: src("agent", "memory/user-stats.ts") },
       { find: "@dewlock/agent/memory/badges", replacement: src("agent", "memory/badges.ts") },
+      { find: "@dewlock/agent/memory/level", replacement: src("agent", "memory/level.ts") },
+      { find: "@dewlock/agent/memory/wallet-profile", replacement: src("agent", "memory/wallet-profile.ts") },
       { find: /^@dewlock\/agent$/, replacement: src("agent", "index.ts") },
 
       // @dewlock/sui sub-paths

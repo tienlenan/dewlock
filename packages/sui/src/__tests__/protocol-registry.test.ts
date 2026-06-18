@@ -61,9 +61,13 @@ describe("protocol registry — single-authored allowlist", () => {
   it("ALLOWED_MOVE_TARGETS = CORE_TARGETS ∪ active-built targets (exact, no drift)", () => {
     const expected = new Set([...CORE_TARGETS, ...getActiveMoveTargets()]);
     expect(ALLOWED_MOVE_TARGETS).toEqual(expected);
-    // Backstop on the exact size: 3 core + 4 Cetus + 6 DeepBook + 2 aggregator
-    // + 2 NAVI + 3 Suilend + 1 Wormhole (complete_transfer) = 21.
-    expect(ALLOWED_MOVE_TARGETS.size).toBe(21);
+    // Backstop on the exact size: 4 core (pay::split_and_transfer, transfer::
+    // public_share_object, coin::destroy_zero, registry::lookup) + 4 Cetus + 6 DeepBook
+    // + 6 aggregator (3 router scaffolding calls + cetus::swap under the verified
+    // integration pkg and the default pkg + deepbookv3::swap) + 3 NAVI (entry_deposit,
+    // entry_repay, pool::refresh_stake) + 4 Suilend (create_obligation, deposit×2, repay)
+    // + 1 Wormhole (complete_transfer) = 28.
+    expect(ALLOWED_MOVE_TARGETS.size).toBe(28);
   });
 
   it("isTargetActive: active Cetus/DeepBook targets + core targets are active", () => {

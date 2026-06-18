@@ -69,39 +69,37 @@ describe("getTrustedUsdPrice — SUI", () => {
   });
 });
 
-describe("getTrustedUsdPrice — WETH / wBTC (unsupported → undefined → Guardian blocks)", () => {
-  it("WETH returns undefined", () => {
-    expect(getTrustedUsdPrice(COIN_TYPES.WETH)).toBeUndefined();
+describe("getTrustedUsdPrice — WETH / wBTC (Pyth live, floor-clamped → swappable)", () => {
+  // In unit tests the Pyth cache is cold (no refresh), so these resolve to their
+  // conservative floors. In production a warm Pyth cache returns the live ETH/BTC
+  // price (clamped UP to the floor, never below it).
+  it("WETH returns the conservative floor (>=800) when the cache is cold", () => {
+    const p = getTrustedUsdPrice(COIN_TYPES.WETH);
+    expect(p).toBeDefined();
+    expect(p).toBeGreaterThanOrEqual(800);
   });
 
-  it("wBTC returns undefined", () => {
-    expect(getTrustedUsdPrice(COIN_TYPES.wBTC)).toBeUndefined();
+  it("wBTC returns the conservative floor (>=15000) when the cache is cold", () => {
+    const p = getTrustedUsdPrice(COIN_TYPES.wBTC);
+    expect(p).toBeDefined();
+    expect(p).toBeGreaterThanOrEqual(15000);
   });
 
-  it("arbitrary unknown coin type returns undefined", () => {
+  it("arbitrary unknown coin type (no feed, no floor) still returns undefined", () => {
     expect(getTrustedUsdPrice("0xdeadbeef::fake::FAKE")).toBeUndefined();
   });
 
-  it("undefined price → Guardian cap gate blocks (contract proof)", () => {
-    // The Guardian at guardian.ts gate #2:
-    //   const usdPrice = getTrustedUsdPrice(coinTypeIn);
-    //   if (usdPrice === undefined) { block("trusted_price", ...) }
-    // Test: simulate that logic inline
-    function simulateCapGate(coinType: string): { blocked: boolean; reason: string } {
-      const usdPrice = getTrustedUsdPrice(coinType);
-      if (usdPrice === undefined) {
-        return {
-          blocked: true,
-          reason: `No trusted USD price for ${coinType} — blocking for safety.`,
-        };
-      }
-      return { blocked: false, reason: "" };
+  it("SECURITY: a coin with no feed AND no floor → Guardian cap gate blocks (fail-closed)", () => {
+    // The Guardian gate: usdPrice === undefined → block("trusted_price").
+    function simulateCapGate(coinType: string): { blocked: boolean } {
+      return { blocked: getTrustedUsdPrice(coinType) === undefined };
     }
-
-    expect(simulateCapGate(COIN_TYPES.WETH).blocked).toBe(true);
-    expect(simulateCapGate(COIN_TYPES.wBTC).blocked).toBe(true);
+    // Unknown coins still fail-closed (the security contract is preserved).
     expect(simulateCapGate("0xfake::coin::COIN").blocked).toBe(true);
-    // Known types pass
+    expect(simulateCapGate("0xdeadbeef::junk::JUNK").blocked).toBe(true);
+    // Priced coins (incl. WETH/wBTC via Pyth+floor) pass.
+    expect(simulateCapGate(COIN_TYPES.WETH).blocked).toBe(false);
+    expect(simulateCapGate(COIN_TYPES.wBTC).blocked).toBe(false);
     expect(simulateCapGate(COIN_TYPES.USDC).blocked).toBe(false);
     expect(simulateCapGate(COIN_TYPES.SUI).blocked).toBe(false);
   });
@@ -130,6 +128,13 @@ describe("getTrustedUsdPrice — pool-spot manipulation cannot change cap (indep
 // Mock @dewlock/sui to avoid pulling in the real client
 vi.mock("@dewlock/sui", () => ({
   getSuiMainnetClient: vi.fn(),
+}));
+
+// Mock the live SUI price source so RPC-path mapping is deterministic (no network).
+// Fixed at 3.0 so the balance-mapping assertions below stay price-stable — these
+// tests verify the mapping math, not the live price.
+vi.mock("@dewlock/sui/aggregator-quotes", () => ({
+  fetchSuiUsdPrice: vi.fn(async () => 3.0),
 }));
 
 import { getSuiMainnetClient } from "@dewlock/sui";
@@ -232,12 +237,12 @@ describe("getPortfolio — live balance mapping", () => {
     expect(usdcRow!.estimatedUsdValue).toBeCloseTo(10);
   });
 
-  it("unknown coin type: fetches metadata, sets null USD, excludes from total", async () => {
+  it("unknown/unverified coin type: filtered out (scam protection), verified shown", async () => {
     const UNKNOWN_TYPE = "0xdeadbeef::junk::JUNK";
     const mockClient = makePortfolioClient({
       balances: [
-        { coinType: COIN_TYPES.SUI, totalBalance: "1000000000" }, // 1 SUI
-        { coinType: UNKNOWN_TYPE, totalBalance: "1000000" },
+        { coinType: COIN_TYPES.SUI, totalBalance: "1000000000" }, // 1 SUI (curated → verified)
+        { coinType: UNKNOWN_TYPE, totalBalance: "1000000" },       // unverified + not whitelisted
       ],
       metadata: {
         [UNKNOWN_TYPE]: { decimals: 6, symbol: "JUNK" },
@@ -248,16 +253,31 @@ describe("getPortfolio — live balance mapping", () => {
     const { getPortfolio } = await import("../tools/get-portfolio");
     const result = await runPortfolio(getPortfolio, FAKE_WALLET);
 
-    const unknownRow = result.balances.find((b) => b.coinType === UNKNOWN_TYPE);
-    expect(unknownRow).toBeDefined();
-    expect(unknownRow!.estimatedUsdValue).toBeNull(); // no trusted price → null
-    expect(unknownRow!.displayTicker).toBe("JUNK"); // from on-chain metadata
-
+    // Trust gate: the unverified, non-whitelisted JUNK token is hidden entirely.
+    expect(result.balances.find((b) => b.coinType === UNKNOWN_TYPE)).toBeUndefined();
+    // The verified SUI row remains.
+    expect(result.balances.find((b) => b.coinType === COIN_TYPES.SUI)).toBeDefined();
     // Total only sums the SUI row ($3)
     expect(result.totalEstimatedUsdValue).toBeCloseTo(3);
   });
 
-  it("WETH balance: estimatedUsdValue is null (no trusted price), excluded from total", async () => {
+  it("whitelisted-but-unverified coin (e.g. CETUS) IS shown (trust gate OR-clause)", async () => {
+    // CETUS is in POPULAR_TOKENS but not COIN_TYPES → verified:false on the RPC path,
+    // yet it must still appear because it is whitelisted.
+    const CETUS = "0x06864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS";
+    const mockClient = makePortfolioClient({
+      balances: [{ coinType: CETUS, totalBalance: "1000000000" }],
+      metadata: { [CETUS]: { decimals: 9, symbol: "CETUS" } },
+    });
+    vi.mocked(getSuiMainnetClient).mockReturnValue(mockClient as never);
+
+    const { getPortfolio } = await import("../tools/get-portfolio");
+    const result = await runPortfolio(getPortfolio, FAKE_WALLET);
+
+    expect(result.balances.find((b) => b.coinType === CETUS)).toBeDefined();
+  });
+
+  it("WETH balance: now priced (Pyth+floor) → included in the total", async () => {
     const mockClient = makePortfolioClient({
       balances: [
         { coinType: COIN_TYPES.WETH, totalBalance: "100000000" }, // 1 WETH (8 dec)
@@ -270,9 +290,11 @@ describe("getPortfolio — live balance mapping", () => {
     const result = await runPortfolio(getPortfolio, FAKE_WALLET);
 
     const wethRow = result.balances.find((b) => b.coinType === COIN_TYPES.WETH);
-    expect(wethRow!.estimatedUsdValue).toBeNull();
-    // Total = 5 USDC only
-    expect(result.totalEstimatedUsdValue).toBeCloseTo(5);
+    // 1 WETH valued at the conservative floor (cold cache) → a positive USD value.
+    expect(wethRow!.estimatedUsdValue).not.toBeNull();
+    expect(wethRow!.estimatedUsdValue!).toBeGreaterThanOrEqual(800);
+    // Total = WETH (>=800) + 5 USDC.
+    expect(result.totalEstimatedUsdValue).toBeGreaterThanOrEqual(805);
   });
 
   it("getAllBalances failure → returns empty balances, total=0 (degrades gracefully)", async () => {
@@ -290,7 +312,7 @@ describe("getPortfolio — live balance mapping", () => {
     expect(result.demoFixture).toBe(false);
   });
 
-  it("getCoinMetadata failure for unknown coin: row still appears, ticker falls back", async () => {
+  it("unverified coin (metadata failure): filtered out by the trust gate, not shown", async () => {
     const UNKNOWN_TYPE = "0xabc::some::TOKEN";
     const mockClient = makePortfolioClient({
       balances: [{ coinType: UNKNOWN_TYPE, totalBalance: "500" }],
@@ -303,12 +325,9 @@ describe("getPortfolio — live balance mapping", () => {
     const { getPortfolio } = await import("../tools/get-portfolio");
     const result = await runPortfolio(getPortfolio, FAKE_WALLET);
 
-    // Row exists — partial failure doesn't remove it
-    expect(result.balances).toHaveLength(1);
-    // Ticker falls back to last segment of coinType
-    expect(result.balances[0].displayTicker).toBe("TOKEN");
-    // USD is null (no curated price, no metadata)
-    expect(result.balances[0].estimatedUsdValue).toBeNull();
+    // Unverified + not whitelisted → hidden (no scam/airdrop tokens shown).
+    expect(result.balances).toHaveLength(0);
+    expect(result.totalEstimatedUsdValue).toBe(0);
   });
 
   it("fixture mode: returns exactly 5 rows with DEMO badge, ignores client", async () => {
@@ -335,12 +354,12 @@ describe("getPortfolio — live balance mapping", () => {
     expect(result.totalEstimatedUsdValue).toBeCloseTo(30);
   });
 
-  it("multiple coins: total correctly sums only priced positions", async () => {
+  it("multiple coins: total sums all priced positions (incl. WETH via Pyth+floor)", async () => {
     const mockClient = makePortfolioClient({
       balances: [
         { coinType: COIN_TYPES.SUI, totalBalance: "3000000000" },   // 3 SUI → $9
         { coinType: COIN_TYPES.USDC, totalBalance: "7000000" },     // 7 USDC → $7
-        { coinType: COIN_TYPES.WETH, totalBalance: "50000000" },    // 0.5 WETH → $null
+        { coinType: COIN_TYPES.WETH, totalBalance: "50000000" },    // 0.5 WETH → >= $400 (floor)
       ],
     });
     vi.mocked(getSuiMainnetClient).mockReturnValue(mockClient as never);
@@ -348,10 +367,11 @@ describe("getPortfolio — live balance mapping", () => {
     const { getPortfolio } = await import("../tools/get-portfolio");
     const result = await runPortfolio(getPortfolio, FAKE_WALLET);
 
-    // 3 SUI * $3 + 7 USDC * $1 = $16; WETH excluded
-    expect(result.totalEstimatedUsdValue).toBeCloseTo(16);
     const wethRow = result.balances.find((b) => b.coinType === COIN_TYPES.WETH);
-    expect(wethRow!.estimatedUsdValue).toBeNull();
+    // 0.5 WETH at the floor (>=800/ETH) → >= $400; now included.
+    expect(wethRow!.estimatedUsdValue!).toBeGreaterThanOrEqual(400);
+    // 3 SUI*$3 + 7 USDC*$1 + WETH(>=$400) → >= $416.
+    expect(result.totalEstimatedUsdValue).toBeGreaterThanOrEqual(416);
   });
 });
 
@@ -363,10 +383,10 @@ describe("Cap gate — pool manipulation does NOT affect trusted price", () => {
   it("trusted price for USDC is always $1 regardless of any pool value", () => {
     // The Guardian reads getTrustedUsdPrice(coinTypeIn) — a pure function with
     // no network access and no dependency on Cetus preswap results.
-    // An attacker controlling a pool cannot make the Guardian approve WETH at $1.
+    // An attacker controlling a pool cannot move it.
     const suiPrice = getTrustedUsdPrice(COIN_TYPES.SUI);
     const usdcPrice = getTrustedUsdPrice(COIN_TYPES.USDC);
-    const wethPrice = getTrustedUsdPrice(COIN_TYPES.WETH);
+    const fakePrice = getTrustedUsdPrice("0xfake::coin::COIN");
 
     // Cap gate would compute: estimatedUsdValue = (nativeAmount / 10^decimals) * usdPrice
     // For a $5 cap with 1 SUI at $3: estimatedUsdValue=3 < cap=5 → passes
@@ -379,7 +399,7 @@ describe("Cap gate — pool manipulation does NOT affect trusted price", () => {
     const usdcUsd = (Number(nativeUsdc) / 10 ** (COIN_DECIMALS[COIN_TYPES.USDC] ?? 6)) * (usdcPrice ?? 0);
     expect(usdcUsd).toBeCloseTo(5);
 
-    // WETH: undefined → cap gate blocks regardless of amount
-    expect(wethPrice).toBeUndefined();
+    // An unpriced (no-feed, no-floor) coin → undefined → cap gate blocks (fail-closed).
+    expect(fakePrice).toBeUndefined();
   });
 });

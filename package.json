@@ -15,7 +15,8 @@
     "test": "vitest run",
     "health": "tsx scripts/health.ts",
     "provision": "tsx scripts/provision-memwal.ts",
-    "gen:icons": "node scripts/gen-brand-icons.mjs"
+    "gen:icons": "node scripts/gen-brand-icons.mjs",
+    "logo:png": "node scripts/export-logo-png.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",

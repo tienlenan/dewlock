@@ -28,7 +28,7 @@ vi.mock("@dewlock/sui", () => ({
 }));
 
 import { dryRunTransaction } from "@dewlock/sui";
-import { checkActionShape, computeNetOutflowUsd, guardianCheck } from "../guardian";
+import { checkActionShape, checkAllowlist, computeNetOutflowUsd, guardianCheck } from "../guardian";
 import type { TradeProposal } from "../guardian";
 
 const mockDryRun = dryRunTransaction as unknown as import("vitest").Mock<
@@ -86,6 +86,66 @@ function baseProposal(overrides: Partial<TradeProposal>): TradeProposal {
 }
 
 const stubClient = {} as Parameters<typeof guardianCheck>[1];
+
+// ---------------------------------------------------------------------------
+// Aggregator dynamic-package swap route (per-route, upgradeable integration pkg)
+// The live router emits a per-DEX integration package that is NOT statically
+// enumerable; swap-route calls are matched by module::function signature so a
+// multi-venue route (e.g. a DeepBook leg) is not falsely refused.
+// ---------------------------------------------------------------------------
+
+describe("aggregator swap — package-agnostic route calls", () => {
+  // A per-route integration package that is NOT in any static allowlist.
+  const DYN = "0x" + "9".repeat(64);
+  const ROUTE_CALLS = [
+    `${DYN}::router::new_swap_context`,
+    `${DYN}::cetus::swap`,
+    `${DYN}::deepbookv3::swap`,
+    `${DYN}::router::confirm_swap`,
+  ];
+
+  it("checkActionShape passes a swap whose route calls use an unknown package", async () => {
+    const txBytes = await ptbWithCalls(ROUTE_CALLS);
+    const res = await checkActionShape(baseProposal({ actionType: "swap", txBytes }));
+    expect(res.ok).toBe(true);
+  });
+
+  it("checkAllowlist passes the same route by module::function signature", async () => {
+    const txBytes = await ptbWithCalls(ROUTE_CALLS);
+    const res = await checkAllowlist(txBytes);
+    expect(res.ok).toBe(true);
+  });
+
+  it("the package-agnostic bypass is swap-only — a transfer with a swap call is refused", async () => {
+    const txBytes = await ptbWithCalls([`${DYN}::deepbookv3::swap`]);
+    const res = await checkActionShape(baseProposal({ actionType: "transfer", txBytes }));
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain("shape mismatch");
+  });
+
+  it("permits coin::destroy_zero in a swap (full-balance cleanup, zero value)", async () => {
+    const NATIVE = "0x0000000000000000000000000000000000000000000000000000000000000002";
+    const txBytes = await ptbWithCalls([
+      `${DYN}::router::new_swap_context`,
+      `${DYN}::cetus::swap`,
+      `${DYN}::router::confirm_swap`,
+      `${NATIVE}::coin::destroy_zero`,
+    ]);
+    const res = await checkActionShape(baseProposal({ actionType: "swap", txBytes }));
+    expect(res.ok).toBe(true);
+    expect((await checkAllowlist(txBytes)).ok).toBe(true);
+  });
+
+  it("does NOT open a hole — a non-swap call under an unknown package in a swap is refused", async () => {
+    const txBytes = await ptbWithCalls([
+      `${DYN}::router::new_swap_context`,
+      `${DYN}::drain::steal_all_coins`,
+    ]);
+    const res = await checkActionShape(baseProposal({ actionType: "swap", txBytes }));
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain("steal_all_coins");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 1. Structural shape gate
@@ -164,8 +224,10 @@ describe("computeNetOutflowUsd", () => {
   });
 
   it("fail-closed: an outflow in an unpriced coin returns not-ok", () => {
+    // A coin with no Pyth feed AND no floor → getTrustedUsdPrice undefined → fail-closed.
+    // (WETH/wBTC are now priced via Pyth+floor, so a genuinely unknown coin is used.)
     const r = computeNetOutflowUsd(
-      dryRun([{ coinType: COIN_TYPES.WETH, amount: -100n, owner: WALLET }]),
+      dryRun([{ coinType: "0xdead::fake::FAKE", amount: -100n, owner: WALLET }]),
       WALLET,
     );
     expect(r.ok).toBe(false);
@@ -212,8 +274,9 @@ describe("guardianCheck — dry-run net-outflow cap", () => {
 
   it("fail-closed: BLOCKs when the dry-run shows an outflow in an unpriced coin", async () => {
     const txBytes = await emptyKindBytes();
+    // Genuinely unpriced coin (no feed, no floor) — WETH/wBTC are now priced.
     mockDryRun.mockResolvedValue(
-      dryRun([{ coinType: COIN_TYPES.WETH, amount: -100_000_000n, owner: WALLET }]),
+      dryRun([{ coinType: "0xdead::fake::FAKE", amount: -100_000_000n, owner: WALLET }]),
     );
     const res = await guardianCheck(baseProposal({ txBytes, amountInNative: 2_000_000n }), stubClient);
     expect(res.ok).toBe(false);

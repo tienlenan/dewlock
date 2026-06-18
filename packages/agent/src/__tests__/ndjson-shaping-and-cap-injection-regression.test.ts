@@ -177,9 +177,17 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         // Cetus Aggregator — per-DEX swap wrappers (activated venues only)
         t.includes("::cetus::swap") ||
         t.includes("::deepbookv3::swap") ||
+        // Cetus Aggregator — router scaffolding present in every aggregator swap PTB
+        t.includes("::router::new_swap_context") ||
+        t.includes("::router::confirm_swap") ||
+        t.includes("::router::transfer_or_destroy_coin") ||
         // Lending — NAVI (incentive_v3) + Suilend (lending_market) deposit/repay
         t.includes("::incentive_v3::entry_deposit") ||
         t.includes("::incentive_v3::entry_repay") ||
+        // NAVI deposit also refreshes reward/stake accounting (moves no value)
+        t.includes("::pool::refresh_stake") ||
+        // Suilend first-deposit creates the obligation before depositing
+        t.includes("::lending_market::create_obligation") ||
         t.includes("::lending_market::deposit_liquidity_and_mint_ctokens") ||
         t.includes("::lending_market::deposit_ctokens_into_obligation") ||
         t.includes("::lending_market::repay") ||
@@ -189,6 +197,8 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::registry::lookup") ||
         // Native SUI transfer
         t.includes("::pay::split_and_transfer") ||
+        // Native zero-coin cleanup (aggregator full-balance swap)
+        t.includes("::coin::destroy_zero") ||
         // DeepBook V3 — limit orders + BalanceManager bootstrap
         t.includes("::pool::place_limit_order") ||
         t.includes("::pool::cancel_order") ||

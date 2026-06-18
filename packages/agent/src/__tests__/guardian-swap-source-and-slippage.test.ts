@@ -20,7 +20,12 @@ vi.mock("@dewlock/sui", () => ({
   DryRunFailedError: class DryRunFailedError extends Error {},
 }));
 vi.mock("@dewlock/sui/quotes-source", () => ({ fetchSwapQuote: vi.fn() }));
-vi.mock("@dewlock/sui/aggregator-quotes", () => ({ fetchAggregatorQuote: vi.fn() }));
+vi.mock("@dewlock/sui/aggregator-quotes", () => ({
+  fetchAggregatorQuote: vi.fn(),
+  // Guardian fetches a live SUI/USD price for value-bounding; pin it to the $3 floor
+  // here so these min-out/cap tests stay deterministic and unchanged.
+  fetchSuiUsdPrice: vi.fn().mockResolvedValue(3),
+}));
 
 import { dryRunTransaction } from "@dewlock/sui";
 import { fetchSwapQuote } from "@dewlock/sui/quotes-source";

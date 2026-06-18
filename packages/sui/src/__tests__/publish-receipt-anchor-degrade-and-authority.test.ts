@@ -24,6 +24,9 @@ import {
 // Valid 64-hex package id so the real Transaction accepts the moveCall target.
 const PACKAGE_ID =
   "0x000000000000000000000000000000000000000000000000000000000000beef";
+// Shared Config object id (first arg of create_head/set_head after the version guard).
+const CONFIG_ID =
+  "0x000000000000000000000000000000000000000000000000000000000000c0f1";
 const SECRET_KEY = "suiprivkey_test_operational_key";
 
 // Valid 64-hex wallet addresses (tx.pure.address validates hex).
@@ -110,6 +113,7 @@ describe("anchorReceiptHead — degrade path", () => {
 
   it("returns failed (non-throwing) when the client rejects", async () => {
     process.env.DEWLOCK_RECEIPT_PACKAGE_ID = PACKAGE_ID;
+    process.env.DEWLOCK_RECEIPT_CONFIG_ID = CONFIG_ID;
     process.env.WALRUS_SDK_WALLET_KEY = SECRET_KEY;
     const { deps } = makeDeps(() => Promise.reject(new Error("RPC timeout")));
     const result = await anchorReceiptHead(
@@ -126,10 +130,12 @@ describe("anchorReceiptHead — degrade path", () => {
 describe("anchorReceiptHead — write authority + HEAD registry", () => {
   beforeEach(() => {
     process.env.DEWLOCK_RECEIPT_PACKAGE_ID = PACKAGE_ID;
+    process.env.DEWLOCK_RECEIPT_CONFIG_ID = CONFIG_ID;
     process.env.WALRUS_SDK_WALLET_KEY = SECRET_KEY;
   });
   afterEach(() => {
     delete process.env.DEWLOCK_RECEIPT_PACKAGE_ID;
+    delete process.env.DEWLOCK_RECEIPT_CONFIG_ID;
     delete process.env.WALRUS_SDK_WALLET_KEY;
   });
 
