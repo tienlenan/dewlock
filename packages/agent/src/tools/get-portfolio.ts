@@ -21,8 +21,11 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { getSuiMainnetClient } from "@dewlock/sui";
-import { COIN_TYPES, COIN_DECIMALS, getTrustedUsdPrice } from "../allowlist";
+import { POPULAR_TOKENS } from "@dewlock/sui/popular-tokens";
+import { fetchSuiUsdPrice } from "@dewlock/sui/aggregator-quotes";
+import { COIN_TYPES, COIN_DECIMALS, getTrustedUsdPrice, normalizeCoinType } from "../allowlist";
 import { fetchSuiVisionCoins, type SuiVisionCoin } from "../suivision-coins";
+import { fetchBlockberryCoins } from "../blockberry-coins";
 
 // ---------------------------------------------------------------------------
 // Ticker reverse-map (coinType → ticker) for display
@@ -31,6 +34,29 @@ import { fetchSuiVisionCoins, type SuiVisionCoin } from "../suivision-coins";
 const COIN_TYPE_TO_TICKER: Record<string, string> = Object.fromEntries(
   Object.entries(COIN_TYPES).map(([ticker, coinType]) => [coinType, ticker]),
 );
+
+// ---------------------------------------------------------------------------
+// Trust gate — the wallet holds many coins, including scam/airdrop tokens.
+// Show a row ONLY when it is verified OR in the curated whitelist (POPULAR_TOKENS),
+// AND has a non-zero balance. coinType is canonicalized so short on-chain forms match.
+// ---------------------------------------------------------------------------
+
+const WHITELIST_TYPES = new Set(POPULAR_TOKENS.map((t) => normalizeCoinType(t.coinType)));
+const LOGO_BY_TYPE = new Map(
+  POPULAR_TOKENS.filter((t) => t.logoUrl).map((t) => [normalizeCoinType(t.coinType), t.logoUrl!]),
+);
+
+function isTrusted(b: { coinType: string; nativeBalance: string; verified: boolean }): boolean {
+  const hasBalance = (() => {
+    try { return BigInt(b.nativeBalance) > 0n; } catch { return false; }
+  })();
+  return hasBalance && (b.verified || WHITELIST_TYPES.has(normalizeCoinType(b.coinType)));
+}
+
+/** Whitelist logo fallback when the live source returned none. */
+function withLogoFallback(coinType: string, iconUrl: string | null): string | null {
+  return iconUrl ?? LOGO_BY_TYPE.get(normalizeCoinType(coinType)) ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Tool definition
@@ -99,12 +125,19 @@ export const getPortfolio = createTool({
 // ---------------------------------------------------------------------------
 
 async function fetchLivePortfolio(walletAddress: string) {
+  // Enriched-source cascade: BlockVision indexing (Pro) → Blockberry (free) → plain RPC.
+  // Each returns null when its key is absent/unavailable so we fall through cleanly.
   try {
     const coins = await fetchSuiVisionCoins(walletAddress);
     if (coins) return buildSuiVisionPortfolio(walletAddress, coins);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[getPortfolio] SuiVision fetch failed, falling back to RPC:", msg);
+    console.error("[getPortfolio] BlockVision fetch failed:", err instanceof Error ? err.message : String(err));
+  }
+  try {
+    const coins = await fetchBlockberryCoins(walletAddress);
+    if (coins) return buildSuiVisionPortfolio(walletAddress, coins);
+  } catch (err) {
+    console.error("[getPortfolio] Blockberry fetch failed:", err instanceof Error ? err.message : String(err));
   }
   return fetchRpcPortfolio(walletAddress);
 }
@@ -116,7 +149,7 @@ async function fetchLivePortfolio(walletAddress: string) {
  */
 function buildSuiVisionPortfolio(walletAddress: string, coins: SuiVisionCoin[]) {
   const balances = coins
-    .filter((c) => c.verified && !c.scam)
+    .filter((c) => !c.scam) // drop flagged scams; verified-OR-whitelist gate applied below
     .map((c) => {
       const nativeBalance = BigInt(c.balance || "0");
       const humanBalance = (Number(nativeBalance) / 10 ** c.decimals).toFixed(6);
@@ -127,11 +160,12 @@ function buildSuiVisionPortfolio(walletAddress: string, coins: SuiVisionCoin[]) 
         humanBalance,
         estimatedUsdValue: Number.isFinite(c.usdValue) ? c.usdValue : null,
         decimals: c.decimals,
-        iconUrl: c.logo || null,
+        iconUrl: withLogoFallback(c.coinType, c.logo || null),
         priceUsd: Number.isFinite(c.price) ? c.price : null,
         verified: c.verified,
       };
-    });
+    })
+    .filter(isTrusted); // verified OR whitelisted, balance > 0
 
   const totalEstimatedUsdValue = balances.reduce(
     (sum, b) => sum + (b.estimatedUsdValue ?? 0),
@@ -153,6 +187,11 @@ function buildSuiVisionPortfolio(walletAddress: string, coins: SuiVisionCoin[]) 
 
 async function fetchRpcPortfolio(walletAddress: string) {
   const client = getSuiMainnetClient();
+  // Live SUI/USD from the Cetus aggregator (1 SUI→USDC quote, 60s cached) — the same
+  // source the Guardian uses. Avoids valuing SUI at the stale $3 static floor when the
+  // enriched data providers (BlockVision/Blockberry) are unavailable. Falls back to the
+  // floor internally on any error, so this never throws.
+  const liveSuiUsd = await fetchSuiUsdPrice();
 
   // One RPC to fetch every coin balance the wallet holds.
   // getAllBalances returns CoinBalance[] where totalBalance is a string.
@@ -220,8 +259,10 @@ async function fetchRpcPortfolio(walletAddress: string) {
     const displayTicker =
       curatedTicker ?? metaSymbol ?? coinType.split("::").pop() ?? coinType;
 
-    // USD: trusted price for known types; null for unknown (never fabricate)
-    const usdPrice = getTrustedUsdPrice(coinType);
+    // USD: live SUI price for SUI; trusted price for other known types; null for
+    // unknown (never fabricate). Normalize first so short "0x2::sui::SUI" matches.
+    const usdPrice =
+      normalizeCoinType(coinType) === COIN_TYPES.SUI ? liveSuiUsd : getTrustedUsdPrice(coinType);
     const estimatedUsdValue =
       usdPrice != null
         ? (Number(nativeBalance) / 10 ** decimals) * usdPrice
@@ -234,12 +275,12 @@ async function fetchRpcPortfolio(walletAddress: string) {
       humanBalance,
       estimatedUsdValue,
       decimals,
-      iconUrl: metadataCache[coinType]?.iconUrl ?? null,
+      iconUrl: withLogoFallback(coinType, metadataCache[coinType]?.iconUrl ?? null),
       priceUsd: usdPrice ?? null,
       // Curated (known) coins are treated as verified on the RPC fallback path.
       verified: curatedTicker !== undefined,
     };
-  });
+  }).filter(isTrusted); // hide scam/airdrop tokens: verified OR whitelisted, balance > 0
 
   // Total excludes null/unknown prices — consistent with Guardian cap enforcement
   const totalEstimatedUsdValue = balances.reduce(
@@ -283,7 +324,7 @@ function buildFixturePortfolio(walletAddress: string) {
       humanBalance,
       estimatedUsdValue,
       decimals,
-      iconUrl: null,
+      iconUrl: withLogoFallback(coinType, null),
       priceUsd: usdPrice ?? null,
       verified: true,
     };

@@ -14,10 +14,7 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { getSuiMainnetClient, buildTransfer } from "@dewlock/sui";
 // build-swap imports Cetus SDK — use subpath to keep it isolated from the root bundle
-import { buildSwap } from "@dewlock/sui/build-swap";
 import { buildAggregatorSwap } from "@dewlock/sui/build-aggregator-swap";
-import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
-import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
 // build-limit-order imports DeepBook SDK — use subpath for the same isolation rationale
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
@@ -43,22 +40,6 @@ const TOOL_ACTION_TYPES = [
  * whichever source quotes successfully; defaults to cetus if both fail (the
  * subsequent build then fail-closes if cetus also can't quote).
  */
-async function pickBestSwapSource(
-  coinTypeIn: string,
-  coinTypeOut: string,
-  amountInNative: bigint,
-  slippageBps: number,
-  sender: string,
-): Promise<SwapSource> {
-  const [cetus, agg] = await Promise.allSettled([
-    fetchSwapQuote(coinTypeIn, coinTypeOut, amountInNative, slippageBps, sender),
-    fetchAggregatorQuote(coinTypeIn, coinTypeOut, amountInNative, slippageBps, sender),
-  ]);
-  const cetusOut = cetus.status === "fulfilled" ? cetus.value.estimatedAmountOut : -1n;
-  const aggOut = agg.status === "fulfilled" ? agg.value.estimatedAmountOut : -1n;
-  if (aggOut > cetusOut) return "aggregator";
-  return "cetus";
-}
 
 // ---------------------------------------------------------------------------
 // Session spend tracker (server-side in-memory for the hackathon)
@@ -380,10 +361,10 @@ export const prepareTrade = createTool({
         if (!coinTypeOut) {
           return { ok: false as const, reasons: ["coinTypeOut is required for swaps"], gates: ["input_validation"] };
         }
-        // Explicit source, else best-route auto-select among activated sources.
-        const source =
-          swapSource ??
-          (await pickBestSwapSource(coinTypeIn, coinTypeOut, amountInNative, slippageBps, walletAddress));
+        // Swaps route through the Cetus AGGREGATOR only. The legacy CLMM "direct"
+        // SDK is @mysten/sui v1-era and fails to load under the repo's v2.18 pin
+        // ("Class extends value undefined" — verified by loading it in Node), so it
+        // is NEVER built here, regardless of any swapSource hint from the model.
         const spec = {
           senderAddress: walletAddress,
           coinTypeIn,
@@ -391,13 +372,10 @@ export const prepareTrade = createTool({
           amountInNative,
           slippageBps,
         };
-        const swapResult =
-          source === "aggregator"
-            ? await buildAggregatorSwap(suiClient, spec)
-            : await buildSwap(suiClient, spec);
+        const swapResult = await buildAggregatorSwap(suiClient, spec);
         txBytes = swapResult.txBytes;
         minAmountOutNative = swapResult.quote.minAmountOut;
-        chosenSwapSource = source;
+        chosenSwapSource = "aggregator";
         swapRouteProviders = swapResult.quote.routeProviders;
       }
     } catch (err) {
@@ -456,6 +434,13 @@ export const prepareTrade = createTool({
     const guardianResult = await guardianCheck(proposal, suiClient);
 
     if (!guardianResult.ok) {
+      // Diagnostic: the reasons name the exact refused target — log them so a block
+      // can be traced to a specific call/package without guessing.
+      console.warn(
+        `[guardian-block] action=${actionType} in=${effectiveCoinTypeIn} out=${effectiveCoinTypeOut ?? "-"} ` +
+          `providers=${swapRouteProviders?.join("+") ?? "-"} gates=${guardianResult.gates.join(",")} ` +
+          `reasons=${JSON.stringify(guardianResult.reasons)}`,
+      );
       return { ok: false as const, reasons: guardianResult.reasons, gates: guardianResult.gates };
     }
 

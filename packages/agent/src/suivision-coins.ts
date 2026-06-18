@@ -41,30 +41,52 @@ export class SuiVisionFetchError extends Error {
   }
 }
 
+// The Sui Indexing API (account/coins) is a PRO-tier BlockVision product. On a
+// free/trial key it returns 403 (code -32609 "trial used" / -32002 "invalid apikey").
+// Once we see that, disable the path for the process so we don't waste a call +
+// log noise on every portfolio fetch — the plain-RPC portfolio path takes over.
+// (Free BlockVision keys still work as an RPC node via SUI_RPC_URL.)
+let indexingDisabled = false;
+const PRO_GATED_CODES = new Set([-32609, -32002]);
+
 /**
- * Fetch a wallet's coins from BlockVision (SuiVision backend).
- * @returns coin array, or null when BLOCKVISION_API_KEY is unset (RPC fallback).
- * @throws SuiVisionFetchError on HTTP / API error (caller falls back to RPC).
+ * Fetch a wallet's coins from BlockVision's (Pro-tier) Sui Indexing API.
+ * @returns coin array, or null when no key / the indexing API is unavailable
+ *   (free tier) — the caller then uses the plain-RPC portfolio path.
+ * @throws SuiVisionFetchError only on transient errors (caller falls back per-call).
  */
 export async function fetchSuiVisionCoins(
   address: string,
 ): Promise<SuiVisionCoin[] | null> {
-  const apiKey = process.env.BLOCKVISION_API_KEY;
-  if (!apiKey) return null;
+  const apiKey = process.env.BLOCKVISION_API_KEY?.trim();
+  if (!apiKey || indexingDisabled) return null;
 
   const url = `${BLOCKVISION_COINS_URL}?account=${encodeURIComponent(address)}`;
   const res = await fetch(url, {
     headers: { accept: "application/json", "x-api-key": apiKey },
   });
-  if (!res.ok) {
-    throw new SuiVisionFetchError(`BlockVision HTTP ${res.status}`);
-  }
 
-  const json = (await res.json()) as {
+  // Parse the body even on !ok — BlockVision returns a JSON {code,message} on 403.
+  const json = (await res.json().catch(() => ({}))) as {
     code?: number;
     message?: string;
     result?: { coins?: unknown[] };
   };
+
+  // Pro-tier gate / bad key → disable the indexing path quietly + use RPC fallback.
+  if (PRO_GATED_CODES.has(json.code ?? 0) || res.status === 403) {
+    indexingDisabled = true;
+    console.info(
+      `[suivision] indexing API unavailable on this key (${json.message ?? `HTTP ${res.status}`}); ` +
+        "using plain-RPC portfolio. Set SUI_RPC_URL to a BlockVision RPC for higher limits.",
+    );
+    return null;
+  }
+
+  if (!res.ok) {
+    throw new SuiVisionFetchError(`BlockVision HTTP ${res.status}`);
+  }
+
   if (json.code !== 200 || !json.result?.coins) {
     throw new SuiVisionFetchError(
       json.message ?? `BlockVision returned code ${json.code}`,

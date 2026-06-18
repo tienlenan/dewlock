@@ -1,15 +1,15 @@
 /**
- * getSwapOptions — read tool comparing swap sources before a build.
+ * getSwapOptions — read tool returning the swap route for a pair + amount.
  *
- * Returns the per-source quote (Cetus direct vs the Cetus aggregator best-route)
- * so the user can pick a venue; the chosen source is then passed to prepareTrade
- * (which re-derives min-out from the SAME source in the Guardian). Read-only —
- * no PTB is built here.
+ * Swaps route through the multi-DEX Cetus AGGREGATOR (v2-native, best-route).
+ * The legacy Cetus CLMM "direct" SDK is @mysten/sui v1-era and incompatible with
+ * the repo's v2.18 pin (it fails to load: "Class extends value undefined"), so it
+ * is NOT offered as a source. The chosen source is passed to prepareTrade, which
+ * re-derives min-out from the SAME source in the Guardian. Read-only — no PTB here.
  */
 
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import { fetchAggregatorQuote } from "@dewlock/sui/aggregator-quotes";
 import { COIN_TYPES } from "../allowlist";
 import { SWAP_SOURCES } from "../guardian";
@@ -49,11 +49,6 @@ export const getSwapOptions = createTool({
     const { coinTypeIn, coinTypeOut, amountInNative: amountStr, slippageBps = 50 } = inputData;
     const amountIn = BigInt(amountStr);
 
-    const [cetus, agg] = await Promise.allSettled([
-      fetchSwapQuote(coinTypeIn, coinTypeOut, amountIn, slippageBps),
-      fetchAggregatorQuote(coinTypeIn, coinTypeOut, amountIn, slippageBps),
-    ]);
-
     const options: Array<{
       source: "cetus" | "aggregator";
       available: boolean;
@@ -62,35 +57,25 @@ export const getSwapOptions = createTool({
       routeProviders?: string[];
       error?: string;
     }> = [];
-
     let bestSource: "cetus" | "aggregator" | undefined;
-    let bestOut = -1n;
 
-    const add = (source: "cetus" | "aggregator", r: PromiseSettledResult<Awaited<ReturnType<typeof fetchSwapQuote>>>) => {
-      if (r.status === "fulfilled") {
-        const q = r.value;
-        options.push({
-          source,
-          available: true,
-          estimatedAmountOut: q.estimatedAmountOut.toString(),
-          minAmountOut: q.minAmountOut.toString(),
-          routeProviders: q.routeProviders,
-        });
-        if (q.estimatedAmountOut > bestOut) {
-          bestOut = q.estimatedAmountOut;
-          bestSource = source;
-        }
-      } else {
-        options.push({
-          source,
-          available: false,
-          error: r.reason instanceof Error ? r.reason.message : String(r.reason),
-        });
-      }
-    };
-
-    add("cetus", cetus);
-    add("aggregator", agg);
+    try {
+      const q = await fetchAggregatorQuote(coinTypeIn, coinTypeOut, amountIn, slippageBps);
+      options.push({
+        source: "aggregator",
+        available: true,
+        estimatedAmountOut: q.estimatedAmountOut.toString(),
+        minAmountOut: q.minAmountOut.toString(),
+        routeProviders: q.routeProviders,
+      });
+      bestSource = "aggregator";
+    } catch (err) {
+      options.push({
+        source: "aggregator",
+        available: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return { coinTypeIn, coinTypeOut, amountInNative: amountStr, options, best: bestSource };
   },
