@@ -17,7 +17,7 @@
  * wallet pill and the sidebar footer when a wallet is connected.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Menu, Settings, LogOut, PanelLeftOpen, Users } from "lucide-react";
 import {
@@ -199,13 +199,41 @@ function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAdd
     signPersonalMessage,
   });
 
-  // Debounced persist — ~1.5s after activity settles, never mid-stream.
+  // Debounced persist — ~1.5s after activity settles, never mid-stream. Keys off
+  // chat.messages so it also captures post-stream card swaps (tx-preview → receipt
+  // after the user signs), which an isStreaming-edge trigger would miss.
   useEffect(() => {
     if (chat.isStreaming || chat.messages.length === 0) return;
     const t = setTimeout(() => void convos.saveCurrent(chat.messages), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.messages, chat.isStreaming]);
+
+  // Durability backstop — the debounce above loses the last turn if the user
+  // leaves (tab close / switch / SPA nav) before the 1.5s timer fires. Flush the
+  // freshest thread when the page is hidden and on unmount. visibilitychange
+  // (hidden) is the reliable cross-platform leave signal — beforeunload is dropped
+  // on mobile — and the page stays alive on hide so the async encrypt + POST can
+  // finish. Refs keep this listener registered once while still flushing the
+  // latest messages through the current save closure.
+  const latestMessagesRef = useRef(chat.messages);
+  latestMessagesRef.current = chat.messages;
+  const convosRef = useRef(convos);
+  convosRef.current = convos;
+  useEffect(() => {
+    const flush = () => {
+      const msgs = latestMessagesRef.current;
+      if (msgs.length > 0) void convosRef.current.saveCurrent(msgs);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, []);
 
   // Collapse = fully hide the panel (persisted). When hidden, an expand button
   // appears at the top-left of the chat column.
@@ -218,6 +246,9 @@ function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAdd
     try { localStorage.setItem(CONVOS_COLLAPSE_KEY, next ? "1" : "0"); } catch { /* ignore */ }
     return next;
   });
+
+  // Mobile: the inline panel is hidden (<md), so conversations open as an off-canvas drawer.
+  const [convosOpen, setConvosOpen] = useState(false);
 
   // Context-aware suggestion chips: from the latest portfolio card's holdings + last card type.
   const reversed = [...chat.messages].reverse();
@@ -259,6 +290,41 @@ function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAdd
           >
             <PanelLeftOpen size={15} aria-hidden />
           </button>
+        )}
+        {/* Mobile: floating trigger to open the conversations drawer (inline panel is md+ only). */}
+        <button
+          type="button"
+          onClick={() => setConvosOpen(true)}
+          aria-label="Show conversations"
+          title="Conversations"
+          className="md:hidden flex items-center justify-center transition-colors"
+          style={{ position: "absolute", top: 12, left: 12, zIndex: 5, width: 32, height: 32, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-elev)", color: "var(--fg-muted)", cursor: "pointer" }}
+        >
+          <PanelLeftOpen size={15} aria-hidden />
+        </button>
+        {/* Mobile: conversations as an off-canvas drawer + backdrop. */}
+        {convosOpen && (
+          <div className="md:hidden" style={{ position: "fixed", inset: 0, zIndex: 50 }}>
+            <div
+              onClick={() => setConvosOpen(false)}
+              style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }}
+            />
+            <div
+              style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "min(82vw, 300px)", background: "var(--bg)", boxShadow: "var(--shadow-md)", display: "flex" }}
+            >
+              <ConversationPanel
+                mode="drawer"
+                sessions={convos.list}
+                activeId={convos.activeId}
+                loadingId={convos.loadingId}
+                onSelect={(id) => { void convos.open(id); setConvosOpen(false); }}
+                onDelete={(id) => void convos.remove(id)}
+                onClearAll={() => void convos.clearAll()}
+                onNewConversation={() => { convos.create(); setConvosOpen(false); }}
+                onCollapse={() => setConvosOpen(false)}
+              />
+            </div>
+          </div>
         )}
         {/* Locked → inline Seal unlock card (in the chat flow, not a dialog). Once unlocked,
             the decrypted thread renders in its place. */}

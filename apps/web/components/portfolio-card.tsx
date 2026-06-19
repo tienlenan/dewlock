@@ -163,86 +163,93 @@ interface CoinRowProps {
 function CoinRow({ b, pct, pctColor, onAction }: CoinRowProps) {
   return (
     <div
-      className="flex items-center gap-3"
+      className="flex items-start gap-3"
       style={{ padding: "10px 16px", borderBottom: "1px solid var(--border)" }}
     >
       {/* Logo — uses the shared CoinLogo with tinted monogram fallback */}
       <CoinLogo symbol={b.displayTicker} logoUrl={b.iconUrl} size={34} />
 
-      {/* Identity: ticker + full coin type security affordance */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
-            {b.displayTicker}
-          </span>
-          {pct !== null && (
-            <span
-              className="split-mono"
-              style={{
-                fontSize: 9,
-                letterSpacing: "0.08em",
-                padding: "2px 6px",
-                borderRadius: 99,
-                background: `color-mix(in srgb, ${pctColor} 12%, transparent)`,
-                color: pctColor,
-                border: `1px solid color-mix(in srgb, ${pctColor} 28%, transparent)`,
-                lineHeight: 1.5,
-              }}
-            >
-              {pct.toFixed(1)}%
+      {/* Mobile: identity on top, balance/value/actions drop to a NEW line below.
+          sm+ (desktop): identity on the left, numbers + actions on the right. */}
+      <div className="flex-1 min-w-0 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        {/* Identity: ticker + full coin type security affordance */}
+        <div className="min-w-0 sm:flex-1">
+          <div className="flex items-center gap-1.5">
+            <span style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
+              {b.displayTicker}
             </span>
+            {pct !== null && (
+              <span
+                className="split-mono"
+                style={{
+                  fontSize: 9,
+                  letterSpacing: "0.08em",
+                  padding: "2px 6px",
+                  borderRadius: 99,
+                  background: `color-mix(in srgb, ${pctColor} 12%, transparent)`,
+                  color: pctColor,
+                  border: `1px solid color-mix(in srgb, ${pctColor} 28%, transparent)`,
+                  lineHeight: 1.5,
+                }}
+              >
+                {pct.toFixed(1)}%
+              </span>
+            )}
+          </div>
+          {/* Full coin TYPE — security affordance, always shown */}
+          <div
+            className="mono truncate"
+            style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}
+            title={b.coinType}
+          >
+            {shortCoinType(b.coinType)}
+          </div>
+        </div>
+
+        {/* Numbers + actions cluster — its own line on mobile, right-aligned on sm+ */}
+        <div className="flex items-center gap-3 shrink-0">
+          {/* Balance + unit price */}
+          <div className="text-left sm:text-right shrink-0">
+            <div className="mono" style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
+              {b.humanBalance}
+            </div>
+            {b.priceUsd != null && b.priceUsd > 0 ? (
+              <div className="mono" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}>
+                @ {formatPrice(b.priceUsd)}
+              </div>
+            ) : (
+              <div className="mono" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}>
+                —
+              </div>
+            )}
+          </div>
+
+          {/* USD value */}
+          <div className="text-left sm:text-right shrink-0">
+            <div className="mono" style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
+              {b.estimatedUsdValue != null ? formatUsd(b.estimatedUsdValue) : "—"}
+            </div>
+          </div>
+
+          {/* Quick actions — prefill a chat intent */}
+          {onAction && (
+            <div className="flex items-center gap-1 shrink-0">
+              <RowActionButton
+                label={`Sell ${b.displayTicker}`}
+                onClick={() => onAction("swap", b.displayTicker)}
+              >
+                <ArrowLeftRight size={13} aria-hidden />
+              </RowActionButton>
+              <RowActionButton
+                label={`Send ${b.displayTicker}`}
+                onClick={() => onAction("send", b.displayTicker)}
+              >
+                <Send size={13} aria-hidden />
+              </RowActionButton>
+            </div>
           )}
         </div>
-        {/* Full coin TYPE — security affordance, always shown */}
-        <div
-          className="mono truncate"
-          style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}
-          title={b.coinType}
-        >
-          {shortCoinType(b.coinType)}
-        </div>
       </div>
-
-      {/* Balance + unit price */}
-      <div className="text-right shrink-0" style={{ minWidth: 80 }}>
-        <div className="mono" style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
-          {b.humanBalance}
-        </div>
-        {b.priceUsd != null && b.priceUsd > 0 ? (
-          <div className="mono" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}>
-            @ {formatPrice(b.priceUsd)}
-          </div>
-        ) : (
-          <div className="mono" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}>
-            —
-          </div>
-        )}
-      </div>
-
-      {/* USD value */}
-      <div className="text-right shrink-0" style={{ minWidth: 70 }}>
-        <div className="mono" style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
-          {b.estimatedUsdValue != null ? formatUsd(b.estimatedUsdValue) : "—"}
-        </div>
-      </div>
-
-      {/* Quick actions — prefill a chat intent */}
-      {onAction && (
-        <div className="flex items-center gap-1 shrink-0">
-          <RowActionButton
-            label={`Sell ${b.displayTicker}`}
-            onClick={() => onAction("swap", b.displayTicker)}
-          >
-            <ArrowLeftRight size={13} aria-hidden />
-          </RowActionButton>
-          <RowActionButton
-            label={`Send ${b.displayTicker}`}
-            onClick={() => onAction("send", b.displayTicker)}
-          >
-            <Send size={13} aria-hidden />
-          </RowActionButton>
-        </div>
-      )}
     </div>
   );
 }
@@ -382,7 +389,7 @@ export function PortfolioCard({
       {/* ── Column header ── */}
       {sorted.length > 0 && (
         <div
-          className="flex items-center gap-3"
+          className="hidden sm:flex items-center gap-3"
           style={{
             padding: "7px 16px",
             borderBottom: "1px solid var(--border)",

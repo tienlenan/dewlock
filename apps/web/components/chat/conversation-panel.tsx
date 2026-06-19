@@ -24,6 +24,8 @@ interface ConversationPanelProps {
   onNewConversation: () => void;
   /** Collapse (fully hide) the panel. */
   onCollapse: () => void;
+  /** "inline" = desktop column (hidden on mobile); "drawer" = mobile off-canvas (always visible). */
+  mode?: "inline" | "drawer";
 }
 
 export function ConversationPanel({
@@ -35,14 +37,18 @@ export function ConversationPanel({
   onClearAll,
   onNewConversation,
   onCollapse,
+  mode = "inline",
 }: ConversationPanelProps) {
+  const isDrawer = mode === "drawer";
   return (
     <aside
-      className="hidden md:flex flex-col gap-2"
+      // inline: desktop-only column. drawer: always-visible panel (positioned by the shell overlay).
+      className={isDrawer ? "flex flex-col gap-2" : "hidden md:flex flex-col gap-2"}
       style={{
-        width: "232px",
+        width: isDrawer ? "100%" : "232px",
+        height: isDrawer ? "100%" : undefined,
         flexShrink: 0,
-        borderRight: "1px solid var(--border)",
+        borderRight: isDrawer ? "none" : "1px solid var(--border)",
         // Blend with the page canvas (--bg) instead of the grayer --bg-sub.
         background: "var(--bg)",
         padding: "14px 12px",
