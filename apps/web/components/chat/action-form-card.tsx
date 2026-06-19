@@ -82,7 +82,7 @@ export function ActionFormCard({ form, onSend }: { form: ActionFormData; onSend?
 
   return (
     <div
-      className="w-full"
+      className="w-full overflow-hidden"
       style={{
         maxWidth: 380,
         border: "1px solid var(--border)",

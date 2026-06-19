@@ -44,7 +44,7 @@ export function ContactPickerCard({
 
   return (
     <div
-      className="w-full"
+      className="w-full overflow-hidden"
       style={{
         maxWidth: 420,
         border: "1px solid var(--border)",

@@ -381,11 +381,11 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
 
       {/* Route badge — shows chosen source + venues */}
       {rate && (
-        <div className="flex items-center justify-between" style={{ marginTop: 8, padding: "8px 11px", borderRadius: 10, background: "var(--bg-sub)", border: "1px solid var(--border)" }}>
-          <span className="flex items-center gap-1.5 split-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", color: "var(--fg-faint)", textTransform: "uppercase" }}>
+        <div className="flex items-center justify-between" style={{ marginTop: 8, gap: 8, padding: "8px 11px", borderRadius: 10, background: "var(--bg-sub)", border: "1px solid var(--border)" }}>
+          <span className="flex items-center gap-1.5 split-mono shrink-0" style={{ fontSize: 9.5, letterSpacing: "0.1em", color: "var(--fg-faint)", textTransform: "uppercase" }}>
             <Route size={11} aria-hidden /> Route · best execution
           </span>
-          <span className="mono" style={{ fontSize: 11, color: "var(--fg)", fontWeight: 600 }}>
+          <span className="mono" style={{ fontSize: 11, color: "var(--fg)", fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${SOURCE_LABELS[selectedSource]}${activeQuote?.routeProviders?.length ? ` · ${activeQuote.routeProviders.join(" → ")}` : ""}`}>
             {SOURCE_LABELS[selectedSource]}{activeQuote?.routeProviders?.length ? ` · ${activeQuote.routeProviders.join(" → ")}` : ""}
           </span>
         </div>

@@ -229,7 +229,7 @@ function WelcomeRow({
   return (
     <div className="flex gap-3">
       <DewdropAvatar />
-      <div style={{ flex: 1, paddingTop: 3 }}>
+      <div style={{ flex: 1, minWidth: 0, paddingTop: 3 }}>
         <div style={{ fontSize: "14.5px", lineHeight: 1.55, color: "var(--fg)" }}>
           Hi — I'm your Dewlock copilot. Tell me what you want to do in plain language.
           I build one unsigned transaction; the Guardian re-derives and dry-runs it before{" "}
