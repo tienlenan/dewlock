@@ -128,29 +128,44 @@ const PROTOCOL_MARKS: Record<string, () => React.JSX.Element> = {
   suilend: SuilendMark,
 };
 
+// Brand image asset per protocol (explicit extension — not all are .svg). Real logos:
+// cetus / suilend / navi; the rest use designed placeholder marks in /public/logos until
+// an official asset is dropped in at the same path (no code change needed).
+const PROTOCOL_IMG_SRC: Record<string, string> = {
+  cetus: "/logos/cetus.svg",
+  "cetus-aggregator": "/logos/cetus.svg", // Cetus's aggregator — same brand mark
+  deepbook: "/logos/deepbook.svg",
+  suilend: "/logos/suilend.svg",
+  navi: "/logos/navi.png",
+  aftermath: "/logos/aftermath.svg",
+  wormhole: "/logos/wormhole.svg",
+};
+
 export function ProtocolLogo({ id, size = 34 }: { id: string; size?: number }) {
   const [broken, setBroken] = useState(false);
   const Mark = PROTOCOL_MARKS[id];
 
-  // 1) Real brand logo image (apps/web/public/logos/<id>.svg). Swap in an official asset
-  //    by dropping it at that path — no code change needed.
-  if (!broken) {
+  // 1) Brand image asset (real logo or placeholder). onError → inline mark / monogram.
+  const src = PROTOCOL_IMG_SRC[id] ?? `/logos/${id}.svg`;
+  if (src && !broken) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={`/logos/${id}.svg`}
+        src={src}
         alt={id}
         width={size}
         height={size}
         loading="lazy"
         onError={() => setBroken(true)}
         className="shrink-0"
-        style={{ width: size, height: size, borderRadius: size * 0.28, display: "block", boxShadow: "var(--shadow-sm)" }}
+        // object-fit: contain so a non-square brand asset (e.g. a wide wordmark) letterboxes
+        // inside the square slot instead of distorting.
+        style={{ width: size, height: size, borderRadius: size * 0.28, display: "block", objectFit: "contain", boxShadow: "var(--shadow-sm)" }}
       />
     );
   }
 
-  // 2) Inline-SVG mark fallback (when no image asset exists / it 404s).
+  // 3) Inline-SVG mark fallback (when no token icon / image asset, or the image 404s).
   if (Mark) {
     return (
       <svg

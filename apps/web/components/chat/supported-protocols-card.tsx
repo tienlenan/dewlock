@@ -63,20 +63,20 @@ export function SupportedProtocolsCard({ onSend }: { onSend?: (text: string) => 
   return (
     <div
       style={{
-        marginTop: 14,
+        marginTop: 10,
         border: "1px solid var(--border)",
-        borderRadius: 14,
+        borderRadius: 12,
         background: "var(--bg-elev)",
         overflow: "hidden",
       }}
     >
-      <div className="flex items-center justify-between" style={{ padding: "12px 14px 8px" }}>
-        <span style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--fg)" }}>Supported protocols</span>
+      <div className="flex items-center justify-between" style={{ padding: "9px 12px 5px" }}>
+        <span style={{ fontSize: "11.5px", fontWeight: 700, color: "var(--fg)" }}>Supported protocols</span>
         {onSend && (
           <button
             type="button"
             onClick={() => onSend("protocols")}
-            style={{ fontSize: "11.5px", color: "var(--accent)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}
+            style={{ fontSize: "11px", color: "var(--accent)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}
           >
             View all →
           </button>
@@ -84,20 +84,20 @@ export function SupportedProtocolsCard({ onSend }: { onSend?: (text: string) => 
       </div>
       <div
         className="grid"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, padding: "0 14px 14px" }}
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(132px, 1fr))", gap: 6, padding: "0 12px 11px" }}
       >
         {items.map((p) => (
           <div
             key={p.id}
-            className="flex items-center gap-2.5"
-            style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--bg-sub)" }}
+            className="flex items-center gap-2"
+            style={{ padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 9, background: "var(--bg-sub)" }}
           >
-            <ProtocolLogo id={p.id} size={26} />
+            <ProtocolLogo id={p.id} size={22} />
             <span style={{ minWidth: 0 }}>
-              <span style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ display: "block", fontSize: "11.5px", fontWeight: 600, color: "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.25 }}>
                 {p.name}
               </span>
-              <span className="split-mono" style={{ display: "block", fontSize: "9.5px", letterSpacing: "0.08em", color: "var(--fg-muted)" }}>
+              <span className="split-mono" style={{ display: "block", fontSize: "9px", letterSpacing: "0.08em", color: "var(--fg-muted)" }}>
                 {p.category}
               </span>
             </span>

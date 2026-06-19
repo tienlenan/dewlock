@@ -1,12 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="Wormhole">
-  <defs>
-    <linearGradient id="wormhole-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6a4bff"/>
-      <stop offset="1" stop-color="#9b51e0"/>
-    </linearGradient>
-  </defs>
-  <rect width="40" height="40" rx="11" fill="url(#wormhole-bg)"/>
-  <circle cx="20" cy="20" r="9" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.45"/>
-  <circle cx="20" cy="20" r="5.5" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.75"/>
-  <circle cx="20" cy="20" r="2" fill="#ffffff"/>
-</svg>
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 4C0 1.79086 1.79086 0 4 0H36C38.2091 0 40 1.79086 40 4V36C40 38.2091 38.2091 40 36 40H4C1.79086 40 0 38.2091 0 36V4Z" fill="#7168BE"></path><path d="M26.0747 24.0581C25.4418 25.1593 24.2709 25.8364 23.0018 25.8364H20.9495V18.9161L17.9873 24.0597C17.3544 25.1609 16.1834 25.838 14.9144 25.838H12.8763V15.6252H16.9762V22.5281L20.9495 15.6283V15.6252H25.0478V22.5566L29.3534 15.0762C29.5274 14.7724 29.5243 14.3958 29.336 14.1C27.3501 10.9641 23.8294 8.89623 19.8292 8.95636C13.7292 9.05128 8.92359 13.9607 8.95523 20.06C8.98688 26.1323 13.9207 31.0449 20.0001 31.0449C26.0795 31.0449 31.0449 26.1007 31.0449 20.0014C31.0449 19.0189 30.9152 18.0664 30.6731 17.1583C30.6003 16.883 30.2332 16.8324 30.0908 17.0776L26.0732 24.0565L26.0747 24.0581Z" fill="#FAFAFD"></path></svg>

@@ -38,18 +38,19 @@ export function WelcomeActions({ onSend }: { onSend?: (text: string) => void }) 
   return (
     <div
       className="grid"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 14 }}
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(158px, 1fr))", gap: 7, marginTop: 11 }}
     >
       {ACTIONS.map(({ key, title, subtitle, intentText, Icon }) => (
         <button
           key={key}
           type="button"
           onClick={() => onSend(intentText)}
-          className="flex items-center gap-3 text-left"
+          title={subtitle}
+          className="flex items-center gap-2.5 text-left"
           style={{
-            padding: "12px 14px",
+            padding: "8px 10px",
             border: "1px solid var(--border)",
-            borderRadius: 12,
+            borderRadius: 10,
             background: "var(--bg-sub)",
             cursor: "pointer",
             transition: "background 120ms, border-color 120ms",
@@ -58,13 +59,13 @@ export function WelcomeActions({ onSend }: { onSend?: (text: string) => void }) 
           <span
             aria-hidden
             className="shrink-0 flex items-center justify-center"
-            style={{ width: 34, height: 34, borderRadius: 9, background: "var(--accent-soft)", color: "var(--accent)" }}
+            style={{ width: 27, height: 27, borderRadius: 7, background: "var(--accent-soft)", color: "var(--accent)" }}
           >
-            <Icon size={17} />
+            <Icon size={14} />
           </span>
           <span style={{ minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: "13.5px", fontWeight: 600, color: "var(--fg)" }}>{title}</span>
-            <span style={{ display: "block", fontSize: "11.5px", color: "var(--fg-muted)", marginTop: 1 }}>{subtitle}</span>
+            <span style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "var(--fg)", lineHeight: 1.25 }}>{title}</span>
+            <span style={{ display: "block", fontSize: "10.5px", color: "var(--fg-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</span>
           </span>
         </button>
       ))}
