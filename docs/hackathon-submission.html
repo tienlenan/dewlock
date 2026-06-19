@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dewlock — Sui Overflow 2026</title>
+<article style="max-width:760px;margin:0 auto;padding:28px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.55;color:#1a1a1a">
+
+  <h1 style="margin:0;font-size:30px">Dewlock</h1>
+  <p style="margin:4px 0 0;font-style:italic;color:#555">Every transaction, sealed before you sign.</p>
+  <p style="margin:8px 0 18px;font-size:13px;color:#666">
+    Sui Overflow 2026 · <strong>DeFi &amp; Payments</strong> + <strong>DeepBook</strong> ·
+    Live on Sui mainnet → <a href="https://dewlock.vercel.app">dewlock.vercel.app</a>
+  </p>
+
+  <p><strong>An intent-firewall for agentic Sui DeFi.</strong> State a goal in plain language → an AI agent
+  (holding <strong>zero user-fund keys</strong>) compiles it into one unsigned transaction → a deterministic,
+  <strong>fail-closed Guardian</strong> re-derives the math and dry-runs that exact bundle → <strong>you sign
+  the literal artifact you reviewed</strong> (WYSIWYS) → an immutable receipt lands on Walrus.</p>
+
+  <h2 style="font-size:18px;margin:22px 0 6px">Why it's different</h2>
+  <p style="margin:0">The LLM only <em>proposes</em>; trust lives in deterministic <strong>Guardian code</strong>, not
+  the model. The server never holds your keys, you sign exactly the bytes you previewed, token identity is by
+  on-chain <em>coin type</em> (not spoofable symbol), and a refused action writes a <strong>provable on-chain
+  BLOCK receipt</strong>.</p>
+
+  <h2 style="font-size:18px;margin:22px 0 6px">How it works</h2>
+  <pre style="background:#f5f5f4;border-radius:8px;padding:12px;font-size:12.5px;overflow:auto;margin:0">intent → agent proposes 1 unsigned PTB → GUARDIAN (11 fail-closed gates)
+   ├─ BLOCK → immutable proof receipt
+   └─ PASS  → WYSIWYS sign → Walrus receipt + Sui anchor</pre>
+
+  <h2 style="font-size:18px;margin:22px 0 6px">Features</h2>
+  <ul style="margin:0;padding-left:20px">
+    <li><strong>Conversational copilot</strong> with generative UI cards (portfolio, tx preview, swap picker, receipts).</li>
+    <li><strong>Swap</strong> (Cetus Aggregator + Aftermath, source-aware min-out), <strong>transfer</strong> (SuiNS + friend book),
+        <strong>lend</strong> (NAVI/Suilend), <strong>DeepBook POST_ONLY limit orders</strong>, <strong>Wormhole</strong> redeem.</li>
+    <li><strong>Fail-closed Guardian</strong> — allowlist, WYSIWYS digest, trusted-price caps, min-out re-derive,
+        price-impact / slippage guard, native-SUI gas safety.</li>
+    <li><strong>Seal-encrypted conversations</strong> — personal chat encrypted client-side; only your wallet decrypts.</li>
+    <li><strong>Immutable receipts</strong> + a <strong>Passport</strong> (level / XP / badges) on Walrus &amp; Sui.</li>
+  </ul>
+
+  <h2 style="font-size:18px;margin:22px 0 6px">Tech stack</h2>
+  <p style="margin:0;font-size:13.5px">
+    <strong>Frontend:</strong> Next.js 16 · React 19 · Tailwind v4 · shadcn · dapp-kit.
+    <strong>Agent:</strong> Mastra + Vercel AI Gateway (Claude / Gemini) + a deterministic intent layer.
+    <strong>Sui &amp; DeFi:</strong> @mysten/sui · DeepBook v3 · Cetus · Aftermath · NAVI · Suilend · SuiNS · Wormhole.
+    <strong>Storage &amp; privacy:</strong> Walrus · memwal · Seal · Move (<code>dewlock_receipt</code>, <code>dewlock_seal</code>).
+    <strong>Engineering:</strong> pnpm monorepo · TypeScript · 620 unit tests · Vercel.
+  </p>
+
+  <h2 style="font-size:18px;margin:22px 0 6px">Status</h2>
+  <p style="margin:0">Live on <strong>Sui mainnet</strong> with small server-side USD caps and <strong>zero user-fund
+  keys</strong> — full flow (track / swap / send / lend / limit-order / bridge), the Guardian, the BLOCK theater, and
+  Seal-encrypted chat are implemented and unit-tested (620 tests).</p>
+
+</article>
