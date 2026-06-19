@@ -130,8 +130,8 @@
     <p class="tag">State a goal in plain language. A keyless agent compiles it into one unsigned PTB; a deterministic, fail-closed Guardian re-derives the math and dry-runs that exact bundle — and you sign the literal artifact you reviewed.</p>
     <div class="stat-row">
       <div class="stat"><div class="n">0</div><div class="l">user keys server-side</div></div>
-      <div class="stat"><div class="n">9</div><div class="l">fail-closed gates</div></div>
-      <div class="stat"><div class="n">315</div><div class="l">tests green</div></div>
+      <div class="stat"><div class="n">11</div><div class="l">fail-closed gates</div></div>
+      <div class="stat"><div class="n">620</div><div class="l">tests green</div></div>
     </div>
   </div>
 
@@ -261,7 +261,7 @@
       <text class="d-sub" x="404" y="146" font-size="10">NL → tool calls · 0 keys</text>
       <rect x="388" y="172" width="222" height="86" rx="11" fill="#0c131d" stroke="#1f2c3d"/>
       <text class="d-white" x="404" y="198" font-size="14" font-weight="700">Guardian</text>
-      <text x="404" y="217" font-size="9.5" font-family="'JetBrains Mono',monospace" fill="#6ebef7">9 fail-closed gates</text>
+      <text x="404" y="217" font-size="9.5" font-family="'JetBrains Mono',monospace" fill="#6ebef7">11 fail-closed gates</text>
       <text class="d-white-sub" x="404" y="236" font-size="10">re-derive · cap · WYSIWYS</text>
       <rect x="388" y="270" width="222" height="56" rx="11" fill="#fff" stroke="#cfe2fb"/>
       <text class="d-lab" x="404" y="294" font-size="13.5">PTB builders</text>
@@ -334,7 +334,7 @@
       </div>
       <div class="role" style="margin-top:8px">The moat</div>
       <h3>Fail-closed Guardian</h3>
-      <p>Deterministic gates — never an LLM. Caps, trusted-price valuation, WYSIWYS digest binding, min-out re-derived on-chain, allowlist, lookalike, coin-type.</p>
+      <p>Deterministic gates — never an LLM. Caps, trusted-price valuation, WYSIWYS digest binding, min-out re-derived on-chain, price-impact, allowlist, lookalike, coin-type.</p>
       <div class="why">defends the math-failure exploit class</div>
     </div>
     <div class="card">
@@ -390,8 +390,8 @@
 
         <rect x="166" y="102" width="166" height="46" rx="9" fill="#fff" stroke="#E2E8F0"/>
         <rect x="166" y="102" width="5" height="46" rx="2" fill="#6ebef7"/>
-        <text class="d-lab" x="182" y="122" font-size="11.5">min-out re-derive</text>
-        <text class="d-sub" x="182" y="138" font-size="9.5">independent decimals</text>
+        <text class="d-lab" x="182" y="122" font-size="11.5">min-out + price-impact</text>
+        <text class="d-sub" x="182" y="138" font-size="9.5">re-derive · value-loss cap</text>
 
         <rect x="344" y="102" width="166" height="46" rx="9" fill="#fff" stroke="#E2E8F0"/>
         <rect x="344" y="102" width="5" height="46" rx="2" fill="#6ebef7"/>
@@ -518,12 +518,12 @@
   <div class="grid2">
     <div class="panel">
       <span class="eyebrow">Shipped &amp; verified</span>
-      <div class="kv" style="margin-top:9px"><span class="k">Guardian spine</span><span class="v">9 gates · reviewed</span></div>
-      <div class="kv"><span class="k">Swap / transfer / portfolio</span><span class="v">live builders + dry-run</span></div>
+      <div class="kv" style="margin-top:9px"><span class="k">Guardian spine</span><span class="v">11 gates · reviewed</span></div>
+      <div class="kv"><span class="k">Swap · lend · transfer · track</span><span class="v">Cetus · Aftermath · NAVI</span></div>
       <div class="kv"><span class="k">DeepBook limit-order</span><span class="v">POST_ONLY + gates</span></div>
       <div class="kv"><span class="k">BLOCK + receipt</span><span class="v">Move pkg + async blob</span></div>
-      <div class="kv"><span class="k">Memory · Conviction Streak</span><span class="v">recall your own cap</span></div>
-      <div class="kv"><span class="k">Tests · CI · deploy</span><span class="v">315 green · GH · Vercel</span></div>
+      <div class="kv"><span class="k">Seal-encrypted chat</span><span class="v">owner-only decrypt</span></div>
+      <div class="kv"><span class="k">Tests · CI · deploy</span><span class="v">620 green · GH · Vercel</span></div>
     </div>
     <div class="panel dark">
       <span class="eyebrow" style="color:var(--accent-2)">Tracks</span>
@@ -538,10 +538,11 @@
   <div style="margin-top:16px">
     <span class="eyebrow">Stack</span>
     <div class="stack">
-      <span class="chip">Next.js 16</span><span class="chip">Tailwind v4</span><span class="chip">@mysten/sui</span><span class="chip">dapp-kit</span>
-      <span class="chip">@mysten/deepbook-v3</span><span class="chip">Cetus CLMM</span><span class="chip">@mysten/suins</span>
-      <span class="chip">Walrus + memwal</span><span class="chip">Mastra · AI Gateway</span><span class="chip">Move</span>
+      <span class="chip">Next.js 16</span><span class="chip">React 19</span><span class="chip">TypeScript</span><span class="chip">Tailwind v4</span><span class="chip">@mysten/sui</span><span class="chip">dapp-kit</span>
+      <span class="chip">@mysten/deepbook-v3</span><span class="chip">Cetus</span><span class="chip">Aftermath</span><span class="chip">NAVI · Suilend</span><span class="chip">@mysten/suins</span><span class="chip">Wormhole</span>
+      <span class="chip">Walrus</span><span class="chip">memwal</span><span class="chip">Seal</span><span class="chip">Mastra · AI Gateway</span><span class="chip">Claude · Gemini</span><span class="chip">Move</span>
     </div>
+    <div style="margin-top:9px;font-family:var(--mono);font-size:8.5px;color:var(--fg-faint)">mainnet · dewlock_receipt 0x8c3b…2361 · dewlock_seal 0x77aa…0709 · live at dewlock.vercel.app</div>
   </div>
 
   <div style="margin-top:18px;border:1px solid var(--border);border-radius:14px;padding:16px;background:linear-gradient(120deg,var(--tint-sky),#fff)">
