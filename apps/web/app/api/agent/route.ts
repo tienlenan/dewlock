@@ -286,7 +286,14 @@ export async function POST(req: NextRequest) {
             .join("\n")
         : "";
 
-    const prompt = [directive, historyContext, `USER: ${lastMessage.content}`]
+    // High-recency reminder (last thing the model reads) — flash-class models otherwise
+    // restate the card's data in prose. If a card renders, the text MUST be one short sentence.
+    const REPLY_REMINDER =
+      "REMINDER: if you call a tool that renders a card, your text reply is ONE short sentence " +
+      "(e.g. \"I've prepared your transfer of 1 SUI on Mainnet.\") — do NOT restate the card's " +
+      "amounts, 0x addresses, gas, balance changes, protocol lists, or APYs. Only reply at length " +
+      "for plain conversation with no card.";
+    const prompt = [directive, historyContext, `USER: ${lastMessage.content}`, REPLY_REMINDER]
       .filter(Boolean)
       .join("\n\n");
 
