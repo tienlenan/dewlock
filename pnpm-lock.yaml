@@ -53,6 +53,9 @@ importers:
       '@mysten/dapp-kit':
         specifier: ^1.0.0
         version: 1.1.0(@mysten/sui@2.18.0(typescript@5.9.3))(@tanstack/react-query@5.101.0(react@19.1.0))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(babel-plugin-macros@3.1.0)(immer@10.2.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@19.1.0))
+      '@mysten/seal':
+        specifier: 1.2.0
+        version: 1.2.0(@mysten/sui@2.18.0(typescript@5.9.3))
       '@mysten/sui':
         specifier: 2.18.0
         version: 2.18.0(typescript@5.9.3)
@@ -11127,7 +11130,7 @@ snapshots:
       '@aptos-labs/aptos-cli': 1.1.1
       '@aptos-labs/aptos-client': 1.2.0(axios@1.11.0)(got@11.8.6)
       '@aptos-labs/script-composer-pack': 0.0.9
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
@@ -12421,7 +12424,7 @@ snapshots:
       '@injectivelabs/ts-types': 1.20.13
       '@injectivelabs/utils': 1.20.13
       '@injectivelabs/ws-price-oracle-proto-ts-v2': 1.0.5
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@protobuf-ts/grpcweb-transport': 2.11.1
       '@protobuf-ts/runtime': 2.11.1
@@ -13467,7 +13470,7 @@ snapshots:
   '@mysten/sui.js@0.40.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)':
     dependencies:
       '@mysten/bcs': 0.7.3
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@open-rpc/client-js': 1.8.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       '@scure/bip32': 1.7.0
@@ -13485,7 +13488,7 @@ snapshots:
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.14.2)
       '@mysten/bcs': 0.11.1
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
@@ -17319,7 +17322,7 @@ snapshots:
 
   '@solana/wallet-standard-util@1.1.2':
     dependencies:
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@solana/wallet-standard-chains': 1.1.1
       '@solana/wallet-standard-features': 1.3.0
 
@@ -24060,7 +24063,7 @@ snapshots:
   ox@0.6.7(typescript@5.9.3)(zod@3.25.76):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
@@ -24074,7 +24077,7 @@ snapshots:
   ox@0.6.9(typescript@5.9.3)(zod@3.25.76):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
@@ -24822,7 +24825,7 @@ snapshots:
 
   ripple-keypairs@2.0.0(bufferutil@4.1.0)(utf-8-validate@5.0.10):
     dependencies:
-      '@noble/curves': 1.9.4
+      '@noble/curves': 1.9.7
       '@xrplf/isomorphic': 1.0.2(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       ripple-address-codec: 5.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
     transitivePeerDependencies:
