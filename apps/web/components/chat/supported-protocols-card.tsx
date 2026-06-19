@@ -30,11 +30,18 @@ const FALLBACK: SupportedProtocol[] = [
   { id: "wormhole", name: "Wormhole", category: "bridge" },
 ];
 
+// Short display names for the compact card — the registry keeps fuller names for /protocols
+// (e.g. "Aftermath (spot/agg)", "Wormhole Token Bridge"); here we want just the brand.
+const DISPLAY_NAME: Record<string, string> = {
+  aftermath: "Aftermath",
+  wormhole: "Wormhole",
+};
+
 /** Project the registry's active list to only active + built protocols (exported for tests). */
 export function toSupported(active: ProtocolDto[]): SupportedProtocol[] {
   return active
     .filter((p) => p.status === "active" && p.buildState === "built")
-    .map((p) => ({ id: p.id, name: p.name, category: p.category }));
+    .map((p) => ({ id: p.id, name: DISPLAY_NAME[p.id] ?? p.name, category: p.category }));
 }
 
 export function SupportedProtocolsCard({ onSend }: { onSend?: (text: string) => void }) {

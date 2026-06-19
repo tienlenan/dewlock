@@ -128,6 +128,11 @@ const PROTOCOL_MARKS: Record<string, () => React.JSX.Element> = {
   suilend: SuilendMark,
 };
 
+// Over-saturated brand logos that glare on the LIGHT theme — toned down there only (dark
+// theme looks great as-is). The filter lives in globals.css under `.theme-light
+// .protocol-logo-soft`, so it's theme-scoped (inline styles can't be).
+const PROTOCOL_SOFT = new Set<string>(["cetus", "cetus-aggregator", "suilend"]);
+
 // Brand image asset per protocol (explicit extension — not all are .svg). Real logos:
 // cetus / suilend / navi; the rest use designed placeholder marks in /public/logos until
 // an official asset is dropped in at the same path (no code change needed).
@@ -157,7 +162,7 @@ export function ProtocolLogo({ id, size = 34 }: { id: string; size?: number }) {
         height={size}
         loading="lazy"
         onError={() => setBroken(true)}
-        className="shrink-0"
+        className={`shrink-0${PROTOCOL_SOFT.has(id) ? " protocol-logo-soft" : ""}`}
         // object-fit: contain so a non-square brand asset (e.g. a wide wordmark) letterboxes
         // inside the square slot instead of distorting.
         style={{ width: size, height: size, borderRadius: size * 0.28, display: "block", objectFit: "contain", boxShadow: "var(--shadow-sm)" }}

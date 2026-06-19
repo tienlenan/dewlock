@@ -36,19 +36,17 @@ export const WELCOME_ACTION_INTENTS: string[] = ACTIONS.map((a) => a.intentText)
 export function WelcomeActions({ onSend }: { onSend?: (text: string) => void }) {
   if (!onSend) return null;
   return (
-    <div
-      className="grid"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(158px, 1fr))", gap: 7, marginTop: 11 }}
-    >
-      {ACTIONS.map(({ key, title, subtitle, intentText, Icon }) => (
+    // 4-up on large screens, 2-up on small (viewport breakpoint, not container).
+    <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 8, marginTop: 11 }}>
+      {ACTIONS.map(({ key, title, intentText, Icon }) => (
         <button
           key={key}
           type="button"
           onClick={() => onSend(intentText)}
-          title={subtitle}
-          className="flex items-center gap-2.5 text-left"
+          title={title}
+          className="flex items-center gap-2 text-left"
           style={{
-            padding: "8px 10px",
+            padding: "9px 11px",
             border: "1px solid var(--border)",
             borderRadius: 10,
             background: "var(--bg-sub)",
@@ -63,9 +61,10 @@ export function WelcomeActions({ onSend }: { onSend?: (text: string) => void }) 
           >
             <Icon size={14} />
           </span>
-          <span style={{ minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "var(--fg)", lineHeight: 1.25 }}>{title}</span>
-            <span style={{ display: "block", fontSize: "10.5px", color: "var(--fg-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</span>
+          <span
+            style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}
+          >
+            {title}
           </span>
         </button>
       ))}

@@ -725,3 +725,9 @@ main > article + section { margin-top: -1px; }
    This ensures tinted landing cards (why-sui, deepbook) also get the dark
    pastel-sky hover gradient — no additional rules needed since card-hover
    is applied to those elements already. */
+
+/* Over-saturated protocol logos (Cetus, Suilend) glare on the LIGHT theme — tone them
+   down there only. The dark theme keeps the originals (they look great as-is). */
+.theme-light .protocol-logo-soft {
+  filter: saturate(0.8) brightness(0.92);
+}
