@@ -61,6 +61,7 @@ const LOGO_HEIGHT: Record<string, number> = {
   gemini: 32,
   sui: 30,
   walrus: 22,
+  seal: 20,
   memwal: 40,
 };
 

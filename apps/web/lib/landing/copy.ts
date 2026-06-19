@@ -196,6 +196,7 @@ export const COPY = {
       { key: "gemini", name: "Gemini", href: "https://deepmind.google/technologies/gemini", kind: "mark" },
       { key: "sui", name: "Sui", href: "https://sui.io", kind: "img", src: "/logos/sui.svg", w: 64, h: 33 },
       { key: "walrus", name: "Walrus", href: "https://walrus.xyz", kind: "img", src: "/logos/walrus.svg", w: 145, h: 34 },
+      { key: "seal", name: "Seal", href: "https://seal-docs.wal.app", kind: "img", src: "/logos/seal.svg", w: 550, h: 203 },
       { key: "memwal", name: "Walrus Memory", href: "https://memory.walrus.xyz", kind: "img", src: "/logos/memwal.svg", w: 142, h: 66 },
     ],
   },
