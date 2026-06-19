@@ -292,6 +292,7 @@ export const AFTERMATH_SWAP_CALL_SIGNATURES: ReadonlySet<string> = new Set([
   "router::swap_b_to_a_by_b_w1",
   "router::swap_a_to_b_by_a_w1",
   "router::end_router_tx_r1_w1",
+  "router::redeem_w1",
   // Legacy router-cap scaffolding (older router version)
   "swap_cap::obtain_router_cap",
   "swap_cap::initiate_path",
@@ -318,6 +319,10 @@ export function isAftermathSwapCall(moduleName: string, functionName: string): b
       functionName.startsWith("initiate_path") ||
       functionName.startsWith("update_path_metadata") ||
       functionName.startsWith("assert_expected_") ||
+      // route-internal balance redeem (redeem_w<N>) — unwraps an intermediate route
+      // balance/receipt WITHIN the PTB; moves no value out of the wallet (the dry-run
+      // net-outflow cap + min-out re-derive are the value bound).
+      functionName.startsWith("redeem") ||
       // per-DEX pool hops: swap_<c1>_to_<c2>[_by_<c>][_w<N>] where the coordinate
       // letters (a/b, x/y, …) depend on the pool's type-param ordering — and the
       // legacy swap_a_b / swap_b_a names. All begin with "swap_".
