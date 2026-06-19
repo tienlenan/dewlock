@@ -36,6 +36,10 @@
   <img alt="Sui Overflow 2026" src="https://img.shields.io/badge/Sui%20Overflow-2026-F2CF63?style=flat-square" />
 </p>
 
+<p align="center">
+  <img src="docs/hackathon-infographic.png" width="720" alt="Dewlock overview — how it works (Intent → Agent → Guardian → Sign → Receipt), what's inside, and the full Sui + AI tech stack" />
+</p>
+
 ## What It Is
 
 Dewlock turns a natural-language intent ("swap 10 SUI to USDC", "send 1 SUI to alice.sui") into a single
@@ -67,26 +71,6 @@ the gate, fail-closed on every dependency. What you sign is the literal artifact
 | Cross-chain inflow | Live | Wormhole Sui-side redeem, built SDK-free, behind fail-closed bridge gates (recipient==self, VAA verify, fee model). |
 | Portfolio | Live | Live balances + USD value; per-row swap/send quick actions. |
 | Passport + receipts | Live | Level/XP/badges from immutable receipts; each action writes a Walrus blob + memwal log + optional Sui anchor. |
-
-## Flow
-
-```mermaid
-flowchart LR
-  U["User + Sui wallet"] --> C["Copilot (Next.js /app)"]
-  C --> P["Deterministic intent parse + directive"]
-  P --> A["Mastra agent<br/>zero user-fund keys"]
-  A --> G["Guardian<br/>fail-closed gates"]
-  G -->|any gate fails| X["BLOCK<br/>+ Walrus receipt"]
-  G -->|pass| D["Unsigned PTB<br/>approvedDigest + preview"]
-  D --> W["You sign in wallet<br/>WYSIWYS"]
-  W --> S["Sui Mainnet execute"]
-  S --> R["Immutable receipt<br/>Walrus blob + memwal + anchor"]
-  A --> M["Walrus Memory<br/>memwal recall"]
-  M --> A
-```
-
-See the full 11-gate pipeline in [docs/system-architecture.md](docs/system-architecture.md) and the rendered
-sign-intent diagram in [docs/guardian-sign-intent-flow.pdf](docs/guardian-sign-intent-flow.pdf).
 
 ## Tech Stack
 
@@ -128,17 +112,6 @@ sui-overflow-2026-hackathon/
 ├─ docs/            architecture, security model, sign-intent flow (HTML/PDF), changelog
 └─ scripts/         deploy, seeding, asset export helpers
 ```
-
-## Local Development
-
-```bash
-pnpm install
-cp LOCAL-ENV-KEYS.md apps/web/.env.local   # fill real keys (gitignored; never commit)
-pnpm --filter web dev                       # http://localhost:3000
-pnpm -r typecheck && pnpm exec vitest run   # 624 tests
-```
-
-Routes: `/` landing · `/app` copilot · `/protocols` registry · `/brand-design` styleguide.
 
 ---
 
