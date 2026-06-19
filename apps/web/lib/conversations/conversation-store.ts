@@ -42,6 +42,13 @@ const POINTER_RE = /^conversation-index:\s*(\S+)\s*@\s*(\d+)/;
 // reliably recalled) newer than the latest index pointer means "everything cleared".
 const CLEAR_PREFIX = "conversation-cleared:";
 const CLEAR_RE = /^conversation-cleared:\s*@\s*(\d+)/;
+// Per-conversation soft-delete tombstone (one id). A delete writes this AND prunes the
+// index blob; the tombstone is race-insurance — if a concurrent save's index rewrite
+// clobbers the prune, readIndex still hides the id. Because every writeIndex persists the
+// tombstone-filtered list, the index self-heals, so a tombstone only needs to survive
+// recall until the next index write (keeps recall pressure low despite the cap).
+const DELETE_PREFIX = "conversation-deleted:";
+const DELETE_RE = /^conversation-deleted:\s*(\S+)\s*@\s*(\d+)/;
 
 /** Read the latest index blob for a wallet (null when none / unavailable). */
 export async function readIndex(wallet: string): Promise<ConversationIndex | null> {
@@ -50,9 +57,10 @@ export async function readIndex(wallet: string): Promise<ConversationIndex | nul
     const ns = memNamespace(wallet);
     // Generous limits: pointers are append-only (one per save), so the newest
     // must be inside the returned set for "latest by timestamp" to be correct.
-    const [idxLines, clearLines] = await Promise.all([
+    const [idxLines, clearLines, delLines] = await Promise.all([
       recall(ns, POINTER_PREFIX, 50),
       recall(ns, CLEAR_PREFIX, 25),
+      recall(ns, DELETE_PREFIX, 100),
     ]);
     let best: { blobId: string; at: number } | null = null;
     for (const line of idxLines) {
@@ -71,7 +79,24 @@ export async function readIndex(wallet: string): Promise<ConversationIndex | nul
       return { walletAddress: wallet, conversations: [], updatedAt: latestClear };
     }
     if (!best) return null;
-    return await readJsonBlob<ConversationIndex>(best.blobId);
+    const index = await readJsonBlob<ConversationIndex>(best.blobId);
+    if (!index) return null;
+    // Apply per-conversation soft-delete tombstones: hide any id whose latest delete
+    // tombstone is newer than (or equal to) that conversation's updatedAt. A genuine
+    // later re-save (updatedAt > tombstone) out-dates the tombstone and reappears —
+    // same timestamp rule as the clear-all tombstone.
+    const deletedAt = new Map<string, number>();
+    for (const line of delLines) {
+      const m = DELETE_RE.exec(line.trim());
+      if (m) deletedAt.set(m[1], Math.max(deletedAt.get(m[1]) ?? 0, Number(m[2])));
+    }
+    if (deletedAt.size > 0) {
+      index.conversations = index.conversations.filter((c) => {
+        const d = deletedAt.get(c.id);
+        return d === undefined || d < c.updatedAt;
+      });
+    }
+    return index;
   } catch {
     return null;
   }
@@ -163,10 +188,19 @@ export async function upsertConversation(
   }
 }
 
-/** Drop a conversation from the index (the blob stays immutably on Walrus). */
+/** Drop a conversation (the blob stays immutably on Walrus). Writes a soft-delete
+ * tombstone FIRST (cheap, non-blocking, independent of the index blob) so a concurrent
+ * save's index rewrite can't resurrect it — readIndex filters by the tombstone. Then
+ * prunes the entry from the index so the steady-state index stays small. */
 export async function removeConversation(wallet: string, id: string): Promise<boolean> {
+  if (!isMemoryEnabled()) return false;
+  try {
+    await rememberBulk(memNamespace(wallet), [`${DELETE_PREFIX} ${id} @ ${Date.now()}`]);
+  } catch {
+    /* best-effort; the index prune below is the primary path */
+  }
   const index = await readIndex(wallet);
-  if (!index) return false;
+  if (!index) return true; // tombstone written; nothing in the index to prune
   index.conversations = index.conversations.filter((c) => c.id !== id);
   index.updatedAt = Date.now();
   return writeIndex(wallet, index);

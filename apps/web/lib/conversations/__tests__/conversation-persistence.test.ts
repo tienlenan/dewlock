@@ -142,4 +142,26 @@ describe("conversation-store — Walrus + memwal round-trip", () => {
     await upsertConversation(record("c3", "After clear", Date.now() + 60_000));
     expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c3"]);
   });
+
+  it("a deleted conversation stays hidden even if a race re-adds it to the index (delete tombstone wins)", async () => {
+    await upsertConversation(record("c1", "First", 1000));
+    await upsertConversation(record("c2", "Second", 2000));
+    expect(await removeConversation(WALLET, "c1")).toBe(true);
+    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c2"]);
+
+    // Simulate a concurrent save that re-published an index still listing c1 with its old
+    // stamp (the read-modify-write race the tombstone insures against). The per-conversation
+    // tombstone (newer than c1's updatedAt) must still hide it on read.
+    await upsertConversation(record("c1", "Resurrected by race", 1500));
+    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c2"]);
+  });
+
+  it("re-saving a deleted conversation with a newer timestamp brings it back (out-dates the delete tombstone)", async () => {
+    await upsertConversation(record("c1", "First", 1000));
+    expect(await removeConversation(WALLET, "c1")).toBe(true);
+    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual([]);
+
+    await upsertConversation(record("c1", "Revived", Date.now() + 60_000));
+    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c1"]);
+  });
 });

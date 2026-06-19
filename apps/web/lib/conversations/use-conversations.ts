@@ -13,6 +13,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { ChatMessage } from "@/components/chat/chat-thread";
 import type { ConversationIndexEntry } from "./conversation-store";
 import { serializeMessages, deserializeMessages, deriveTitle } from "./serialize";
+import { addDeletedId, clearDeletedIds, reconcileDeletedIds } from "./deleted-ids";
 
 interface UseConversationsOpts {
   onLoad: (msgs: ChatMessage[]) => void;
@@ -48,7 +49,11 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`);
       if (!res.ok) return;
       const data: { conversations?: ConversationIndexEntry[] } = await res.json();
-      setList(data.conversations ?? []);
+      const fetched = data.conversations ?? [];
+      // Hide just-deleted threads that the eventually-consistent index can still return
+      // within ~30-43s of a delete (the server's own tombstone may not have indexed yet).
+      const hidden = reconcileDeletedIds(wallet, new Set(fetched.map((c) => c.id)));
+      setList(hidden.size > 0 ? fetched.filter((c) => !hidden.has(c.id)) : fetched);
     } catch {
       /* fail-soft */
     }
@@ -118,6 +123,10 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       // confirmed failure. No post-delete refresh (it would race the stale index).
       const prev = list;
       setList((cur) => cur.filter((c) => c.id !== id));
+      // Persist the delete client-side so a reload within the index's ~30-43s lag doesn't
+      // resurrect the row (the server tombstone may not have indexed yet). Self-cleans once
+      // the server stops returning this id.
+      addDeletedId(wallet, id);
       if (activeId === id) {
         setActiveId(null);
         onReset();
@@ -142,11 +151,12 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     setList([]);
     setActiveId(null);
     // Drop every client-side trace so nothing can resurrect a cleared thread within the
-    // session: the in-memory thread cache, the created-at stamps, and a refetch guard so a
-    // racing refresh()/auto-open can't re-open a now-deleted conversation. (Conversations
-    // live in Walrus, not localStorage — there is no browser-storage copy to clear.)
+    // session: the in-memory thread cache, the created-at stamps, and the per-wallet
+    // deleted-ids hint (everything is gone now, so the soft-delete filter is moot). The
+    // conversation DATA itself lives only in Walrus — there is no browser-storage copy of it.
     cache.current.clear();
     createdAt.current = {};
+    clearDeletedIds(wallet);
     onReset();
     try {
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });

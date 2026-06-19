@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-06-19 — Conversation delete hardened against memwal indexing lag
+
+### Changed
+- **Delete now survives the index's ~30-43s eventual-consistency window** (a quick reload
+  could resurrect a just-deleted thread). Two-part fix:
+  - **Server delete tombstone:** `removeConversation` writes a per-conversation
+    `conversation-deleted: <id> @ <ts>` marker (cheap, non-blocking) AND prunes the index
+    blob. `readIndex` filters any id whose tombstone is newer than that conversation's
+    `updatedAt`. The tombstone is race-insurance — if a concurrent save's index rewrite
+    clobbers the prune, the delete still sticks. Because every `writeIndex` persists the
+    tombstone-filtered list, the index self-heals, so a tombstone only needs to outlive
+    recall until the next index write (keeps recall pressure low despite memwal's cap). A
+    genuine later re-save (newer `updatedAt`) out-dates the tombstone and reappears.
+  - **Client soft-delete filter:** a tiny per-wallet `deletedIds` set in localStorage hides
+    just-deleted threads on reload until the server stops returning them (then self-cleans).
+    This is a UI hint only — the conversation data still lives solely in Walrus. Cleared on
+    clear-all.
+
 ## 2026-06-19 — Conversation saves no longer time out (root cause: blocking memwal write)
 
 ### Fixed
