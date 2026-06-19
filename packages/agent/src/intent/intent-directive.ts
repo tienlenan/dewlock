@@ -255,6 +255,9 @@ export async function buildIntentDirective(
         `- coinTypeIn: "${intent.coinInType}"`,
         `- coinTypeOut: "${intent.coinOutType}"`,
         `- amountInNative: "${nativeAmount}"`,
+        // Honor the venue the user picked in the swap card (the Guardian re-derives min-out from
+        // the SAME source). Omitted → prepareTrade defaults to the aggregator best route.
+        intent.swapSource ? `- swapSource: "${intent.swapSource}"` : ``,
         `- argProvenance: { "amount": "user_turn", "coinType": "user_turn" }`,
         `Then present the returned preview card. Do NOT call getPortfolio or any other tool.`,
       ].filter(Boolean).join("\n");

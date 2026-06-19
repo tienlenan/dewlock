@@ -106,3 +106,34 @@ describe("parseIntent — LLM fallback (null)", () => {
     expect(parseIntent("what's the best way to earn yield on my sui?")).toBeNull();
   });
 });
+
+describe("parseIntent — swap-form binding (via + exact-type marker)", () => {
+  it("'via <source>' is parsed (the swap card's command now binds deterministically)", () => {
+    expect(parseIntent("swap 5 SUI to USDC via aftermath")).toMatchObject({
+      action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC,
+      amount: { kind: "exact", human: "5" }, swapSource: "aftermath",
+    });
+    expect(parseIntent("swap 1 SUI to USDC via aggregator")).toMatchObject({ swapSource: "aggregator" });
+  });
+
+  it("an unknown via source is ignored (swapSource undefined, swap still parses)", () => {
+    const r = parseIntent("swap 1 SUI to USDC via bogusdex");
+    expect(r).toMatchObject({ action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC });
+    expect(r && "swapSource" in r && r.swapSource).toBeUndefined();
+  });
+
+  it("the exact-type marker binds the EXACT coin types + source (no symbol round-trip)", () => {
+    const cmd = `swap 1 SUI to USDC via aftermath [[swap:in=${COIN_TYPES.SUI}|out=${COIN_TYPES.USDC}|src=aftermath]]`;
+    expect(parseIntent(cmd)).toEqual({
+      action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC,
+      amount: { kind: "exact", human: "1" }, swappable: true, swapSource: "aftermath",
+    });
+  });
+
+  it("a marker with a non-allowlisted type is rejected → falls back to the readable command", () => {
+    const cmd = `swap 1 SUI to USDC [[swap:in=0xdead::x::X|out=${COIN_TYPES.USDC}|src=cetus]]`;
+    expect(parseIntent(cmd)).toMatchObject({
+      action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC,
+    });
+  });
+});

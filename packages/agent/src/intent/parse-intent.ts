@@ -27,8 +27,12 @@ export type IntentAmount =
 
 export type LendProtocol = "navi" | "suilend";
 
+/** Swap execution venue chosen in the form (mirrors guardian SWAP_SOURCES). */
+export type SwapSourceId = "cetus" | "aggregator" | "aftermath";
+const SWAP_SOURCE_IDS = new Set<string>(["cetus", "aggregator", "aftermath"]);
+
 export type Intent =
-  | { action: "swap"; coinInType: string; coinOutType: string; amount: IntentAmount; swappable: boolean }
+  | { action: "swap"; coinInType: string; coinOutType: string; amount: IntentAmount; swappable: boolean; swapSource?: SwapSourceId }
   | { action: "swap_form" } // bare "swap" — missing args, render the form
   | { action: "send"; coinType: string; amount: IntentAmount }
   // Lend fully parses amount/coin/protocol so a complete command builds directly
@@ -38,6 +42,12 @@ export type Intent =
   | { action: "protocols" }
   | { action: "stats" }
   | { action: "receive" };
+
+// Swap-picker binding: the swap form emits the EXACT allowlisted coin types (+ chosen source)
+// as a machine marker so token mapping never depends on symbol re-parsing — the LLM can't
+// mis-map a ticker. Stripped from the displayed bubble client-side. Format:
+//   [[swap:in=<coinType>|out=<coinType>|src=<source>]]
+const SWAP_BIND_RE = /\[\[swap:in=([^|\]]+)\|out=([^|\]]+)(?:\|src=([^\]]+))?\]\]/i;
 
 // Symbol → verified coin type (whitelist only).
 const SYMBOL_TO_TYPE = new Map<string, { coinType: string; swappable: boolean }>(
@@ -113,8 +123,27 @@ function parseLendArgs(rest: string): { amount: IntentAmount; coinType?: string;
 }
 
 export function parseIntent(text: string): Intent | null {
-  const raw = text.trim();
+  let raw = text.trim();
   if (!raw) return null;
+
+  // Swap-picker deterministic binding: honor the EXACT coin types the form chose (no symbol
+  // round-trip), validated against the allowlist. This is the strongest guarantee the token is
+  // never mis-mapped — it bypasses symbol resolution entirely.
+  const bind = SWAP_BIND_RE.exec(raw);
+  if (bind) {
+    raw = raw.replace(SWAP_BIND_RE, "").trim();
+    const inType = bind[1].trim();
+    const outType = bind[2].trim();
+    const src = bind[3]?.trim().toLowerCase();
+    const allow = new Set<string>(Object.values(COIN_TYPES));
+    if (allow.has(inType) && allow.has(outType) && inType !== outType) {
+      const amtTok = /(?:^|\s)(all|max|everything|\d+(?:\.\d+)?)\b/i.exec(raw)?.[1];
+      const swappable = POPULAR_TOKENS.find((t) => t.coinType === inType)?.swappable ?? true;
+      const swapSource = src && SWAP_SOURCE_IDS.has(src) ? (src as SwapSourceId) : undefined;
+      return { action: "swap", coinInType: inType, coinOutType: outType, amount: parseAmount(amtTok), swappable, swapSource };
+    }
+  }
+
   const lower = raw.toLowerCase();
 
   // Read-only single-word / clear intents first.
@@ -138,11 +167,13 @@ export function parseIntent(text: string): Intent | null {
   // Don't act on contextual follow-ups — defer to the LLM (which has history).
   if (CONTEXTUAL.test(lower)) return null;
 
-  // swap / sell: <verb> [all|max|<amount>] <tokenA> [to|for|into <tokenB>]
-  const swapRe = /^(swap|sell|dump|convert)\s+(?:(all|max|everything|\d+(?:\.\d+)?)\s+)?([a-z0-9]+)(?:\s+(?:to|for|into)\s+([a-z0-9]+))?$/i;
+  // swap / sell: <verb> [all|max|<amount>] <tokenA> [to|for|into <tokenB>] [via <source>]
+  // The optional "via <source>" tail is what the swap-form card appends; without it the card's
+  // command failed to parse and fell back to the (mis-mappable) LLM path.
+  const swapRe = /^(swap|sell|dump|convert)\s+(?:(all|max|everything|\d+(?:\.\d+)?)\s+)?([a-z0-9]+)(?:\s+(?:to|for|into)\s+([a-z0-9]+))?(?:\s+via\s+([a-z]+))?$/i;
   const m = swapRe.exec(raw);
   if (m) {
-    const [, , amtTok, symA, symB] = m;
+    const [, , amtTok, symA, symB, viaSrc] = m;
     const inTok = resolveSymbol(symA);
     if (!inTok) return null; // unknown input symbol → clarify via LLM
     let coinOutType: string;
@@ -154,12 +185,14 @@ export function parseIntent(text: string): Intent | null {
       coinOutType = defaultDestination(inTok.coinType); // USDC→SUI, else→USDC
     }
     if (coinOutType === inTok.coinType) return null; // same in/out → let LLM clarify
+    const src = viaSrc?.toLowerCase();
     return {
       action: "swap",
       coinInType: inTok.coinType,
       coinOutType,
       amount: parseAmount(amtTok),
       swappable: inTok.swappable,
+      swapSource: src && SWAP_SOURCE_IDS.has(src) ? (src as SwapSourceId) : undefined,
     };
   }
 
