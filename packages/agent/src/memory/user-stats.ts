@@ -68,6 +68,32 @@ export function sumVolumeForDate(receipts: ParsedReceipt[], datePrefix: string):
     .reduce((sum, r) => sum + r.usdValue, 0);
 }
 
+/**
+ * A receipt's UTC ISO timestamp → its calendar date (YYYY-MM-DD) in the VIEWER's local
+ * timezone. `tzOffsetMinutes` is the browser's `Date.getTimezoneOffset()` (e.g. -420 for
+ * UTC+7), so local = UTC − offset. Falls back to the raw UTC date on an unparseable ts.
+ */
+export function localDateOf(iso: string, tzOffsetMinutes: number): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso.slice(0, 10);
+  return new Date(ms - tzOffsetMinutes * 60_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Sum USD volume of receipts that fall on `localDay` (YYYY-MM-DD) in the viewer's timezone.
+ * Receipts are stored in UTC, so "today" must be evaluated in the viewer's local day — a UTC
+ * day boundary would drop a swap made in the local morning (still the previous UTC date).
+ */
+export function sumVolumeForLocalDay(
+  receipts: ParsedReceipt[],
+  localDay: string,
+  tzOffsetMinutes: number,
+): number {
+  return receipts
+    .filter((r) => localDateOf(r.timestamp, tzOffsetMinutes) === localDay)
+    .reduce((sum, r) => sum + r.usdValue, 0);
+}
+
 /** Derive stats from receipt log lines (the memwal "action log:" entries). */
 export function deriveStats(lines: string[]): UserStats {
   const actions = { transfer: 0, swap: 0, lend: 0, bridge: 0, limit: 0 };

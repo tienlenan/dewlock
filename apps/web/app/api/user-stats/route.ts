@@ -21,7 +21,7 @@ export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
 import { memNamespace, recall, isMemoryEnabled } from "@dewlock/walrus";
-import { deriveStats, deriveBadgeInput, parseReceipts, sumVolumeForDate } from "@dewlock/agent/memory/user-stats";
+import { deriveStats, deriveBadgeInput, parseReceipts, sumVolumeForLocalDay } from "@dewlock/agent/memory/user-stats";
 import { computeBadges, badgesFromEarnedIds } from "@dewlock/agent/memory/badges";
 import { computeLevel } from "@dewlock/agent/memory/level";
 import { getWalletOverview } from "@/lib/blockvision/client";
@@ -114,10 +114,15 @@ export async function GET(req: NextRequest) {
   // informational view; the enforced daily tracker (prepare-trade) is the authority.
   const parsed = parseReceipts(receipts);
   const recentReceipts = parsed.slice(0, 5);
-  const todayPrefix = new Date().toISOString().slice(0, 10);
+  // "today" is the VIEWER's local day (client passes tzOffset = Date.getTimezoneOffset();
+  // default 0 = UTC for older clients). Receipts are stored in UTC, so a UTC day boundary
+  // would drop a swap made in the local morning (still the previous UTC date) → wrong $0.
+  const tzRaw = Number(new URL(req.url).searchParams.get("tzOffset"));
+  const tzOffsetMinutes = Number.isFinite(tzRaw) ? tzRaw : 0;
+  const localToday = new Date(Date.now() - tzOffsetMinutes * 60_000).toISOString().slice(0, 10);
   const capRaw = Number(process.env.DAILY_USD_CAP);
   const dailyUsage = {
-    usedUsd: sumVolumeForDate(parsed, todayPrefix),
+    usedUsd: sumVolumeForLocalDay(parsed, localToday, tzOffsetMinutes),
     capUsd: Number.isFinite(capRaw) && capRaw > 0 ? capRaw : null,
   };
 

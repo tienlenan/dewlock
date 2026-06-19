@@ -103,7 +103,14 @@ export function UserStatsCard({
             <div className="flex gap-3" style={{ flexWrap: "wrap" }}>
               <Stat
                 label="portfolio"
-                value={wallet.totalUsdValue != null ? usd(wallet.totalUsdValue) : "—"}
+                // A wallet holding assets is never worth $0 — a 0 here means pricing
+                // hasn't resolved yet, so show "—" (still loading) instead of a wrong "$0".
+                // A genuinely empty wallet (no coins) legitimately reads $0.
+                value={
+                  wallet.totalUsdValue == null || (wallet.totalUsdValue === 0 && wallet.coins.length > 0)
+                    ? "—"
+                    : usd(wallet.totalUsdValue)
+                }
                 sub={`${wallet.coins.length} assets`}
               />
               <Stat

@@ -53,7 +53,8 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
       setError(null);
       lastWallet.current = wallet;
     }
-    fetch(`${path}?wallet=${encodeURIComponent(wallet)}`, { signal: ctrl.signal })
+    // tzOffset lets the server compute "today" in the viewer's local day (receipts are UTC).
+    fetch(`${path}?wallet=${encodeURIComponent(wallet)}&tzOffset=${new Date().getTimezoneOffset()}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: T) => {
         if (cancelled) return;
