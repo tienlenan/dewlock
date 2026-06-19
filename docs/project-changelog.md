@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-06-19 — Fix: conversations dropped the final messages (single-flight save skip)
+
+### Fixed
+- **Not all messages in a conversation persisted.** The Seal-enabled `saveCurrent` is slow
+  (awaits the write-auth signature + the encrypt), so the 1.5s autosaves overlapped — and the
+  single-flight guard *skipped* a save (`if (saving.current) return null`) when one was already
+  running, with nothing re-triggering it. The final message batch was never saved, so re-opening
+  the thread showed fewer messages than the live chat. Fix: the guard now **queues** the latest
+  messages (`pendingSave` ref) and **drains** them after the in-flight save finishes — saves are
+  serialized (still no racing encrypts onto the index) but never dropped. A stable `idRef` keeps
+  the queued/recursive save on the same conversation (no duplicate convo), synced on
+  open/create/remove/clear.
+
 ## 2026-06-19 — Copilot: concise text when a tool renders a card
 
 ### Fixed

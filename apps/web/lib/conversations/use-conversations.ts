@@ -65,8 +65,18 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const autoOpenedFor = useRef<string | undefined>(undefined);
   /** True once the user has produced a SessionKey in this browser session. */
   const sessionReady = useRef(false);
-  /** Single-flight guard: skip overlapping autosaves while one is in-flight. */
+  /** Single-flight guard: only one save runs at a time (serialized → no racing encrypts
+   * onto the shared index). NOT skip-and-drop — overlapping saves are QUEUED below. */
   const saving = useRef(false);
+  /** The latest messages requested while a save was in-flight — drained after it finishes
+   * so the final batch is never lost (the Seal encrypt is slow, so saves overlap). */
+  const pendingSave = useRef<ChatMessage[] | null>(null);
+  /** The conversation id saves write to — a REF (not just activeId state) so a queued/
+   * recursive save reuses the same id even before setActiveId flushes (no duplicate convo). */
+  const idRef = useRef<string | null>(null);
+  /** Always points at the latest saveCurrent (assigned after it's defined) — the finally-drain
+   * calls through this so it never invokes a stale closure. */
+  const saveCurrentRef = useRef<((m: ChatMessage[]) => Promise<string | null>) | null>(null);
   /** True once the user has composed/opened anything. Auto-open only fires on the
    * initial blank landing — it must NEVER clobber a live thread. Critically, the
    * Seal save is slow (write-auth signature + encrypt), so the first autosave can
@@ -99,6 +109,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
 
   const create = useCallback(() => {
     interacted.current = true;
+    idRef.current = null; // next save starts a fresh conversation
     setActiveId(null);
     setLockedId(null);
     setDecryptError(null);
@@ -114,6 +125,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     async (id: string, openOpts?: { auto?: boolean }) => {
       if (!wallet) return;
       interacted.current = true;
+      idRef.current = id; // subsequent saves write to the opened conversation
       setActiveId(id);
 
       // Cache hit → instant load, clear any locked/error state for this id.
@@ -207,6 +219,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       setList((cur) => cur.filter((c) => c.id !== id));
       addDeletedId(wallet, id);
       if (activeId === id) {
+        idRef.current = null;
         setActiveId(null);
         setLockedId(null);
         setDecryptError(null);
@@ -235,6 +248,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     if (!wallet || list.length === 0) return;
     const prev = list;
     setList([]);
+    idRef.current = null;
     setActiveId(null);
     setLockedId(null);
     setDecryptError(null);
@@ -258,12 +272,20 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       // auto-open effect can't fire on the list flipping non-empty mid-save and clobber the
       // live thread with this save's (now stale) snapshot.
       interacted.current = true;
-      // Single-flight guard: skip if an encrypt+save is already in-flight (prevents racing autosaves).
-      if (saving.current) return null;
+      // A save is in-flight → QUEUE the latest messages (do NOT drop them) and drain after it
+      // finishes. The Seal encrypt is slow, so the 1.5s autosaves overlap; skipping here was
+      // losing the final message batch ("not all messages saved").
+      if (saving.current) {
+        pendingSave.current = messages;
+        return null;
+      }
       saving.current = true;
 
       try {
-        const id = activeId ?? newId();
+        // idRef is the stable conversation id across queued/recursive saves (activeId state
+        // may not have flushed yet) — prevents the queued save from minting a duplicate convo.
+        const id = idRef.current ?? activeId ?? newId();
+        idRef.current = id;
         const now = Date.now();
         if (!createdAt.current[id]) createdAt.current[id] = now;
 
@@ -308,7 +330,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
         const data: { ok?: boolean; blobId?: string } = await res.json().catch(() => ({}));
         if (data.ok) {
           cache.current.set(id, messages);
-          if (!activeId) setActiveId(id);
+          if (activeId !== id) setActiveId(id);
           const entry: ConversationIndexEntry = { id, title: base.title, updatedAt: now, blobId: data.blobId ?? "" };
           setList((cur) => [entry, ...cur.filter((c) => c.id !== id)]);
           return id;
@@ -317,11 +339,22 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
         /* fail-soft — in-memory thread kept; save silently no-ops */
       } finally {
         saving.current = false;
+        // Drain the queue: a newer save was requested while this one ran → save it now so the
+        // latest messages always land (idRef keeps it on the same conversation).
+        const queued = pendingSave.current;
+        if (queued) {
+          pendingSave.current = null;
+          void saveCurrentRef.current?.(queued);
+        }
       }
       return null;
     },
     [wallet, activeId, signPersonalMessage],
   );
+
+  // Keep the ref pointing at the LATEST saveCurrent so the finally-drain never calls a stale
+  // closure (idRef pins the conversation id regardless).
+  saveCurrentRef.current = saveCurrent;
 
   /** Explicit unlock: re-open with a forced signature (no auto shortcut). */
   const unlock = useCallback(
