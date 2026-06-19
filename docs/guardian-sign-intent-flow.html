@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dewlock — Guardian: Sign-Intent Flow</title>
+<style>
+  :root {
+    --ink: #16202c;
+    --muted: #5a6b7e;
+    --faint: #8094a6;
+    --line: #d7e0ea;
+    --accent: #0a84ff;
+    --accent-ink: #0860c4;
+    --aqua: #0aa3a0;
+    --danger: #d6403f;
+    --surface: #f5f8fc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    line-height: 1.5;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page { max-width: 760px; margin: 0 auto; padding: 28px 32px 40px; }
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 18px; }
+  .brand { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent-ink); font-weight: 700; }
+  h1 { font-size: 23px; margin: 6px 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; }
+  h2 { font-size: 15px; margin: 26px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+  p { font-size: 13px; margin: 8px 0; }
+  .lead { font-size: 13.5px; color: var(--ink); }
+  canvas { display: block; margin: 6px auto 2px; width: 720px; max-width: 100%; }
+  .cap { text-align: center; font-size: 11px; color: var(--faint); margin: 0 0 4px; }
+  ol.gates { font-size: 12.5px; margin: 6px 0 0; padding-left: 0; list-style: none; counter-reset: g; }
+  ol.gates li { counter-increment: g; position: relative; padding: 5px 0 5px 30px; border-bottom: 1px dashed var(--line); }
+  ol.gates li::before {
+    content: counter(g); position: absolute; left: 0; top: 5px;
+    width: 20px; height: 20px; border-radius: 6px; background: var(--surface);
+    border: 1px solid var(--line); color: var(--accent-ink); font-weight: 700;
+    font-size: 11px; display: flex; align-items: center; justify-content: center;
+  }
+  ol.gates b { color: var(--ink); }
+  ol.gates .m { color: var(--muted); }
+  .callout {
+    margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--aqua);
+    background: #effbf7; border-radius: 0 8px 8px 0; font-size: 12.5px;
+  }
+  .callout b { color: #07756f; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; background: var(--surface); padding: 1px 5px; border-radius: 4px; }
+  footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--faint); }
+  @page { size: A4; margin: 12mm; }
+  @media print { .page { padding: 0; max-width: none; } canvas { width: 100%; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="brand">Dewlock · Sui Overflow 2026</div>
+    <h1>Guardian — the Sign-Intent Flow</h1>
+    <p class="sub">How a natural-language intent becomes a signed on-chain transaction, gated by a deterministic, fail-closed firewall (WYSIWYS).</p>
+  </header>
+
+  <p class="lead">Dewlock is an <b>intent-firewall for agentic Sui DeFi</b>. A single agent (holding <b>zero user-fund keys</b>) compiles a stated goal into <b>one unsigned PTB</b>; a deterministic <b>Guardian</b> re-derives the math and dry-runs that exact bundle; you sign the literal artifact you saw. The diagram below traces that path.</p>
+
+  <canvas id="flow" width="1520" height="1960" aria-label="Sign-intent flow diagram"></canvas>
+  <p class="cap">Figure 1 — Sign-intent flow. Any failing Guardian gate blocks before a signature is ever requested.</p>
+
+  <h2>Guardian gate pipeline (executed in order)</h2>
+  <ol class="gates">
+    <li><b>Allowlist</b> <span class="m">— every PTB call <code>{pkg::mod::fn}</code> must be pre-approved (runs first).</span></li>
+    <li><b>Action-shape</b> <span class="m">— the MoveCall set must match exactly one <code>actionType</code> template ⇒ one value action per PTB.</span></li>
+    <li><b>Coin-type provenance</b> <span class="m">— coin types verified on-chain via CoinMetadata (by TYPE, never symbol).</span></li>
+    <li><b>Injection provenance</b> <span class="m">— a <code>derived</code> recipient (from inferred / recalled / pool data) forces a confirm gate.</span></li>
+    <li><b>Trusted USD price</b> <span class="m">— real oracle; no price ⇒ block (cannot value ⇒ cannot verify).</span></li>
+    <li><b>Server caps</b> <span class="m">— per-tx + per-day USD caps; invalid config ⇒ block everything.</span></li>
+    <li><b>SuiNS lookalike</b> <span class="m">— homoglyph-normalized edit-distance vs verified contacts.</span></li>
+    <li><b>Min-out re-derive</b> <span class="m">— swaps: recompute min-output from on-chain decimals + the same route source.</span></li>
+    <li><b>Orderbook / Lending</b> <span class="m">— POST_ONLY / self-match / expiry; lending is health-improving only.</span></li>
+    <li><b>Dry-run + WYSIWYS digest</b> <span class="m">— dry-run the exact bytes (fail-closed); <code>approvedDigest = sha256(txBytes)</code>.</span></li>
+    <li><b>Authoritative value gate</b> <span class="m">— re-value from actual net outflow; block if outflow &gt; 1.5× declared.</span></li>
+  </ol>
+
+  <div class="callout">
+    <b>WYSIWYS (What You Sign Is What You Saw).</b> The Guardian computes <code>approvedDigest = sha256(txBytes)</code> over the exact bytes it dry-ran and previewed. The wallet signs those same bytes; the sign hook asserts <b>signed bytes == approved bytes</b>. The agent never holds user-fund keys and the LLM never overrides a gate — code is the gate, fail-closed on every dependency.
+  </div>
+
+  <footer>
+    Source of truth: <code>packages/agent/src/guardian.ts</code> · <code>guardianCheck(proposal, suiClient)</code>. Diagram rendered to canvas; this document is generated to PDF for hand-off.
+  </footer>
+</div>
+
+<script>
+(function () {
+  var canvas = document.getElementById("flow");
+  var ctx = canvas.getContext("2d");
+  var S = 2;                 // render scale for crisp PDF
+  ctx.scale(S, S);
+  var W = canvas.width / S;  // logical 760
+  var C = {
+    ink: "#16202c", muted: "#5a6b7e", line: "#c9d6e4", arrow: "#9fb2c6",
+    boxBg: "#f5f8fc", boxBd: "#cdd9e7",
+    gBg: "#e9f3ff", gBd: "#0a84ff", gInk: "#0860c4",
+    rBg: "#fdeceb", rBd: "#d6403f", rInk: "#b3322f",
+    aqua: "#0aa3a0", aquaBg: "#e6faf6"
+  };
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function box(x, y, w, h, opt) {
+    opt = opt || {};
+    rr(x, y, w, h, opt.r || 12);
+    ctx.fillStyle = opt.bg || C.boxBg;
+    ctx.fill();
+    ctx.lineWidth = opt.lw || 1.4;
+    ctx.strokeStyle = opt.bd || C.boxBd;
+    ctx.stroke();
+  }
+  function text(lines, x, y, opt) {
+    opt = opt || {};
+    ctx.textAlign = opt.align || "center";
+    ctx.textBaseline = "top";
+    var ty = y;
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i];
+      ctx.font = ln.f || "13px -apple-system, Segoe UI, Arial";
+      ctx.fillStyle = ln.c || C.ink;
+      ctx.fillText(ln.t, x, ty);
+      ty += ln.h || 17;
+    }
+  }
+  function vArrow(x, y1, y2) {
+    ctx.strokeStyle = C.arrow; ctx.lineWidth = 1.6; ctx.fillStyle = C.arrow;
+    ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2 - 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 5, y2 - 8); ctx.lineTo(x + 5, y2 - 8); ctx.lineTo(x, y2); ctx.closePath(); ctx.fill();
+  }
+
+  var cx = W / 2;
+  var bw = 460, bx = cx - bw / 2;
+  // y positions (logical)
+  var step = [
+    { y: 28,  h: 56, t: "node", bg: C.boxBg, bd: C.boxBd, lines: [
+      { t: "1 · User states an intent (natural language)", f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "“send 5 SUI to alice.sui”   ·   “swap 10 SUI → USDC”", c: C.muted, f: "12px ui-monospace, Menlo, monospace" } ] },
+    { y: 110, h: 46, t: "node", lines: [
+      { t: "2 · Deterministic intent parse → routing directive", f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "front-runs the LLM for self-contained commands", c: C.muted } ] },
+    { y: 182, h: 50, t: "node", lines: [
+      { t: "3 · Agent compiles → ONE unsigned PTB", f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "zero user-fund keys server-side", c: C.muted } ] },
+    { y: 258, h: 116, t: "guardian", lines: [
+      { t: "4 · GUARDIAN — deterministic, fail-closed", c: C.gInk, f: "bold 14px -apple-system, Segoe UI, Arial", h: 20 },
+      { t: "re-derives the math independently of the LLM", c: C.muted, h: 18 },
+      { t: "allowlist · shape · coin-type · provenance · price · caps", c: C.ink, f: "11.5px ui-monospace, Menlo, monospace", h: 16 },
+      { t: "SuiNS · min-out · orderbook/lending · dry-run · digest · outflow", c: C.ink, f: "11.5px ui-monospace, Menlo, monospace", h: 16 } ] },
+    { y: 400, h: 56, t: "digest", lines: [
+      { t: "5 · approvedDigest = sha256(txBytes)  +  preview", c: C.aqua, f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "balance deltas · gas · USD value (from the dry-run)", c: C.muted } ] },
+    { y: 482, h: 56, t: "sign", lines: [
+      { t: "6 · You sign the EXACT bytes in your wallet", f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "WYSIWYS — signed bytes == approved bytes", c: C.aqua, f: "12px ui-monospace, Menlo, monospace" } ] },
+    { y: 564, h: 40, t: "node", lines: [
+      { t: "7 · On-chain execute", f: "bold 13px -apple-system, Segoe UI, Arial" } ] },
+    { y: 630, h: 50, t: "node", lines: [
+      { t: "8 · Immutable receipt", f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "Walrus blob + memwal log + optional on-chain anchor", c: C.muted } ] }
+  ];
+
+  // draw connecting arrows first (under boxes)
+  for (var i = 0; i < step.length - 1; i++) {
+    vArrow(cx, step[i].y + step[i].h, step[i + 1].y);
+  }
+
+  // BLOCK branch off the Guardian (to the right)
+  var g = step[3];
+  var blkW = 150, blkX = bx + bw + 18, blkY = g.y + 24, blkH = 64;
+  // arrow guardian -> block
+  ctx.strokeStyle = C.rBd; ctx.lineWidth = 1.6; ctx.fillStyle = C.rBd;
+  ctx.beginPath(); ctx.moveTo(bx + bw, g.y + g.h / 2); ctx.lineTo(blkX - 7, g.y + g.h / 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(blkX - 8, g.y + g.h / 2 - 5); ctx.lineTo(blkX - 8, g.y + g.h / 2 + 5); ctx.lineTo(blkX, g.y + g.h / 2); ctx.closePath(); ctx.fill();
+  box(blkX, blkY, blkW, blkH, { bg: C.rBg, bd: C.rBd, lw: 1.6 });
+  text([
+    { t: "BLOCK", c: C.rInk, f: "bold 14px -apple-system, Segoe UI, Arial", h: 19 },
+    { t: "any gate fails →", c: C.muted, h: 15 },
+    { t: "no signature requested", c: C.muted, h: 15 }
+  ], blkX + blkW / 2, blkY + 12);
+
+  // WYSIWYS equality tie: dashed bracket from digest(5) to sign(6) on the left
+  var d = step[4], s = step[5];
+  ctx.save();
+  ctx.strokeStyle = C.aqua; ctx.lineWidth = 1.4; ctx.setLineDash([4, 4]);
+  var lx = bx - 16;
+  ctx.beginPath();
+  ctx.moveTo(bx, d.y + d.h / 2); ctx.lineTo(lx, d.y + d.h / 2);
+  ctx.lineTo(lx, s.y + s.h / 2); ctx.lineTo(bx, s.y + s.h / 2);
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.translate(lx - 6, (d.y + d.h / 2 + s.y + s.h / 2) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+  ctx.font = "bold 10.5px -apple-system, Segoe UI, Arial"; ctx.fillStyle = C.aqua;
+  ctx.fillText("digest match", 0, 0);
+  ctx.restore();
+
+  // draw boxes + labels
+  for (var k = 0; k < step.length; k++) {
+    var b = step[k];
+    var opt = { bg: C.boxBg, bd: C.boxBd, lw: 1.4 };
+    if (b.t === "guardian") { opt = { bg: C.gBg, bd: C.gBd, lw: 2.2, r: 14 }; }
+    else if (b.t === "digest" || b.t === "sign") { opt = { bg: C.aquaBg, bd: C.aqua, lw: 1.6 }; }
+    box(bx, b.y, bw, b.h, opt);
+    // vertically center the text block
+    var totalH = b.lines.reduce(function (a, l) { return a + (l.h || 17); }, 0);
+    text(b.lines, cx, b.y + (b.h - totalH) / 2 + 1);
+  }
+})();
+</script>
+</body>
+</html>

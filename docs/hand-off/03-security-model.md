@@ -11,6 +11,24 @@
 4. **Mandatory dry-run.** Every proposed tx runs `dryRunTransactionBlock`; UI shows real balance deltas + gas + slippage before the confirm button enables.
 5. **Per-session + per-tx caps.** Default small cap (e.g. ≤ $5/tx, configurable). Exceeding cap → require explicit extra confirmation step.
 
+## Guardian gate pipeline (as built)
+
+`guardianCheck(proposal, suiClient)` (`packages/agent/src/guardian.ts:296`) is the single enforcement point inside `prepareTrade`. It runs the gates below in order, accumulating `reasons[]`/`gates[]`; **any failing gate blocks** (terminal, no auto-retry) and no PTB reaches the user. It is deterministic code, fail-closed on every dependency.
+
+1. **Allowlist** — every MoveCall `{package::module::function}` must be pre-approved (runs first).
+2. **Action-shape** — the PTB's MoveCall set must match EXACTLY one declared `actionType` template; blocks "compose two allowlisted calls" smuggling ⇒ one value action per PTB (composite PTBs refused).
+3. **Coin-type provenance** — `coinTypeIn/Out` verified on-chain via CoinMetadata (anti scam-clone; by TYPE not symbol).
+4. **Injection provenance** — per-field `argProvenance`; a `derived` recipient (from inferred/recalled/pool data) forces a confirm gate.
+5. **Trusted USD price** — real oracle; no price ⇒ block (cannot value cannot verify).
+6. **Server caps** — per-tx + per-day USD caps (`TX_USD_CAP`/`DAILY_USD_CAP`, env, server-authoritative, mainnet-small in prod); bad config ⇒ block all.
+7. **SuiNS lookalike** — homoglyph-normalized edit-distance vs verified contacts.
+8. **Min-out re-derive** (swaps) — recompute min-output from on-chain decimals + the SAME route source; runs for every swap.
+9. **Orderbook / Lending** — limit_order: POST_ONLY/self-match/expiry/BalanceManager-ceiling; lend_*: health-improving only.
+10. **Dry-run + WYSIWYS digest** — dry-run the EXACT bytes (fail-closed); `approvedDigest = sha256(txBytes)` binds preview ⇄ signature.
+11. **Authoritative value gate** — re-value from the dry-run's ACTUAL net balance deltas, re-check caps, block when outflow > 1.5× declared (`outflow_mismatch`).
+
+Note: the small-cap intent below ("≤ $5/tx") is enforced via the `TX_USD_CAP`/`DAILY_USD_CAP` env (set mainnet-small in prod); the code defaults are higher and are overridden per deploy.
+
 ## Anti prompt-injection (the AI-specific risk)
 
 DeFi data is attacker-controllable: pool names, token symbols/metadata, even recalled memory text. Treat ALL of it as untrusted.

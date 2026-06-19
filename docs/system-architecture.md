@@ -12,7 +12,23 @@ User → Copilot (chat) → intent parse + directive → Mastra agent (tools)
 ```
 
 ## Guardian (value-move firewall) — `@dewlock/agent/guardian`
-Every value move runs through `prepareTrade` → `guardianCheck`. Zero user-fund keys server-side; the agent builds an unsigned PTB the user signs (WYSIWYS — signed bytes must equal approved bytes). Gates: coin-type allowlist, server-authoritative USD caps (`TX_USD_CAP`/`DAILY_USD_CAP`, default 5000/20000), source-aware min-out re-derive, dry-run net-outflow, structural shape gate, and a `{package::module::function}` allowlist.
+Every value move runs through `prepareTrade` → `guardianCheck(proposal, suiClient)` (`packages/agent/src/guardian.ts:296`). It is deterministic CODE, **not** an LLM: the agent only *proposes* an unsigned PTB; the Guardian re-derives the math independently, accumulates `reasons[]`/`gates[]`, and **any failing gate → BLOCK** (terminal, no auto-retry). Zero user-fund keys server-side; the user signs the literal artifact that was dry-run (WYSIWYS — signed bytes must equal `approvedDigest` bytes). **Fail-closed on every external dependency**: a missing price, invalid cap config, dry-run/RPC failure, or unknown target all block rather than proceed.
+
+**Gate pipeline (executed in this order):**
+1. **Allowlist** — every PTB MoveCall `{package::module::function}` must be pre-approved. Runs first so unknown targets are never processed.
+2. **Action-shape** — the PTB's MoveCall set must match EXACTLY one declared `actionType` template; closes the "compose two allowlisted calls" bypass (e.g. a swap that smuggles `add_liquidity`). Consequence: **one value action per PTB** — composite/multi-action PTBs are refused by design.
+3. **Coin-type provenance** — `coinTypeIn`/`coinTypeOut` verified on-chain via CoinMetadata (anti scam-clone; identity by coin TYPE, never display symbol).
+4. **Injection provenance** — per-field `argProvenance`; a `derived` recipient (inferred / from recalled memory / pool data) triggers a confirm gate. Anti prompt-injection. (Contact/@mention sends use `user_turn` because the 0x is resolved server-side from the wallet-signed friend book — first-party, not injected data.)
+5. **Trusted USD price** — real oracle (live SUI/USD via aggregator, USDC=$1). No trusted price → BLOCK (cannot value ⇒ cannot verify).
+6. **Server caps** — per-tx + per-day USD caps (`TX_USD_CAP`/`DAILY_USD_CAP`; server-authoritative, mainnet-small in prod). Invalid cap config → block everything.
+7. **SuiNS lookalike** — homoglyph-normalized edit-distance vs verified contacts (catches `888-l.sui`-style spoofs).
+8. **Min-out re-derive** (swaps only) — independently recompute min-output from on-chain decimals + the SAME route source; runs for EVERY swap (not gated on poolId). Anti sandwich / manipulated min-out — the #1 real-money risk.
+9. **Orderbook / Lending** — `limit_order`: POST_ONLY / self-match / expiry / BalanceManager-ceiling. `lend_*`: health-improving only (deposit/repay; borrow/withdraw gated off).
+10. **Dry-run + WYSIWYS digest** — dry-run the EXACT PTB bytes (`dryRunTransactionBlock`); fail-closed on any error; compute `approvedDigest = sha256(txBytes)` that binds preview ⇄ signature.
+11. **Authoritative value gate** — re-value from the dry-run's ACTUAL net balance deltas (what truly leaves the wallet), re-check caps on that figure, and block when outflow > 1.5× the declared value (`outflow_mismatch`). Catches a PTB that moves more than it declares.
+
+Pass → `{ ok:true, txBytes, approvedDigest, preview }`; `preview` (balance deltas + gas + USD value) renders before the confirm button. **Defense-in-depth:** the "moves more than declared" risk is caught independently at gates 1 (allowlist), 2 (shape), and 11 (actual-outflow).
+
 - **Swap gate is signature-based** for aggregator routes: the Cetus aggregator emits per-route, upgradeable integration packages that can't be statically pinned, so swap-route calls are matched by `module::function` (`router::*`, `cetus::swap`, `deepbookv3::swap`) — package-agnostic — bounded by the provider constraint (CETUS+DEEPBOOK) + value gates. `0x2::coin::destroy_zero` (full-balance cleanup) is allowlisted as a zero-value framework call.
 
 ## Intent → action forms — `@dewlock/agent/intent`

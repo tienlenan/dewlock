@@ -111,34 +111,38 @@ sui-overflow-2026-hackathon/
 
 **Purpose:** Guardian security spine + Mastra agent definition + tools.
 
-**Guardian (`guardian.ts`, 610 LOC):**
+**Guardian (`guardian.ts`, ~1.4k LOC):**
 
-Nine deterministic, fail-closed gates:
+`guardianCheck(proposal, suiClient)` runs deterministic, fail-closed gates in this order, accumulating `reasons[]`/`gates[]`; ANY failing gate blocks (terminal, no auto-retry):
 
 ```
 TradeProposal (unsigned PTB + user context)
   ↓
-1. checkTxCap()           → Is amountUSD ≤ TX_USD_CAP?
-2. checkTrustedPrice()    → Is price from curated ref, not pool?
-3. computeWysiwysDigest() → SHA-256(txBytes)
-4. checkMinOutRederivation() → On-chain decimals vs curated; re-derive min-out; cross-check
-5. failClosedOnExtDeps()  → Catch dryRun/SuiNS/quote errors → block
-6. checkInjectionProvenance() → Is arg from "user_turn" or "derived" + confirmed?
-7. checkAllowlist()       → Is {pkg::mod::fn} in ALLOWED_MOVE_TARGETS?
-8. checkSuinsLookalike()  → Homoglyph + edit-distance ≤ 2 against verifiedContacts?
-9. checkCoinTypeProvenance() → On-chain CoinMetadata exists for coin type?
+1. checkAllowlist()        → every {pkg::mod::fn} in ALLOWED_MOVE_TARGETS? (runs first)
+2. checkActionShape()      → PTB MoveCall set == EXACTLY one actionType template?
+                             (blocks "compose two allowlisted calls" ⇒ one action per PTB)
+3. checkCoinTypeOnChain()  → on-chain CoinMetadata exists for coinTypeIn/Out? (by TYPE, not symbol)
+4. checkProvenance()       → per-field argProvenance; "derived" recipient ⇒ confirm gate
+5. trusted USD price       → real oracle (SUI/USD, USDC=$1); no price ⇒ block
+6. server caps             → estimatedUsd ≤ TX_USD_CAP and daily+est ≤ DAILY_USD_CAP? (bad cfg ⇒ block all)
+7. checkSuiNSLookalike()   → homoglyph-normalized edit-distance vs verifiedContacts
+8. checkMinOut()           → (swaps) re-derive min-out from on-chain decimals + SAME route source
+9. orderbook / lending     → limit_order: POST_ONLY/self-match/expiry; lend_*: health-improving only
+10. runDryRunGate()        → dry-run EXACT bytes (fail-closed); approvedDigest = SHA-256(txBytes)
+11. authoritative value    → re-value from ACTUAL dry-run net outflow; re-check caps;
+                             block if outflow > 1.5× declared (outflow_mismatch)
   ↓
-GuardianPass { ok: true, txBytes, approvedDigest, dryRunResult }
-  OR
-GuardianBlock { ok: false, reason, gate }
+GuardianResult { ok: true, txBytes, approvedDigest, dryRunResult, preview }
+  OR  { ok: false, reasons[], gates[] }
 ```
 
 **Key features:**
-- No LLM involvement; code is the gate.
-- All external deps (RPC, quote, SuiNS) have fail-closed error paths.
-- dryRunTransaction runs synchronously inside Guardian; effects visible before user signs.
-- WYSIWYS digest returned; sign hook must assert equality.
-- TS strict; unit tests per gate; 100% branches covered.
+- No LLM involvement; code is the gate. The LLM only proposes; the Guardian re-derives independently.
+- Fail-closed on EVERY external dep (RPC, quote, SuiNS, price, cap config) — never "proceed because unavailable".
+- `dryRunTransactionBlock` runs inside the Guardian; effects (balance deltas + gas + USD) visible before the user signs.
+- WYSIWYS: `approvedDigest = sha256(txBytes)` binds preview ⇄ signature; the sign hook asserts equality.
+- Defense-in-depth: "moves more than declared" is caught independently at gates 1, 2, and 11.
+- TS strict; unit tests per gate; hard-gate suites in `__tests__/`.
 
 **Allowlist (`allowlist.ts`):**
 
