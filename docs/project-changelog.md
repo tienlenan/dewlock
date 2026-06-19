@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-06-19 — Fix: swap preview wiped mid-flow by auto-open race (Seal save)
+
+### Fixed
+- **The tx-preview card vanished mid-swap and couldn't be re-submitted.** Root cause: the
+  Seal-enabled autosave became slow (it `await`s the write-auth wallet signature + the encrypt),
+  so the first `saveCurrent` could capture a stale message snapshot, then `setActiveId` + `setList`
+  flipped the list non-empty WHILE the user was mid-swap. That triggered the **auto-open effect**,
+  which reloaded the stale snapshot over the live thread — wiping the just-added `tx-preview` (also
+  dropped on persist by the serializer). Fix: auto-open now only fires on the **initial blank
+  landing** — an `interacted` ref (set synchronously in `saveCurrent`/`open`/`create`, before the
+  slow awaits) makes it skip once the user has composed or opened anything, so it can never clobber
+  a live thread. No UI freeze needed.
+
 ## 2026-06-19 — Copilot text replies fixed + markdown rendering
 
 ### Fixed

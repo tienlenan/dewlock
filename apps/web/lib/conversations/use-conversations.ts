@@ -67,6 +67,12 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const sessionReady = useRef(false);
   /** Single-flight guard: skip overlapping autosaves while one is in-flight. */
   const saving = useRef(false);
+  /** True once the user has composed/opened anything. Auto-open only fires on the
+   * initial blank landing — it must NEVER clobber a live thread. Critically, the
+   * Seal save is slow (write-auth signature + encrypt), so the first autosave can
+   * complete + flip the list to non-empty WHILE the user is mid-swap; without this
+   * guard, auto-open would reload a stale snapshot and wipe the live tx-preview. */
+  const interacted = useRef(false);
 
   const { onLoad, onReset, signPersonalMessage } = opts;
 
@@ -92,6 +98,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   }, [refresh]);
 
   const create = useCallback(() => {
+    interacted.current = true;
     setActiveId(null);
     setLockedId(null);
     setDecryptError(null);
@@ -106,6 +113,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const open = useCallback(
     async (id: string, openOpts?: { auto?: boolean }) => {
       if (!wallet) return;
+      interacted.current = true;
       setActiveId(id);
 
       // Cache hit → instant load, clear any locked/error state for this id.
@@ -184,7 +192,10 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
 
   // Auto-open most-recent conversation on first load for a wallet (locked preview).
   useEffect(() => {
-    if (!wallet || list.length === 0 || autoOpenedFor.current === wallet) return;
+    // Only auto-open on the INITIAL blank landing. Skip once the user has composed or
+    // opened anything (interacted) — otherwise a slow first save flipping the list to
+    // non-empty would reload a stale snapshot over the live thread (wiping a tx-preview).
+    if (!wallet || list.length === 0 || autoOpenedFor.current === wallet || interacted.current) return;
     autoOpenedFor.current = wallet;
     void open(list[0].id, { auto: true });
   }, [wallet, list, open]);
@@ -243,6 +254,10 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const saveCurrent = useCallback(
     async (messages: ChatMessage[]): Promise<string | null> => {
       if (!wallet || messages.length === 0) return null;
+      // Mark interaction synchronously (before the slow write-auth + encrypt awaits) so the
+      // auto-open effect can't fire on the list flipping non-empty mid-save and clobber the
+      // live thread with this save's (now stale) snapshot.
+      interacted.current = true;
       // Single-flight guard: skip if an encrypt+save is already in-flight (prevents racing autosaves).
       if (saving.current) return null;
       saving.current = true;
