@@ -19,6 +19,7 @@ import { buildAftermathSwap } from "@dewlock/sui/build-aftermath-swap";
 // build-limit-order imports DeepBook SDK — use subpath for the same isolation rationale
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
+import { InsufficientGasCoverageError } from "@dewlock/sui/sui-gas-payment";
 import { guardianCheck, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
 import { COIN_TYPES } from "../allowlist";
 import type { TradeProposal, ActionType, SwapSource, LendingProtocol } from "../guardian";
@@ -389,6 +390,11 @@ export const prepareTrade = createTool({
         }
       }
     } catch (err) {
+      // A native-SUI gas-coverage shortfall is already a clear, user-facing message — surface it
+      // verbatim instead of burying it under a generic "PTB construction failed" prefix.
+      if (err instanceof InsufficientGasCoverageError) {
+        return { ok: false as const, reasons: [err.message], gates: ["insufficient_gas"] };
+      }
       const msg = err instanceof Error ? err.message : String(err);
       return { ok: false as const, reasons: [`PTB construction failed: ${msg}`], gates: ["build"] };
     }
@@ -427,6 +433,11 @@ export const prepareTrade = createTool({
       argProvenance,
       verifiedContacts,
       dailyUsdSpentSoFar: getDailySpend(walletAddress),
+      // Max swap value-loss before the Guardian blocks. Server-injected (never an LLM arg):
+      // a per-user override (MAX_PRICE_IMPACT_BPS) when set, else undefined → Guardian's 5% default.
+      maxPriceImpactBps: process.env.MAX_PRICE_IMPACT_BPS
+        ? Number(process.env.MAX_PRICE_IMPACT_BPS)
+        : undefined,
       // Limit-order fields
       poolKey,
       balanceManagerId,

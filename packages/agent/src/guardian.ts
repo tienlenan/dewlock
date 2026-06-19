@@ -177,7 +177,16 @@ export interface TradeProposal {
    * Injected by the prepareTrade tool from session state.
    */
   dailyUsdSpentSoFar: number;
+
+  /**
+   * Max acceptable swap value-loss (price impact) in basis points before the Guardian blocks.
+   * Server-injected (NOT LLM-controlled). Undefined → DEFAULT_MAX_PRICE_IMPACT_BPS (5%).
+   */
+  maxPriceImpactBps?: number;
 }
+
+/** Default price-impact ceiling (5%) when the proposal doesn't carry a user-configured value. */
+export const DEFAULT_MAX_PRICE_IMPACT_BPS = 500;
 
 /** Guardian pass result — includes the WYSIWYS digest and dry-run effects. */
 export interface GuardianPass {
@@ -512,6 +521,13 @@ export async function guardianCheck(
           // Surface the actual outflow as the previewed value when it is larger.
           if (outflow.usd > estimatedUsdValue) estimatedUsdValue = outflow.usd;
         }
+      }
+
+      // Swap price-impact gate — refuse a swap whose output is worth materially less than its
+      // input (thin-liquidity / bad-rate protection), valued from the dry-run's actual deltas.
+      if (dryRunResult) {
+        const impact = checkSwapPriceImpact(dryRunResult, proposal, liveSuiUsd);
+        if (!impact.ok) block("price_impact", impact.reason);
       }
     }
   }
@@ -850,6 +866,72 @@ export function computeNetOutflowUsd(
     usd += (Number(outNative) / 10 ** decimals) * price;
   }
   return { ok: true, usd };
+}
+
+interface PriceImpactResult {
+  ok: boolean;
+  reason: string;
+}
+
+/**
+ * Swap price-impact gate: block when the output is worth materially less than the input, valued
+ * from the dry-run's ACTUAL balance deltas via the trusted oracle. Catches thin-liquidity / bad-rate
+ * routes (e.g. ~0.7 USDC out for 1 SUI in) that the min-out consistency check can't — both the PTB
+ * and the fresh quote agree on a bad rate, so only an absolute USD-value comparison catches it.
+ *
+ * Enforced only when BOTH coins have a trusted USD price; a long-tail coin with no oracle price
+ * falls back to the min-out cross-check. `maxBps` is server-injected (proposal.maxPriceImpactBps),
+ * defaulting to 5%.
+ */
+function checkSwapPriceImpact(
+  dryRun: DryRunResult,
+  proposal: TradeProposal,
+  liveSuiUsd: number | undefined,
+): PriceImpactResult {
+  if (proposal.actionType !== "swap" || !proposal.coinTypeOut) return { ok: true, reason: "" };
+  const inType = normalizeCoinType(proposal.coinTypeIn);
+  const outType = normalizeCoinType(proposal.coinTypeOut);
+  const sender = proposal.walletAddress.toLowerCase();
+
+  let inUsd = 0;
+  let outUsd = 0;
+  let inPriced = false;
+  let outPriced = false;
+  for (const d of dryRun.balanceDeltas) {
+    if ((d.owner ?? "").toLowerCase() !== sender) continue;
+    const coinType = normalizeCoinType(d.coinType);
+    const price = resolveUsdPrice(coinType, liveSuiUsd);
+    if (price === undefined) continue;
+    const decimals = COIN_DECIMALS[coinType] ?? 9;
+    if (coinType === inType && d.amount < 0n) {
+      let spent = -d.amount;
+      // SUI input shares the gas coin — exclude gas so it isn't counted as swap value.
+      if (coinType === COIN_TYPES.SUI) {
+        spent = spent > dryRun.gasCostMist ? spent - dryRun.gasCostMist : spent;
+      }
+      inUsd += (Number(spent) / 10 ** decimals) * price;
+      inPriced = true;
+    } else if (coinType === outType && d.amount > 0n) {
+      outUsd += (Number(d.amount) / 10 ** decimals) * price;
+      outPriced = true;
+    }
+  }
+
+  if (!inPriced || !outPriced || inUsd <= 0) return { ok: true, reason: "" };
+
+  const maxBps = proposal.maxPriceImpactBps ?? DEFAULT_MAX_PRICE_IMPACT_BPS;
+  if (outUsd < inUsd * (1 - maxBps / 10_000)) {
+    const lossPct = ((inUsd - outUsd) / inUsd) * 100;
+    const limitPct = maxBps / 100;
+    return {
+      ok: false,
+      reason:
+        `Price impact too high: you pay ~$${inUsd.toFixed(2)} but receive only ~$${outUsd.toFixed(2)} ` +
+        `— a ${lossPct.toFixed(1)}% value loss, above the ${limitPct % 1 === 0 ? limitPct.toFixed(0) : limitPct.toFixed(1)}% limit. ` +
+        "Refusing — the pool likely has thin liquidity. Try a smaller amount, a different token, or another route.",
+    };
+  }
+  return { ok: true, reason: "" };
 }
 
 // Gate 9: Coin-type on-chain verification
