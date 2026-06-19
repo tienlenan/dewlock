@@ -26,6 +26,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { COIN_TYPES } from "./allowlist";
+import { pinSuiGasPayment, InsufficientGasCoverageError } from "./sui-gas-payment";
 import { isFixtureMode, type SwapQuote } from "./quotes-source";
 import { fetchAftermathQuote } from "./aftermath-quotes";
 import type { SwapSpec, SwapBuildResult } from "./build-swap";
@@ -128,10 +129,16 @@ async function buildLiveAftermathPtb(client: SuiClient, spec: SwapSpec): Promise
     // would mis-decode it (ULEB length overflow). tx.build({client}) resolves
     // gas + object refs and emits the canonical BCS bytes the Guardian expects.
     const resultTx = txResult as unknown as Transaction;
+    // Native-SUI input is split from tx.gas — pin gas payment to SUI coins covering input + gas
+    // so a fragmented wallet can't land on a gas coin too small for the split (InsufficientGas).
+    if (coinTypeIn === COIN_TYPES.SUI) {
+      await pinSuiGasPayment(client, resultTx, senderAddress, amountInNative);
+    }
     const bytes = await resultTx.build({ client: client as unknown as ClientWithCoreApi });
     txBytes = Buffer.from(bytes).toString("base64");
   } catch (err) {
     if (err instanceof SwapBuildError) throw err;
+    if (err instanceof InsufficientGasCoverageError) throw err; // already user-facing — don't bury it
     throw new SwapBuildError(
       `Aftermath swap PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
     );

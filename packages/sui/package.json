@@ -21,6 +21,7 @@
     "./build-redeem": "./dist/wormhole/build-redeem.js",
     "./client": "./dist/client.js",
     "./build-transfer": "./dist/build-transfer.js",
+    "./sui-gas-payment": "./dist/sui-gas-payment.js",
     "./build-swap": "./dist/build-swap.js",
     "./build-limit-order": "./dist/deepbook/build-limit-order.js",
     "./sign": "./dist/sign.js",

@@ -13,6 +13,7 @@ import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { resolveSuiNSName, type SuiNSResolutionResult } from "./suins-resolver";
 import { COIN_TYPES } from "./allowlist";
+import { pinSuiGasPayment } from "./sui-gas-payment";
 
 // Server-side SuiClient type alias — SuiJsonRpcClient is the v2.x successor to
 // the old SuiClient class; it satisfies ClientWithCoreApi (used by tx.build).
@@ -92,6 +93,9 @@ export async function buildTransfer(
     // SUI uses gas coin split — standard pattern
     const [coin] = tx.splitCoins(tx.gas, [amountNative]);
     tx.transferObjects([coin], resolvedRecipient);
+    // Pin gas payment to SUI coins covering amount + gas so a fragmented wallet can't land on a
+    // gas coin too small for the split (InsufficientGas even though the wallet "has gas").
+    await pinSuiGasPayment(client, tx, senderAddress, amountNative);
   } else {
     // Non-SUI coins: select the sender's owned coin objects of this type, merge them
     // into one, split the exact amount, and transfer the split. merge/split/transfer

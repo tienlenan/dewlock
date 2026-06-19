@@ -22,6 +22,7 @@ import { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { COIN_TYPES } from "./allowlist";
+import { pinSuiGasPayment } from "./sui-gas-payment";
 
 type SuiClient = SuiJsonRpcClient;
 
@@ -133,6 +134,8 @@ async function buildNaviLend(client: SuiClient, spec: LendSpec): Promise<LendBui
     } catch {
       healthBefore = undefined; // health read is best-effort for the preview
     }
+    // Native-SUI deposits/repays split from tx.gas — pin gas to coins covering amount + gas.
+    if (isSui) await pinSuiGasPayment(client, tx, senderAddress, amountNative);
     const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
     return { txBytes: Buffer.from(bytes).toString("base64"), healthBefore, isFixture: false };
   } catch (err) {
@@ -229,6 +232,8 @@ async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<Lend
       await lc.repayIntoObligation(senderAddress, obligationId, coinType, amountNative.toString(), tx);
     }
 
+    // Native-SUI deposits split from tx.gas — pin gas to coins covering amount + gas.
+    if (coinType === COIN_TYPES.SUI) await pinSuiGasPayment(client, tx, senderAddress, amountNative);
     const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
   } catch (err) {

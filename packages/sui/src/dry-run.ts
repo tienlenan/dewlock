@@ -69,9 +69,7 @@ export async function dryRunTransaction(
   const status = response.effects.status?.status;
   if (status !== "success") {
     const errMsg = response.effects.status?.error ?? "unknown revert reason";
-    throw new DryRunFailedError(
-      `Dry-run simulation shows tx would fail on-chain: ${errMsg}`,
-    );
+    throw new DryRunFailedError(toUserRevertMessage(errMsg));
   }
 
   const gasCostMist = extractGasCost(response);
@@ -94,6 +92,22 @@ export class DryRunFailedError extends Error {
     super(message);
     this.name = "DryRunFailedError";
   }
+}
+
+/**
+ * Translate a raw on-chain revert status into a plain, actionable message. Known codes get a
+ * human explanation; the raw code is retained in parentheses for diagnostics. Unknown codes keep
+ * the raw reason verbatim so we never hide a real failure behind vague copy.
+ */
+function toUserRevertMessage(raw: string): string {
+  if (/InsufficientGas/i.test(raw)) {
+    return (
+      "This transaction can't be completed: not enough SUI to cover network gas. " +
+      "If you're swapping or sending SUI, leave a little SUI for gas (or consolidate your SUI " +
+      "into one coin), then try again. (InsufficientGas)"
+    );
+  }
+  return `This transaction would fail on-chain and was not signed: ${raw}`;
 }
 
 function extractGasCost(response: DryRunTransactionBlockResponse): bigint {
