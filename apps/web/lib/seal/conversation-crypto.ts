@@ -10,8 +10,8 @@
 
 import { Transaction } from "@mysten/sui/transactions";
 import { fromHex, normalizeSuiAddress, toBase64, fromBase64 } from "@mysten/sui/utils";
-import type { SessionKey, SealCompatibleClient } from "@mysten/seal";
-import { getSealClient } from "./seal-client";
+import type { SessionKey } from "@mysten/seal";
+import { getSealClient, sealSuiClient } from "./seal-client";
 import { DEWLOCK_SEAL_PACKAGE_ID, SEAL_THRESHOLD } from "./seal-config";
 
 /** Tags our ciphertext so the read path distinguishes it from legacy plaintext JSON records. */
@@ -25,10 +25,9 @@ export function isSealCiphertext(value: unknown): value is string {
 export async function encryptConversation(
   jsonBytes: Uint8Array,
   ownerAddress: string,
-  suiClient: SealCompatibleClient,
 ): Promise<string> {
   const id = normalizeSuiAddress(ownerAddress);
-  const client = getSealClient(suiClient);
+  const client = getSealClient();
   const { encryptedObject } = await client.encrypt({
     threshold: SEAL_THRESHOLD,
     packageId: DEWLOCK_SEAL_PACKAGE_ID,
@@ -44,7 +43,6 @@ export async function decryptConversation(
   tagged: string,
   ownerAddress: string,
   sessionKey: SessionKey,
-  suiClient: SealCompatibleClient,
 ): Promise<Uint8Array> {
   const ciphertext = fromBase64(tagged.slice(MAGIC.length));
   const id = normalizeSuiAddress(ownerAddress);
@@ -53,7 +51,7 @@ export async function decryptConversation(
     target: `${DEWLOCK_SEAL_PACKAGE_ID}::seal_policy::seal_approve`,
     arguments: [tx.pure.vector("u8", fromHex(id))],
   });
-  const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
-  const client = getSealClient(suiClient);
+  const txBytes = await tx.build({ client: sealSuiClient(), onlyTransactionKind: true });
+  const client = getSealClient();
   return client.decrypt({ data: ciphertext, sessionKey, txBytes });
 }

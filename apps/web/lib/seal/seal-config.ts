@@ -12,8 +12,24 @@ import type { KeyServerConfig } from "@mysten/seal";
 
 export type SealNetwork = "mainnet" | "testnet";
 
+/**
+ * Seal network is INDEPENDENT of the app's DeFi network (NEXT_PUBLIC_SUI_NETWORK). It defaults to
+ * "testnet" because the verified mainnet committee key server is permissioned (requires an API key —
+ * "No API key found in request"), whereas the testnet Mysten servers are open. Sui addresses are
+ * network-agnostic and `seal_approve` is pure address equality, so encrypting a mainnet wallet's
+ * conversations against the testnet Seal infra is correct + free. Set NEXT_PUBLIC_SEAL_NETWORK=mainnet
+ * once a mainnet key-server API key (Enoki/provider) is configured.
+ */
 export const SEAL_NETWORK: SealNetwork =
-  (process.env.NEXT_PUBLIC_SUI_NETWORK as SealNetwork) === "testnet" ? "testnet" : "mainnet";
+  (process.env.NEXT_PUBLIC_SEAL_NETWORK as SealNetwork) === "mainnet" ? "mainnet" : "testnet";
+
+const RPC_URL: Record<SealNetwork, string> = {
+  mainnet: "https://fullnode.mainnet.sui.io:443",
+  testnet: "https://fullnode.testnet.sui.io:443",
+};
+
+/** Fullnode URL for the Seal network (used to simulate seal_approve + build the SealClient). */
+export const SEAL_RPC_URL = process.env.NEXT_PUBLIC_SEAL_RPC_URL || RPC_URL[SEAL_NETWORK];
 
 /** Kill-switch (Decision 3): false → saves fall back to plaintext if Seal is unhealthy/disabled. */
 export const SEAL_ENABLED = process.env.NEXT_PUBLIC_SEAL_ENABLED !== "false";

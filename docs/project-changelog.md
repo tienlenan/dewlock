@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-06-19 — Seal client-side encryption for conversations
+
+### Added
+- **Conversation content is now end-to-end encrypted with [Seal](https://seal-docs.wal.app)**
+  (`@mysten/seal` 1.2.0) — stored as ciphertext on Walrus, decryptable **only by the owner's
+  wallet**. The Dewlock server stores `enc` opaquely and can no longer read chat content.
+  - **On-chain policy:** `dewlock_seal::seal_approve(id, ctx)` aborts unless `id == bcs(sender)`
+    (account-based). Published mainnet `0x77aa928f…` + testnet `0x15622655…`.
+  - **Client lib** (`apps/web/lib/seal/`): owns a dedicated Sui client pinned to the **Seal network**
+    (`NEXT_PUBLIC_SEAL_NETWORK`, default **testnet**) — independent of the mainnet DeFi client. Seal
+    runs on testnet because the verified mainnet committee key server is permissioned (needs an API
+    key); the testnet Mysten servers are open + free, and since addresses are network-agnostic and
+    `seal_approve` is pure address equality, a mainnet wallet's conversations encrypt correctly there.
+    `SessionKey` manager (one wallet signature per session, reused), `encryptConversation`/
+    `decryptConversation` with a `dseal1:` magic tag. Identity = `normalizeSuiAddress(owner)` hex so it
+    matches the Move `bcs::to_bytes(&sender)` — **proven by a live testnet round-trip**
+    (`apps/web/lib/seal/__tests__/live-roundtrip-check.mjs`: encrypt→SessionKey→seal_approve→decrypt
+    recovers the bytes). Mainnet encrypt also works; mainnet decrypt is gated on the committee API key.
+  - **Save:** `saveCurrent` encrypts before POST; **kill-switch** (`NEXT_PUBLIC_SEAL_ENABLED`) +
+    fallback to plaintext if Seal is unusable, so history is never bricked (Decision 3).
+  - **Open:** lazy decrypt — the newest thread auto-opens as a `🔒 Sign to view` **locked preview**;
+    the SessionKey signature fires only on an explicit click (so the list still loads with no
+    signature). A rejected signature shows a distinct `decryptError`, never a blank "lost" thread.
+  - **Write-auth gate:** conversation POST/DELETE now require a session-cached wallet signature
+    (`dewlock-conversation-auth`), mirroring contacts — so only the wallet owner can write its
+    conversations (closes the unauthenticated-write / blob-poisoning hole; one prompt/session, not
+    per-autosave).
+- Legacy plaintext threads still open with **no signature** (auto-detected via the tag). Old
+  plaintext is dropped via the existing clear-all (Walrus blobs are immutable → un-referenced).
+
+### Notes
+- **Title stays server-readable by design** (Decision 2): the index keeps the plaintext title so the
+  sidebar/enumeration stay instant — so the index still reveals {address, timeline, opening line}.
+  Not marketed as fully private.
+- **Server still accepts a plaintext fallback write** (red-team #7 not strictly rejected): it conflicts
+  with the Decision-3 kill-switch, and the real downgrade/poisoning threat is already closed by the
+  write-auth gate (only the owner can write at all). A strict reject would only risk silent save
+  failures on a key-server hiccup — worse for the demo than the owner's-own-data fallback.
+- 18 red-team findings applied during planning; the SDK API was pinned to the installed 1.2.0
+  (`getAllowlistedKeyServers` is gone → explicit `serverConfigs`; `SuiJsonRpcClient`).
+
 ## 2026-06-19 — Conversation delete hardened against memwal indexing lag
 
 ### Changed

@@ -23,7 +23,6 @@ import { Menu, Settings, LogOut, PanelLeftOpen, Users } from "lucide-react";
 import {
   useCurrentAccount,
   useDisconnectWallet,
-  useSuiClient,
   useSignPersonalMessage,
 } from "@mysten/dapp-kit";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
@@ -187,8 +186,8 @@ type ChatApi = ReturnType<typeof useCopilotChat>;
 const CONVOS_COLLAPSE_KEY = "dewlock:convos-collapsed";
 
 function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAddress: string; contacts: { name: string; address: string }[] }) {
-  // Seal wiring: suiClient + signPersonalMessage for encrypt/decrypt in useConversations.
-  const suiClient = useSuiClient();
+  // Seal wiring: the wallet personal-message signer (for the SessionKey + the write-auth gate).
+  // The Seal lib owns its own Sui client pinned to the Seal network, so none is passed here.
   const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
 
   // Conversation list + persistence live HERE (always mounted) so saving keeps
@@ -196,9 +195,6 @@ function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAdd
   const convos = useConversations(walletAddress, {
     onLoad: chat.loadMessages,
     onReset: chat.reset,
-    // Cast required: dapp-kit's SuiClient vs. seal's SealCompatibleClient differ at the
-    // type level only (the underlying JSON-RPC shape is identical at runtime).
-    suiClient: suiClient as never,
     signPersonalMessage,
   });
 

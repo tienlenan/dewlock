@@ -8,8 +8,9 @@
  * transparently re-creates + re-prompts.
  */
 
-import { SessionKey, type SealCompatibleClient } from "@mysten/seal";
+import { SessionKey } from "@mysten/seal";
 import { DEWLOCK_SEAL_PACKAGE_ID } from "./seal-config";
+import { sealSuiClient } from "./seal-client";
 
 const TTL_MIN = 30;
 
@@ -20,7 +21,6 @@ const sessions = new Map<string, SessionKey>();
 /** Return a live SessionKey for `address`, creating + signing one if absent/expired (one prompt). */
 export async function ensureSessionKey(
   address: string,
-  suiClient: SealCompatibleClient,
   signPersonalMessage: SignPersonalMessage,
 ): Promise<SessionKey> {
   const existing = sessions.get(address);
@@ -30,7 +30,7 @@ export async function ensureSessionKey(
     address,
     packageId: DEWLOCK_SEAL_PACKAGE_ID,
     ttlMin: TTL_MIN,
-    suiClient,
+    suiClient: sealSuiClient(),
   });
   const { signature } = await signPersonalMessage({ message: sk.getPersonalMessage() });
   await sk.setPersonalMessageSignature(signature);

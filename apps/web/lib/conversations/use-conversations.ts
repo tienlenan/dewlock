@@ -23,14 +23,12 @@ import { isSealUsable } from "@/lib/seal/seal-client";
 import { encryptConversation, decryptConversation, isSealCiphertext } from "@/lib/seal/conversation-crypto";
 import { ensureSessionKey } from "@/lib/seal/session-key";
 import { ensureWriteAuth } from "./conversation-auth-client";
-import type { SealCompatibleClient } from "@mysten/seal";
 
 type SignPersonalMessage = (input: { message: Uint8Array }) => Promise<{ signature: string }>;
 
 interface UseConversationsOpts {
   onLoad: (msgs: ChatMessage[]) => void;
   onReset: () => void;
-  suiClient?: SealCompatibleClient;
   signPersonalMessage?: SignPersonalMessage;
 }
 
@@ -70,7 +68,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   /** Single-flight guard: skip overlapping autosaves while one is in-flight. */
   const saving = useRef(false);
 
-  const { onLoad, onReset, suiClient, signPersonalMessage } = opts;
+  const { onLoad, onReset, signPersonalMessage } = opts;
 
   const refresh = useCallback(async () => {
     if (!wallet) {
@@ -131,21 +129,21 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
 
         // --- Branch enc FIRST (spec: [#9]) ---
         if (record.enc && isSealCiphertext(record.enc)) {
-          // Auto-open without a live suiClient/signPersonalMessage → locked preview.
+          // Auto-open before the user has unlocked this session → locked preview, no prompt.
           if (openOpts?.auto && !sessionReady.current) {
             setLockedId(id);
             return;
           }
-          // Require suiClient + signPersonalMessage to decrypt.
-          if (!suiClient || !signPersonalMessage) {
+          // Need the wallet's personal-message signer to mint a SessionKey.
+          if (!signPersonalMessage) {
             setLockedId(id);
-            setDecryptError("Wallet not connected for decryption");
+            setDecryptError("Connect a wallet to decrypt");
             return;
           }
           try {
-            const sk = await ensureSessionKey(wallet, suiClient, signPersonalMessage);
+            const sk = await ensureSessionKey(wallet, signPersonalMessage);
             sessionReady.current = true;
-            const bytes = await decryptConversation(record.enc, wallet, sk, suiClient);
+            const bytes = await decryptConversation(record.enc, wallet, sk);
             const parsed = JSON.parse(new TextDecoder().decode(bytes)) as Parameters<typeof deserializeMessages>[0];
             const msgs = deserializeMessages(parsed);
             cache.current.set(id, msgs);
@@ -181,7 +179,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [wallet, onLoad, list, suiClient, signPersonalMessage, lockedId],
+    [wallet, onLoad, list, signPersonalMessage, lockedId],
   );
 
   // Auto-open most-recent conversation on first load for a wallet (locked preview).
@@ -267,9 +265,9 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
           updatedAt: now,
         };
 
-        if (isSealUsable() && suiClient) {
+        if (isSealUsable()) {
           try {
-            const enc = await encryptConversation(jsonBytes, wallet, suiClient);
+            const enc = await encryptConversation(jsonBytes, wallet);
             record = { ...base, enc };
           } catch {
             // Encrypt failed (key-server down / kill-switch off) → plaintext fallback (Decision 3).
@@ -307,7 +305,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       }
       return null;
     },
-    [wallet, activeId, suiClient, signPersonalMessage],
+    [wallet, activeId, signPersonalMessage],
   );
 
   /** Explicit unlock: re-open with a forced signature (no auto shortcut). */
