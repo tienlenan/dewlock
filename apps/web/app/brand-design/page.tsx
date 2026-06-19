@@ -10,6 +10,7 @@ import { ColorSwatchesWrapper } from "@/components/brand-design/color-swatches-w
 import { TypeScaleSection } from "@/components/brand-design/type-scale-section";
 import { SpacingShadowsSection } from "@/components/brand-design/spacing-shadows-section";
 import { SampleComponentsSection } from "@/components/brand-design/sample-components-section";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 export const metadata = {
   title: "Brand Design — Dewlock Design System",
@@ -99,20 +100,8 @@ export default function BrandDesignPage() {
             gap: 16,
           }}
         >
-          {/* Dewlock logo mark */}
-          <svg width="17" height="28" viewBox="0 0 16 26" fill="none">
-            <path
-              d="M8 2C8 2 2 8.5 2 13a6 6 0 0 0 12 0C14 8.5 8 2 8 2Z"
-              fill="var(--accent)"
-            />
-            <rect
-              x="5" y="15" width="6" height="6" rx="1.2"
-              fill="var(--bg-dark)"
-              stroke="var(--accent)"
-              strokeWidth="1.5"
-            />
-            <circle cx="8" cy="17.8" r="1" fill="var(--accent-2)" />
-          </svg>
+          {/* Dewlock logo mark — canonical BrandLogo (theme-aware dewdrop) */}
+          <BrandLogo variant="mark" height={28} />
           <div>
             <div
               style={{

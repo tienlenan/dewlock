@@ -211,11 +211,10 @@ export const COPY = {
   footer: {
     tagline: "Every transaction, sealed before you sign.",
     network: "sui:mainnet",
-    disclaimer:
-      "Hackathon preview — unaudited. Use small amounts.",
     links: [
-      { label: "GitHub", href: "https://github.com" },
-      { label: "Docs", href: "#" },
+      { label: "GitHub", href: "https://github.com/tienlenan/dewlock" },
+      { label: "Docs", href: "https://github.com/tienlenan/dewlock/tree/main/docs" },
+      { label: "Brand", href: "/brand-design" },
       { label: "Sui Explorer", href: "https://suiexplorer.com" },
     ],
   },
