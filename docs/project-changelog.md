@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-19 — Copilot: concise text when a tool renders a card
+
+### Fixed
+- **The copilot duplicated card data in verbose prose.** e.g. "send 1 SUI to <name>" produced an
+  "Action / Recipient / Estimated Gas / Expected Balance Change" text block AND the prepareTrade
+  card showing the same fields. Root cause: the persona's `## Format` ("lead-line → preview card →
+  confirm") + "show more information, not less" pushed the model to restate everything. Persona now
+  instructs: when a tool renders a UI card, write AT MOST one short lead-in sentence (+ optional
+  "sealed before you sign — review the card and confirm") and NEVER re-list amounts/addresses/gas/
+  balance/APYs in prose — the card shows them. Fuller replies only for cardless conversational turns
+  (greetings, "what can you do?", general questions, Guardian-block explanations).
+
 ## 2026-06-19 — Fix: swap preview wiped mid-flow by auto-open race (Seal save)
 
 ### Fixed
