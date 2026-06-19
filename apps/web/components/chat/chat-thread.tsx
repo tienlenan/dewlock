@@ -23,6 +23,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { TxPreviewCard } from "@/components/tx-preview-card";
 import { BlockCard } from "@/components/block-card";
+import { Streamdown } from "streamdown";
 import { PortfolioCard } from "@/components/portfolio-card";
 import { ReceiptCard, type ReceiptStatus } from "@/components/receipt-card";
 import { ProtocolList, type ApiResponse as ProtocolsData } from "@/components/protocols/protocol-list";
@@ -311,10 +312,11 @@ function MessageRow({
     <div className="flex gap-3" style={{ animation: "fadeUp 0.3s ease both" }}>
       <DewdropAvatar variant={hasBlock ? "blocked" : "normal"} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Assistant text */}
+        {/* Assistant text — rendered as streaming markdown (Streamdown handles
+            incomplete markdown mid-stream); the blinking cursor follows while streaming. */}
         {(message.text || message.streaming) && (
-          <div style={{ fontSize: "14px", color: "var(--fg)", marginBottom: 10, lineHeight: 1.55, overflowWrap: "anywhere" }}>
-            {message.text}
+          <div className="dewlock-md" style={{ fontSize: "14px", color: "var(--fg)", marginBottom: 10, lineHeight: 1.55, overflowWrap: "anywhere" }}>
+            {message.text && <Streamdown>{message.text}</Streamdown>}
             {message.streaming && (
               <span
                 style={{

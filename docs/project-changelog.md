@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06-19 — Copilot text replies fixed + markdown rendering
+
+### Fixed
+- **The copilot showed nothing for plain-text replies** (e.g. "Hello" → no text, no UI).
+  Pre-existing bug, unrelated to Seal: the `/api/agent` stream parser read `payload.textDelta`,
+  but Mastra 1.42 (AI SDK v5) carries the delta in **`payload.text`** (`textDelta` was removed —
+  it appears 0× in the installed Mastra). Every text delta was silently dropped while tool-result
+  *cards* still rendered, so DeFi commands looked fine but conversational replies were invisible.
+  Now reads `payload.text ?? payload.textDelta` (both shapes). Verified live: "Hello" now streams text.
+
+### Added
+- **Assistant replies render as streaming markdown** via the `streamdown` `<Streamdown>` component
+  (handles incomplete markdown mid-stream) instead of plain text.
+
 ## 2026-06-19 — Seal client-side encryption for conversations
 
 ### Added

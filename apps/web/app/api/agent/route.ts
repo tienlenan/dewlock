@@ -307,7 +307,9 @@ export async function POST(req: NextRequest) {
             const raw = part as Record<string, unknown>;
             const payload = (raw.payload as Record<string, unknown> | undefined) ?? raw;
             if (part.type === "text-delta") {
-              const textDelta = payload.textDelta as string | undefined;
+              // Mastra 1.42 carries the delta in `payload.text` (AI SDK v5). Older
+              // versions used `textDelta` — keep it as a fallback so both shapes work.
+              const textDelta = (payload.text ?? payload.textDelta) as string | undefined;
               if (textDelta) {
                 controller.enqueue(
                   ndjsonLine({ type: "text", text: textDelta }),
