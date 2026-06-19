@@ -5,19 +5,44 @@
  * hook. Lists sessions from /api/conversations, opens one (rehydrating the
  * thread), creates/removes, and saves the current thread (debounced) to Walrus.
  *
- * Fail-soft: when persistence is unavailable the list is empty and saves no-op;
- * the in-memory conversation keeps working.
+ * Encryption: when Seal is usable, saveCurrent Seal-encrypts message content
+ * before POST (the server stores `enc` opaquely). Opening an encrypted thread
+ * lazily creates a SessionKey (1 wallet signature, first open) and decrypts
+ * client-side. Legacy plaintext `messages` records open with no signature.
+ *
+ * Fail-soft: when persistence or Seal is unavailable the hook degrades gracefully —
+ * list is empty / saves fall back to plaintext / decrypt errors show a locked panel.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ChatMessage } from "@/components/chat/chat-thread";
-import type { ConversationIndexEntry } from "./conversation-store";
+import type { ConversationRecord, ConversationIndexEntry } from "./conversation-store";
 import { serializeMessages, deserializeMessages, deriveTitle } from "./serialize";
 import { addDeletedId, clearDeletedIds, reconcileDeletedIds } from "./deleted-ids";
+import { isSealUsable } from "@/lib/seal/seal-client";
+import { encryptConversation, decryptConversation, isSealCiphertext } from "@/lib/seal/conversation-crypto";
+import { ensureSessionKey } from "@/lib/seal/session-key";
+import { ensureWriteAuth } from "./conversation-auth-client";
+import type { SealCompatibleClient } from "@mysten/seal";
+
+type SignPersonalMessage = (input: { message: Uint8Array }) => Promise<{ signature: string }>;
 
 interface UseConversationsOpts {
   onLoad: (msgs: ChatMessage[]) => void;
   onReset: () => void;
+  suiClient?: SealCompatibleClient;
+  signPersonalMessage?: SignPersonalMessage;
+}
+
+/** GET /api/conversations/[id] response shape (enc XOR messages, plus metadata). */
+interface ConversationGetResponse {
+  id?: string;
+  walletAddress?: string;
+  title?: string;
+  createdAt: number;
+  updatedAt?: number;
+  messages?: Parameters<typeof deserializeMessages>[0];
+  enc?: string;
 }
 
 function newId(): string {
@@ -31,14 +56,21 @@ function newId(): string {
 export function useConversations(wallet: string | undefined, opts: UseConversationsOpts) {
   const [list, setList] = useState<ConversationIndexEntry[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  // The conversation currently being fetched (for a loading indicator on its row).
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  /** Id of the thread currently showing the locked-preview (needs explicit unlock). */
+  const [lockedId, setLockedId] = useState<string | null>(null);
+  /** Last decrypt error message, displayed inside the locked overlay. */
+  const [decryptError, setDecryptError] = useState<string | null>(null);
+
   const createdAt = useRef<Record<string, number>>({});
-  // In-memory cache of opened threads (by id) — re-opening is instant, no refetch.
   const cache = useRef<Map<string, ChatMessage[]>>(new Map());
-  // The wallet whose most-recent conversation we've already auto-opened (once per wallet).
   const autoOpenedFor = useRef<string | undefined>(undefined);
-  const { onLoad, onReset } = opts;
+  /** True once the user has produced a SessionKey in this browser session. */
+  const sessionReady = useRef(false);
+  /** Single-flight guard: skip overlapping autosaves while one is in-flight. */
+  const saving = useRef(false);
+
+  const { onLoad, onReset, suiClient, signPersonalMessage } = opts;
 
   const refresh = useCallback(async () => {
     if (!wallet) {
@@ -50,8 +82,6 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       if (!res.ok) return;
       const data: { conversations?: ConversationIndexEntry[] } = await res.json();
       const fetched = data.conversations ?? [];
-      // Hide just-deleted threads that the eventually-consistent index can still return
-      // within ~30-43s of a delete (the server's own tombstone may not have indexed yet).
       const hidden = reconcileDeletedIds(wallet, new Set(fetched.map((c) => c.id)));
       setList(hidden.size > 0 ? fetched.filter((c) => !hidden.has(c.id)) : fetched);
     } catch {
@@ -65,95 +95,140 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
 
   const create = useCallback(() => {
     setActiveId(null);
+    setLockedId(null);
+    setDecryptError(null);
     onReset();
   }, [onReset]);
 
+  /**
+   * Open a conversation by id.
+   * `opts.auto = true` → auto-open path: show locked preview without a signature
+   * prompt when the session hasn't produced a SessionKey yet.
+   */
   const open = useCallback(
-    async (id: string) => {
+    async (id: string, openOpts?: { auto?: boolean }) => {
       if (!wallet) return;
-      // Optimistic: highlight the row IMMEDIATELY so the click feels instant — the
-      // Walrus read that follows is slow, so without this the UI looks unresponsive.
       setActiveId(id);
-      // Instant re-open from the in-memory cache (no network).
+
+      // Cache hit → instant load, clear any locked/error state for this id.
       const cached = cache.current.get(id);
       if (cached) {
         onLoad(cached);
         setLoadingId(null);
+        if (lockedId === id) setLockedId(null);
+        setDecryptError(null);
         return;
       }
+
       setLoadingId(id);
       try {
-        // Pass the blobId we already have from the list → server skips the index recall.
         const blobId = list.find((c) => c.id === id)?.blobId;
         const blobParam = blobId ? `&blobId=${encodeURIComponent(blobId)}` : "";
         const res = await fetch(`/api/conversations/${id}?wallet=${encodeURIComponent(wallet)}${blobParam}`);
         if (!res.ok) return;
-        const record: { messages: Parameters<typeof deserializeMessages>[0]; createdAt: number } = await res.json();
-        createdAt.current[id] = record.createdAt;
-        const msgs = deserializeMessages(record.messages);
-        cache.current.set(id, msgs);
-        onLoad(msgs);
+        const record: ConversationGetResponse = await res.json();
+        if (record.createdAt) createdAt.current[id] = record.createdAt;
+
+        // --- Branch enc FIRST (spec: [#9]) ---
+        if (record.enc && isSealCiphertext(record.enc)) {
+          // Auto-open without a live suiClient/signPersonalMessage → locked preview.
+          if (openOpts?.auto && !sessionReady.current) {
+            setLockedId(id);
+            return;
+          }
+          // Require suiClient + signPersonalMessage to decrypt.
+          if (!suiClient || !signPersonalMessage) {
+            setLockedId(id);
+            setDecryptError("Wallet not connected for decryption");
+            return;
+          }
+          try {
+            const sk = await ensureSessionKey(wallet, suiClient, signPersonalMessage);
+            sessionReady.current = true;
+            const bytes = await decryptConversation(record.enc, wallet, sk, suiClient);
+            const parsed = JSON.parse(new TextDecoder().decode(bytes)) as Parameters<typeof deserializeMessages>[0];
+            const msgs = deserializeMessages(parsed);
+            cache.current.set(id, msgs);
+            onLoad(msgs);
+            setLockedId(null);
+            setDecryptError(null);
+          } catch (err) {
+            // Rejected signature or key-server failure → keep locked panel, do NOT crash.
+            const msg = err instanceof Error ? err.message : "Decryption failed";
+            setDecryptError(msg);
+            setLockedId(id);
+          }
+          return;
+        }
+
+        // --- Legacy plaintext branch ---
+        if (Array.isArray(record.messages)) {
+          const msgs = deserializeMessages(record.messages);
+          cache.current.set(id, msgs);
+          onLoad(msgs);
+          setLockedId(null);
+          setDecryptError(null);
+          return;
+        }
+
+        // Record has neither enc nor messages — explicitly unreadable.
+        setDecryptError("Conversation data is unreadable");
+        setLockedId(id);
       } catch {
-        /* fail-soft — the optimistic highlight stays; the thread just isn't replaced */
+        /* fail-soft — optimistic highlight stays; thread not replaced */
       } finally {
         setLoadingId((cur) => (cur === id ? null : cur));
       }
     },
-    [wallet, onLoad, list],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wallet, onLoad, list, suiClient, signPersonalMessage, lockedId],
   );
 
-  // On first load for a wallet, auto-open the most-recent conversation (the store sorts
-  // the list updatedAt-desc, so list[0] is newest) — the user lands on their latest thread
-  // instead of a blank screen. Fires ONCE per wallet (the autoOpenedFor guard), so it
-  // never re-yanks the user out of a thread they later open or a new one they start; a
-  // different wallet auto-opens its own latest.
+  // Auto-open most-recent conversation on first load for a wallet (locked preview).
   useEffect(() => {
     if (!wallet || list.length === 0 || autoOpenedFor.current === wallet) return;
     autoOpenedFor.current = wallet;
-    void open(list[0].id);
+    void open(list[0].id, { auto: true });
   }, [wallet, list, open]);
 
   const remove = useCallback(
     async (id: string) => {
       if (!wallet) return;
-      // Optimistic: drop the row from the UI immediately. The backend (memwal/Walrus)
-      // is slow (~30s) AND eventually-consistent, so awaiting it then refresh()-ing
-      // reads a stale index and the row reappears — looking like "delete didn't work".
-      // We update local state now and sync in the background; roll back only on a
-      // confirmed failure. No post-delete refresh (it would race the stale index).
       const prev = list;
       setList((cur) => cur.filter((c) => c.id !== id));
-      // Persist the delete client-side so a reload within the index's ~30-43s lag doesn't
-      // resurrect the row (the server tombstone may not have indexed yet). Self-cleans once
-      // the server stops returning this id.
       addDeletedId(wallet, id);
       if (activeId === id) {
         setActiveId(null);
+        setLockedId(null);
+        setDecryptError(null);
         onReset();
       }
       try {
-        const res = await fetch(`/api/conversations/${id}?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });
+        // Auth gate: pass session write-auth as query params (DELETE has no standard body).
+        let authQuery = "";
+        if (signPersonalMessage) {
+          const auth = await ensureWriteAuth(wallet, signPersonalMessage);
+          authQuery = `&message=${encodeURIComponent(auth.message)}&signature=${encodeURIComponent(auth.signature)}`;
+        }
+        const res = await fetch(
+          `/api/conversations/${id}?wallet=${encodeURIComponent(wallet)}${authQuery}`,
+          { method: "DELETE" },
+        );
         if (!res.ok) throw new Error(`delete ${res.status}`);
       } catch {
-        setList(prev); // restore the row on failure
+        setList(prev);
       }
     },
-    [wallet, activeId, list, onReset],
+    [wallet, activeId, list, onReset, signPersonalMessage],
   );
 
-  /** Delete every saved conversation for this wallet, then reset to a fresh thread.
-   * One bulk DELETE (atomic empty-index write) — deleting per-id in parallel races
-   * on the shared index blob and silently keeps most conversations. Optimistic:
-   * clears the list instantly + syncs in the background (rolls back on failure). */
   const clearAll = useCallback(async () => {
     if (!wallet || list.length === 0) return;
     const prev = list;
     setList([]);
     setActiveId(null);
-    // Drop every client-side trace so nothing can resurrect a cleared thread within the
-    // session: the in-memory thread cache, the created-at stamps, and the per-wallet
-    // deleted-ids hint (everything is gone now, so the soft-delete filter is moot). The
-    // conversation DATA itself lives only in Walrus — there is no browser-storage copy of it.
+    setLockedId(null);
+    setDecryptError(null);
     cache.current.clear();
     createdAt.current = {};
     clearDeletedIds(wallet);
@@ -162,7 +237,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`clear ${res.status}`);
     } catch {
-      setList(prev); // restore on failure
+      setList(prev);
     }
   }, [wallet, list, onReset]);
 
@@ -170,44 +245,88 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const saveCurrent = useCallback(
     async (messages: ChatMessage[]): Promise<string | null> => {
       if (!wallet || messages.length === 0) return null;
-      const id = activeId ?? newId();
-      const now = Date.now();
-      if (!createdAt.current[id]) createdAt.current[id] = now;
-      const record = {
-        id,
-        walletAddress: wallet,
-        title: deriveTitle(messages),
-        createdAt: createdAt.current[id],
-        updatedAt: now,
-        messages: serializeMessages(messages),
-      };
+      // Single-flight guard: skip if an encrypt+save is already in-flight (prevents racing autosaves).
+      if (saving.current) return null;
+      saving.current = true;
+
       try {
+        const id = activeId ?? newId();
+        const now = Date.now();
+        if (!createdAt.current[id]) createdAt.current[id] = now;
+
+        const serialized = serializeMessages(messages);
+        const jsonBytes = new TextEncoder().encode(JSON.stringify(serialized));
+
+        // Build record: encrypt if Seal is usable + suiClient present, else plaintext fallback.
+        let record: Omit<ConversationRecord, "messages" | "enc"> & { messages?: ConversationRecord["messages"]; enc?: string };
+        const base = {
+          id,
+          walletAddress: wallet,
+          title: deriveTitle(messages),
+          createdAt: createdAt.current[id],
+          updatedAt: now,
+        };
+
+        if (isSealUsable() && suiClient) {
+          try {
+            const enc = await encryptConversation(jsonBytes, wallet, suiClient);
+            record = { ...base, enc };
+          } catch {
+            // Encrypt failed (key-server down / kill-switch off) → plaintext fallback (Decision 3).
+            // The save still completes; the in-memory thread is preserved.
+            record = { ...base, messages: serialized };
+          }
+        } else {
+          record = { ...base, messages: serialized };
+        }
+
+        // Require write-auth if signPersonalMessage is available.
+        let authFields: { message: string; signature: string } | null = null;
+        if (signPersonalMessage) {
+          authFields = await ensureWriteAuth(wallet, signPersonalMessage);
+        }
+
+        const body = authFields ? { ...record, ...authFields } : record;
         const res = await fetch("/api/conversations", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(record),
+          body: JSON.stringify(body),
         });
         const data: { ok?: boolean; blobId?: string } = await res.json().catch(() => ({}));
         if (data.ok) {
-          // Keep the cache fresh so re-opening this thread shows the just-saved version.
           cache.current.set(id, messages);
           if (!activeId) setActiveId(id);
-          // Optimistically reflect the save in the sidebar NOW. The memwal index pointer is
-          // queued (rememberBulk, ~30-43s to index), so a refresh() here would read the
-          // pre-save index and DROP the just-saved conversation from the list until indexing
-          // catches up — looking like "it didn't save". The blob is already durably
-          // published, so this row (with its real blobId) opens correctly.
-          const entry: ConversationIndexEntry = { id, title: record.title, updatedAt: now, blobId: data.blobId ?? "" };
+          const entry: ConversationIndexEntry = { id, title: base.title, updatedAt: now, blobId: data.blobId ?? "" };
           setList((cur) => [entry, ...cur.filter((c) => c.id !== id)]);
           return id;
         }
       } catch {
-        /* fail-soft */
+        /* fail-soft — in-memory thread kept; save silently no-ops */
+      } finally {
+        saving.current = false;
       }
       return null;
     },
-    [wallet, activeId],
+    [wallet, activeId, suiClient, signPersonalMessage],
   );
 
-  return { list, activeId, loadingId, create, open, remove, clearAll, saveCurrent };
+  /** Explicit unlock: re-open with a forced signature (no auto shortcut). */
+  const unlock = useCallback(
+    (id: string) => open(id),
+    [open],
+  );
+
+  return {
+    list,
+    activeId,
+    loadingId,
+    lockedId,
+    decryptError,
+    create,
+    open,
+    unlock,
+    remove,
+    clearAll,
+    saveCurrent,
+  };
 }

@@ -32,7 +32,10 @@ export interface ConversationRecord {
   title: string;
   createdAt: number;
   updatedAt: number;
-  messages: SerializableMessage[];
+  /** Plaintext serialized messages (legacy; omitted when `enc` is present). */
+  messages?: SerializableMessage[];
+  /** Seal-encrypted ciphertext (tagged base64, "dseal1:…"); server stores opaquely. */
+  enc?: string;
 }
 
 const POINTER_PREFIX = "conversation-index:";

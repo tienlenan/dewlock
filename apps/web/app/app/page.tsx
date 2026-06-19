@@ -23,6 +23,8 @@ import { Menu, Settings, LogOut, PanelLeftOpen, Users } from "lucide-react";
 import {
   useCurrentAccount,
   useDisconnectWallet,
+  useSuiClient,
+  useSignPersonalMessage,
 } from "@mysten/dapp-kit";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
 import { useSuiGasBalance } from "@/lib/use-sui-gas-balance";
@@ -185,9 +187,20 @@ type ChatApi = ReturnType<typeof useCopilotChat>;
 const CONVOS_COLLAPSE_KEY = "dewlock:convos-collapsed";
 
 function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAddress: string; contacts: { name: string; address: string }[] }) {
+  // Seal wiring: suiClient + signPersonalMessage for encrypt/decrypt in useConversations.
+  const suiClient = useSuiClient();
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
+
   // Conversation list + persistence live HERE (always mounted) so saving keeps
   // working while the panel is collapsed/hidden.
-  const convos = useConversations(walletAddress, { onLoad: chat.loadMessages, onReset: chat.reset });
+  const convos = useConversations(walletAddress, {
+    onLoad: chat.loadMessages,
+    onReset: chat.reset,
+    // Cast required: dapp-kit's SuiClient vs. seal's SealCompatibleClient differ at the
+    // type level only (the underlying JSON-RPC shape is identical at runtime).
+    suiClient: suiClient as never,
+    signPersonalMessage,
+  });
 
   // Debounced persist — ~1.5s after activity settles, never mid-stream.
   useEffect(() => {
@@ -251,6 +264,69 @@ function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAdd
           </button>
         )}
         <ChatThread messages={chat.messages} onReplaceCard={chat.onReplaceCard} walletAddress={walletAddress} onSend={(t) => void chat.sendMessage(t)} />
+        {/* Locked overlay — shown when the active conversation is encrypted and awaiting explicit unlock */}
+        {convos.lockedId && convos.lockedId === convos.activeId && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(var(--bg-rgb, 10,10,14), 0.82)",
+              backdropFilter: "blur(6px)",
+              zIndex: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 14,
+                padding: "28px 32px",
+                border: "1px solid var(--border)",
+                borderRadius: 14,
+                background: "var(--bg-elev)",
+                boxShadow: "var(--shadow-md)",
+                maxWidth: 340,
+                textAlign: "center",
+              }}
+            >
+              <span style={{ fontSize: 28 }} aria-hidden>🔒</span>
+              <p style={{ fontSize: "14.5px", fontWeight: 600, color: "var(--fg)", margin: 0 }}>
+                This conversation is encrypted
+              </p>
+              <p style={{ fontSize: "12.5px", color: "var(--fg-muted)", margin: 0, lineHeight: 1.5 }}>
+                Content is sealed to your wallet. Sign once to decrypt for this session.
+              </p>
+              {convos.decryptError && (
+                <p style={{ fontSize: "11.5px", color: "var(--destructive)", margin: 0 }}>
+                  {convos.decryptError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void convos.unlock(convos.activeId!)}
+                style={{
+                  padding: "8px 20px",
+                  border: "1px solid var(--accent)",
+                  borderRadius: 8,
+                  background: "var(--accent)",
+                  color: "#fff",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "opacity 120ms",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.85"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+              >
+                Sign to view
+              </button>
+            </div>
+          </div>
+        )}
         <ChatInput
           onSendText={(t) => void chat.sendMessage(t)}
           disabled={chat.isStreaming}
