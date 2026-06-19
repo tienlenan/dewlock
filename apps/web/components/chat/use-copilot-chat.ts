@@ -195,6 +195,14 @@ function nextId() {
   return `msg-${++idSeq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// The swap-form card appends a deterministic token-binding marker to its command
+// ([[swap:in=…|out=…|src=…]]); the server reads it, the user shouldn't see it. Strip it (and any
+// trailing space) from the displayed bubble. Format kept in sync with parse-intent SWAP_BIND_RE.
+const SWAP_BIND_MARKER = /\s*\[\[swap:in=[^|\]]+\|out=[^|\]]+(?:\|src=[^\]]+)?\]\]/i;
+function stripSwapBindMarker(text: string): string {
+  return text.replace(SWAP_BIND_MARKER, "").trim();
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -260,10 +268,15 @@ export function useCopilotChat(
     async (text: string) => {
       if (isStreaming) return;
 
+      // The swap-form card appends a deterministic token-binding marker
+      // ([[swap:in=…|out=…|src=…]]). Show a clean bubble, but send the FULL text (with marker)
+      // to the agent so the server-side intent parser binds the exact coin types.
+      const displayText = stripSwapBindMarker(text);
+
       const userMsg: ChatMessage = {
         id: nextId(),
         role: "user",
-        text,
+        text: displayText,
         cards: [],
       };
 
@@ -278,11 +291,13 @@ export function useCopilotChat(
         streaming: true,
       };
 
-      // Snapshot history before state update for the fetch body
-      const historyForAgent = [...messages, userMsg].map((m) => ({
-        role: m.role,
-        content: m.text,
-      }));
+      // Snapshot history before state update for the fetch body. Prior messages use their
+      // already-clean display text; the just-sent turn sends the FULL text (with the binding
+      // marker) so the server-side intent parser can bind the exact coin types.
+      const historyForAgent = [
+        ...messages.map((m) => ({ role: m.role, content: m.text })),
+        { role: "user" as const, content: text },
+      ];
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);

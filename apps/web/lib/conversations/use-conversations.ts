@@ -19,6 +19,13 @@ import type { ChatMessage } from "@/components/chat/chat-thread";
 import type { ConversationRecord, ConversationIndexEntry } from "./conversation-store";
 import { serializeMessages, deserializeMessages, deriveTitle } from "./serialize";
 import { addDeletedId, clearDeletedIds, reconcileDeletedIds } from "./deleted-ids";
+import {
+  recordLocalEntry,
+  removeLocalEntry,
+  clearLocalEntries,
+  readLocalEntries,
+  mergeServerEntries,
+} from "./local-index";
 import { isSealUsable } from "@/lib/seal/seal-client";
 import { encryptConversation, decryptConversation, isSealCiphertext } from "@/lib/seal/conversation-crypto";
 import { ensureSessionKey } from "@/lib/seal/session-key";
@@ -91,13 +98,21 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       setList([]);
       return;
     }
+    // Hydrate the client's just-saved entries FIRST. The server's memwal index pointer lags
+    // ~30-43s, so without this a reload would resolve an older blob (fewer messages). Local
+    // entries carry the authoritative newest blobId until the server pointer catches up; they
+    // already exclude same-device deletions, so no deleted-id filter is needed on this pass.
+    const localFirst = readLocalEntries(wallet);
+    if (localFirst.length > 0) setList(localFirst);
     try {
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`);
       if (!res.ok) return;
       const data: { conversations?: ConversationIndexEntry[] } = await res.json();
-      const fetched = data.conversations ?? [];
-      const hidden = reconcileDeletedIds(wallet, new Set(fetched.map((c) => c.id)));
-      setList(hidden.size > 0 ? fetched.filter((c) => !hidden.has(c.id)) : fetched);
+      // Merge local-fresh entries over the (possibly stale) server list; self-cleans entries
+      // the server has caught up on. Server still owns existence — deleted/cleared ids stay gone.
+      const merged = mergeServerEntries(wallet, data.conversations ?? []);
+      const hidden = reconcileDeletedIds(wallet, new Set(merged.map((c) => c.id)));
+      setList(hidden.size > 0 ? merged.filter((c) => !hidden.has(c.id)) : merged);
     } catch {
       /* fail-soft */
     }
@@ -218,6 +233,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       const prev = list;
       setList((cur) => cur.filter((c) => c.id !== id));
       addDeletedId(wallet, id);
+      removeLocalEntry(wallet, id);
       if (activeId === id) {
         idRef.current = null;
         setActiveId(null);
@@ -255,6 +271,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     cache.current.clear();
     createdAt.current = {};
     clearDeletedIds(wallet);
+    clearLocalEntries(wallet);
     onReset();
     try {
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });
@@ -332,6 +349,8 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
           cache.current.set(id, messages);
           if (activeId !== id) setActiveId(id);
           const entry: ConversationIndexEntry = { id, title: base.title, updatedAt: now, blobId: data.blobId ?? "" };
+          // Persist the freshest blobId so a reload uses it before the server pointer catches up.
+          recordLocalEntry(wallet, entry);
           setList((cur) => [entry, ...cur.filter((c) => c.id !== id)]);
           return id;
         }

@@ -286,9 +286,12 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
   function submit() {
     if (!canSubmit) return;
     setSubmitted(true);
-    // Thread the chosen source into the command so prepareTrade + Guardian
-    // both route to the same source and re-derive min-out consistently.
-    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol} via ${selectedSource}`);
+    // Thread the chosen source into the command so prepareTrade + Guardian both route to the
+    // same source and re-derive min-out consistently. The trailing marker carries the EXACT
+    // allowlisted coin types so the server binds tokens deterministically (the LLM never re-maps
+    // a ticker); it is stripped from the visible bubble by use-copilot-chat.
+    const bind = `[[swap:in=${from.coinType}|out=${to.coinType}|src=${selectedSource}]]`;
+    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol} via ${selectedSource} ${bind}`);
   }
 
   const activeQuote = sourceQuotes[selectedSource];
