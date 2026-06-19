@@ -19,7 +19,8 @@
  * rendered so the UI communicates the eventual intent without inventing data.
  */
 
-import { ArrowLeftRight, Send } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowLeftRight, Send, MoreVertical } from "lucide-react";
 import { CoinLogo } from "@/components/chat/asset-logos";
 
 export interface PortfolioBalance {
@@ -151,6 +152,80 @@ function RowActionButton({
   );
 }
 
+// ── Row actions: inline icons on desktop, a compact kebab context-menu on mobile ──
+function RowActions({
+  ticker,
+  onAction,
+}: {
+  ticker: string;
+  onAction: (kind: "swap" | "send", ticker: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // Anchor the menu with fixed positioning so it escapes the card's overflow:hidden clip.
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+    setOpen(true);
+  };
+
+  const item = (label: string, Icon: typeof ArrowLeftRight, kind: "swap" | "send") => (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => { onAction(kind, ticker); setOpen(false); }}
+      className="flex items-center gap-2 w-full text-left transition-colors"
+      style={{ padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--fg)", fontSize: 13, cursor: "pointer" }}
+    >
+      <Icon size={14} aria-hidden /> {label} {ticker}
+    </button>
+  );
+
+  return (
+    <>
+      {/* Desktop: inline icon buttons */}
+      <div className="hidden sm:flex items-center gap-1 shrink-0">
+        <RowActionButton label={`Swap ${ticker}`} onClick={() => onAction("swap", ticker)}>
+          <ArrowLeftRight size={13} aria-hidden />
+        </RowActionButton>
+        <RowActionButton label={`Send ${ticker}`} onClick={() => onAction("send", ticker)}>
+          <Send size={13} aria-hidden />
+        </RowActionButton>
+      </div>
+
+      {/* Mobile: one kebab → fixed-position context menu (compact) */}
+      <div className="sm:hidden shrink-0">
+        <button
+          ref={btnRef}
+          type="button"
+          aria-label={`Actions for ${ticker}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={openMenu}
+          className="flex items-center justify-center"
+          style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-sub)", color: "var(--fg-muted)", cursor: "pointer" }}
+        >
+          <MoreVertical size={15} aria-hidden />
+        </button>
+        {open && pos && (
+          <>
+            <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+            <div
+              role="menu"
+              style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 61, minWidth: 140, background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-md)", padding: 5 }}
+            >
+              {item("Swap", ArrowLeftRight, "swap")}
+              {item("Send", Send, "send")}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ── Coin row ──────────────────────────────────────────────────────────────────
 
 interface CoinRowProps {
@@ -206,8 +281,9 @@ function CoinRow({ b, pct, pctColor, onAction }: CoinRowProps) {
           </div>
         </div>
 
-        {/* Numbers + actions cluster — its own line on mobile, right-aligned on sm+ */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Numbers + actions cluster — its own line on mobile, right-aligned on sm+.
+            items-start so the balance + value numbers line up at the top. */}
+        <div className="flex items-start gap-3 shrink-0">
           {/* Balance + unit price */}
           <div className="text-left sm:text-right shrink-0">
             <div className="mono" style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
@@ -231,23 +307,8 @@ function CoinRow({ b, pct, pctColor, onAction }: CoinRowProps) {
             </div>
           </div>
 
-          {/* Quick actions — prefill a chat intent */}
-          {onAction && (
-            <div className="flex items-center gap-1 shrink-0">
-              <RowActionButton
-                label={`Sell ${b.displayTicker}`}
-                onClick={() => onAction("swap", b.displayTicker)}
-              >
-                <ArrowLeftRight size={13} aria-hidden />
-              </RowActionButton>
-              <RowActionButton
-                label={`Send ${b.displayTicker}`}
-                onClick={() => onAction("send", b.displayTicker)}
-              >
-                <Send size={13} aria-hidden />
-              </RowActionButton>
-            </div>
-          )}
+          {/* Quick actions — inline icons on desktop, compact kebab menu on mobile */}
+          {onAction && <RowActions ticker={b.displayTicker} onAction={onAction} />}
         </div>
       </div>
     </div>

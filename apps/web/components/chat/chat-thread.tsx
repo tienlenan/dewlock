@@ -383,7 +383,8 @@ function CardSlot({
         onAction={
           onSend
             ? (kind, ticker) =>
-                onSend(kind === "swap" ? `Sell all ${ticker}` : `Send ${ticker}`)
+                // Swap → open the swap form (user picks amount); never auto "sell all".
+                onSend(kind === "swap" ? `swap ${ticker}` : `Send ${ticker}`)
             : undefined
         }
       />
