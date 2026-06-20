@@ -183,58 +183,24 @@ function ConnectGate() {
 // ---------------------------------------------------------------------------
 
 type ChatApi = ReturnType<typeof useCopilotChat>;
+type ConvosApi = ReturnType<typeof useConversations>;
 
 const CONVOS_COLLAPSE_KEY = "dewlock:convos-collapsed";
 
-function ChatShell({ chat, walletAddress, contacts }: { chat: ChatApi; walletAddress: string; contacts: { name: string; address: string }[] }) {
-  // Seal wiring: the wallet personal-message signer (for the SessionKey + the write-auth gate).
-  // The Seal lib owns its own Sui client pinned to the Seal network, so none is passed here.
-  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
-
-  // Conversation list + persistence live HERE (always mounted) so saving keeps
-  // working while the panel is collapsed/hidden.
-  const convos = useConversations(walletAddress, {
-    onLoad: chat.loadMessages,
-    onReset: chat.reset,
-    signPersonalMessage,
-  });
-
-  // Debounced persist — ~1.5s after activity settles, never mid-stream. Keys off
-  // chat.messages so it also captures post-stream card swaps (tx-preview → receipt
-  // after the user signs), which an isStreaming-edge trigger would miss.
-  useEffect(() => {
-    if (chat.isStreaming || chat.messages.length === 0) return;
-    const t = setTimeout(() => void convos.saveCurrent(chat.messages), 1500);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.messages, chat.isStreaming]);
-
-  // Durability backstop — the debounce above loses the last turn if the user
-  // leaves (tab close / switch / SPA nav) before the 1.5s timer fires. Flush the
-  // freshest thread when the page is hidden and on unmount. visibilitychange
-  // (hidden) is the reliable cross-platform leave signal — beforeunload is dropped
-  // on mobile — and the page stays alive on hide so the async encrypt + POST can
-  // finish. Refs keep this listener registered once while still flushing the
-  // latest messages through the current save closure.
-  const latestMessagesRef = useRef(chat.messages);
-  latestMessagesRef.current = chat.messages;
-  const convosRef = useRef(convos);
-  convosRef.current = convos;
-  useEffect(() => {
-    const flush = () => {
-      const msgs = latestMessagesRef.current;
-      if (msgs.length > 0) void convosRef.current.saveCurrent(msgs);
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      flush();
-    };
-  }, []);
-
+function ChatShell({
+  chat,
+  convos,
+  walletAddress,
+  contacts,
+}: {
+  chat: ChatApi;
+  // Conversation list + persistence are owned by AppPage (always mounted), passed in so a
+  // view switch (chat ↔ dashboard ↔ protocols) never unmounts the hook and loses the active
+  // conversation id — which made the next autosave write a DUPLICATE conversation.
+  convos: ConvosApi;
+  walletAddress: string;
+  contacts: { name: string; address: string }[];
+}) {
   // Collapse = fully hide the panel (persisted). When hidden, an expand button
   // appears at the top-left of the chat column.
   const [collapsed, setCollapsed] = useState(false);
@@ -371,6 +337,51 @@ export default function AppPage() {
   // Chat thread is the single source for the chat column. Conversation history
   // (list + persistence) is self-contained in AppSidebar, bound via the chat callbacks.
   const chat = useCopilotChat(account?.address ?? "", contactsApi.contacts);
+
+  // Conversation list + persistence live at the PAGE level — the SAME level as `chat`, which
+  // is always mounted. Switching views unmounts only the body (ChatShell), so keeping the
+  // conversation hook here means the active conversation id (idRef/activeId) survives a view
+  // switch. Previously this lived in ChatShell: a switch reset the id, so the next autosave
+  // wrote a DUPLICATE conversation (same content under a fresh id).
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
+  const convos = useConversations(account?.address, {
+    onLoad: chat.loadMessages,
+    onReset: chat.reset,
+    signPersonalMessage,
+  });
+
+  // Debounced persist — ~1.5s after activity settles, never mid-stream. Keys off
+  // chat.messages so it also captures post-stream card swaps (tx-preview → receipt after
+  // the user signs), which an isStreaming-edge trigger would miss.
+  useEffect(() => {
+    if (chat.isStreaming || chat.messages.length === 0) return;
+    const t = setTimeout(() => void convos.saveCurrent(chat.messages), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.messages, chat.isStreaming]);
+
+  // Durability backstop — flush the freshest thread when the page is hidden / on unmount
+  // (the 1.5s debounce loses the last turn if the user leaves first). visibilitychange
+  // (hidden) is the reliable cross-platform leave signal — beforeunload is dropped on mobile.
+  // Refs keep the listener registered once while flushing the latest messages.
+  const latestMessagesRef = useRef(chat.messages);
+  latestMessagesRef.current = chat.messages;
+  const convosRef = useRef(convos);
+  convosRef.current = convos;
+  useEffect(() => {
+    const flush = () => {
+      const msgs = latestMessagesRef.current;
+      if (msgs.length > 0) void convosRef.current.saveCurrent(msgs);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, []);
 
   // Honor a ?view= deep link (the old /dashboard, /protocols, /bridge routes
   // redirect here) so there's a single UI but links still land on the right view.
@@ -597,7 +608,7 @@ export default function AppPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
         >
           {view === "chat" ? (
-            account ? <ChatShell chat={chat} walletAddress={account.address} contacts={contactsApi.contacts} /> : <ConnectGate />
+            account ? <ChatShell chat={chat} convos={convos} walletAddress={account.address} contacts={contactsApi.contacts} /> : <ConnectGate />
           ) : (
             <div
               className="flex-1 overflow-y-auto"
