@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { ProtocolLogo } from "./asset-logos";
+import { fetchJsonWithRetry } from "@/lib/fetch-with-retry";
 
 export interface LendOption {
   protocol: string;
@@ -44,17 +45,19 @@ export function LendOptionsCard({
   const [chosen, setChosen] = useState<string | null>(null);
 
   // Self-fetch live supply APY (fail-soft — leaves entries undefined → "—").
+  // Auto-retry up to 3× so a cold-path first load still shows live APY instead of "—".
   useEffect(() => {
+    let cancelled = false;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    fetch(`/api/lend-options?coin=${encodeURIComponent(data.coinType)}`, { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: { apyByProtocol?: Record<string, number | null> }) => setApy(d.apyByProtocol ?? {}))
-      .catch(() => setApy({}))
-      .finally(() => clearTimeout(timer));
+    fetchJsonWithRetry<{ apyByProtocol?: Record<string, number | null> }>(
+      `/api/lend-options?coin=${encodeURIComponent(data.coinType)}`,
+      { attempts: 3, timeoutMs: 8000, signal: ctrl.signal },
+    )
+      .then((d) => { if (!cancelled) setApy(d.apyByProtocol ?? {}); })
+      .catch(() => { if (!cancelled) setApy({}); });
     return () => {
+      cancelled = true;
       ctrl.abort();
-      clearTimeout(timer);
     };
   }, [data.coinType]);
 

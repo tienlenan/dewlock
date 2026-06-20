@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { ProtocolLogo } from "./asset-logos";
+import { fetchJsonWithRetry } from "@/lib/fetch-with-retry";
 import type { ApiResponse, ProtocolDto } from "@/components/protocols/protocol-list";
 
 interface SupportedProtocol {
@@ -50,20 +51,18 @@ export function SupportedProtocolsCard({ onSend }: { onSend?: (text: string) => 
   useEffect(() => {
     let cancelled = false;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    fetch("/api/protocols", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: ApiResponse) => {
+    // Auto-retry up to 3× so a cold-path first load still resolves the LIVE list; on final
+    // failure we silently keep FALLBACK (this card has no error UI by design).
+    fetchJsonWithRetry<ApiResponse>("/api/protocols", { attempts: 3, timeoutMs: 8000, signal: ctrl.signal })
+      .then((d) => {
         if (!cancelled && Array.isArray(d.active)) setItems(toSupported(d.active));
       })
       .catch(() => {
         /* keep FALLBACK */
-      })
-      .finally(() => clearTimeout(timer));
+      });
     return () => {
       cancelled = true;
       ctrl.abort();
-      clearTimeout(timer);
     };
   }, []);
 

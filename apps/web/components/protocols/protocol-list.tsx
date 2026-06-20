@@ -11,7 +11,8 @@
  * Reads GET /api/protocols. Pure presentation of public posture data.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { fetchJsonWithRetry } from "@/lib/fetch-with-retry";
 
 interface Incident {
   date: string;
@@ -114,28 +115,39 @@ function Section({ title, subtitle, items }: { title: string; subtitle: string; 
 export function ProtocolList({ data: initial }: { data?: ApiResponse } = {}) {
   const [data, setData] = useState<ApiResponse | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0); // bumped by the Retry button
 
   useEffect(() => {
     if (initial) return; // data supplied (e.g. from a chat tool result) — skip the fetch
     let cancelled = false;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    fetch("/api/protocols", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: ApiResponse) => !cancelled && setData(d))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => clearTimeout(timer));
+    setError(null);
+    // Auto-retry up to 3× (cold path can exceed the per-attempt timeout); manual Retry below.
+    fetchJsonWithRetry<ApiResponse>("/api/protocols", { attempts: 3, timeoutMs: 8000, signal: ctrl.signal })
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled && !ctrl.signal.aborted) setError(e instanceof Error ? e.message : "Failed to load"); });
     return () => {
       cancelled = true;
       ctrl.abort();
-      clearTimeout(timer);
     };
-  }, [initial]);
+  }, [initial, reloadKey]);
+
+  const retry = useCallback(() => { setData(null); setError(null); setReloadKey((k) => k + 1); }, []);
 
   if (error) {
     return (
-      <div style={{ padding: "24px", textAlign: "center", color: "var(--destructive)", fontSize: 13 }}>
-        Couldn’t load the protocol registry ({error}).
+      <div className="flex flex-col items-center gap-3" style={{ padding: "24px", textAlign: "center", color: "var(--destructive)", fontSize: 13 }}>
+        <span>Couldn’t load the protocol registry.</span>
+        <button
+          type="button"
+          onClick={retry}
+          className="split-mono transition-colors"
+          style={{ fontSize: 11, letterSpacing: "0.08em", color: "var(--fg-muted)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 12px" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--fg)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--fg-muted)"; }}
+        >
+          Retry
+        </button>
       </div>
     );
   }

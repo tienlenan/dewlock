@@ -16,6 +16,7 @@ import { ArrowDown, ChevronDown, Route } from "lucide-react";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 import { CoinLogo } from "./asset-logos";
 import { useCoinBalance } from "@/lib/use-coin-balance";
+import { fetchJsonWithRetry } from "@/lib/fetch-with-retry";
 
 // Keep ~0.05 SUI for gas when using MAX/50% on the native gas coin.
 const SUI_GAS_RESERVE_NATIVE = 50_000_000n;
@@ -245,11 +246,12 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
         estimatedAmountOut?: string;
         routeProviders?: string[];
       };
-      fetch(
+      // Auto-retry the indicative quote (2×) so a cold-path miss still shows a route
+      // without the user re-typing; the signal cancels stale retries on the next keystroke.
+      fetchJsonWithRetry<ApiResponse>(
         `/api/swap-quote?in=${encodeURIComponent(from.coinType)}&out=${encodeURIComponent(to.coinType)}&amount=${native}`,
-        { signal: ctrl.signal },
+        { attempts: 2, timeoutMs: 8000, signal: ctrl.signal },
       )
-        .then((r) => r.json() as Promise<ApiResponse>)
         .then((d) => {
           const quotes: Partial<Record<SwapSource, SourceQuote>> = {};
           if (d.sources) {
@@ -271,6 +273,8 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
           setQuotesLoading(false);
         })
         .catch(() => {
+          // Ignore a cancel from the next keystroke (a fresh fetch is already starting).
+          if (ctrl.signal.aborted) return;
           setSourceQuotes({ aggregator: { available: false }, aftermath: { available: false } });
           setQuotesLoading(false);
         });
