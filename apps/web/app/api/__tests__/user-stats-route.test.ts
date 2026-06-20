@@ -28,6 +28,13 @@ vi.mock("@/lib/blockvision/client", () => ({
   }),
 }));
 
+// Cache disabled in tests → the route derives live exactly as before (no Redis / server-only).
+vi.mock("@/lib/user-stats/stats-cache", () => ({
+  readStatsCache: async () => null,
+  writeStatsCache: async () => {},
+  invalidateStatsCache: async () => {},
+}));
+
 import { GET } from "../user-stats/route";
 
 const ADDR = "0x" + "1".repeat(64);

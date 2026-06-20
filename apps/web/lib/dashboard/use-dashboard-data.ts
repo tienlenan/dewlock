@@ -30,6 +30,9 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const lastWallet = useRef<string | undefined>(undefined);
+  // True for a post-tx re-poll → append &fresh=1 so the server re-derives from the
+  // authoritative source and overwrites the cache (instead of serving the stale cached value).
+  const forceFresh = useRef(false);
 
   useEffect(() => {
     if (!wallet) {
@@ -54,7 +57,9 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
       lastWallet.current = wallet;
     }
     // tzOffset lets the server compute "today" in the viewer's local day (receipts are UTC).
-    fetch(`${path}?wallet=${encodeURIComponent(wallet)}&tzOffset=${new Date().getTimezoneOffset()}`, { signal: ctrl.signal })
+    // freshParam forces a server re-derive on a post-tx re-poll so the cache is updated.
+    const freshParam = forceFresh.current ? "&fresh=1" : "";
+    fetch(`${path}?wallet=${encodeURIComponent(wallet)}&tzOffset=${new Date().getTimezoneOffset()}${freshParam}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: T) => {
         if (cancelled) return;
@@ -67,7 +72,7 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
         if (e instanceof DOMException && e.name === "AbortError") return;
         setError(e instanceof Error ? e.message : "Failed to load");
       })
-      .finally(() => clearTimeout(timer));
+      .finally(() => { forceFresh.current = false; clearTimeout(timer); });
     return () => {
       cancelled = true;
       ctrl.abort();
@@ -81,8 +86,10 @@ function usePolledWalletData<T>(path: string, wallet: string | undefined): Polle
     if (!wallet) return;
     function onTxConfirmed() {
       retryTimers.current.forEach(clearTimeout);
+      // Each post-tx re-poll forces a fresh server re-derive (bypass cache) so the new
+      // level/badges land + overwrite the cache once the action log indexes.
       retryTimers.current = [8_000, 20_000, 40_000, 70_000].map((d) =>
-        setTimeout(() => setReloadKey((k) => k + 1), d),
+        setTimeout(() => { forceFresh.current = true; setReloadKey((k) => k + 1); }, d),
       );
     }
     // User-triggered hard reload → refetch immediately.

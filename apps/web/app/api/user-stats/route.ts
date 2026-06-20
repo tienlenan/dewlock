@@ -26,6 +26,7 @@ import { computeBadges, badgesFromEarnedIds } from "@dewlock/agent/memory/badges
 import { computeLevel } from "@dewlock/agent/memory/level";
 import { getWalletOverview } from "@/lib/blockvision/client";
 import { readProfile, reconcileProfile } from "@/lib/profile/profile-store";
+import { readStatsCache, writeStatsCache } from "@/lib/user-stats/stats-cache";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
 const WALLET_RE = /^0x[0-9a-fA-F]{1,64}$/;
@@ -83,6 +84,17 @@ export async function GET(req: NextRequest) {
     ...corsHeaders(origin),
   };
 
+  // Read-through Redis cache: a hit returns instantly and identically to every surface
+  // (dashboard + copilot read the same value → no level/badge mismatch). `?fresh=1`
+  // bypasses it to re-derive from the authoritative source (used by the post-tx refresh).
+  const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+  if (!fresh) {
+    const cached = await readStatsCache<Record<string, unknown>>(wallet);
+    if (cached) {
+      return Response.json(cached, { headers: { ...okHeaders, "x-cache": "HIT" } });
+    }
+  }
+
   // Receipts (badge/level source) + wallet footprint (BlockVision) + the durable
   // monotonic profile, all in parallel. readProfile is fail-soft (null on miss).
   const [receipts, wallet_, persisted] = await Promise.all([
@@ -126,17 +138,18 @@ export async function GET(req: NextRequest) {
     capUsd: Number.isFinite(capRaw) && capRaw > 0 ? capRaw : null,
   };
 
-  return Response.json(
-    {
-      walletAddress: wallet,
-      stats,
-      level,
-      badges,
-      wallet: wallet_,
-      recentReceipts,
-      dailyUsage,
-      memoryEnabled: isMemoryEnabled(),
-    },
-    { headers: okHeaders },
-  );
+  const payload = {
+    walletAddress: wallet,
+    stats,
+    level,
+    badges,
+    wallet: wallet_,
+    recentReceipts,
+    dailyUsage,
+    memoryEnabled: isMemoryEnabled(),
+  };
+  // Mirror the freshly-derived value into the cache (best-effort, non-blocking) so the next
+  // read on any surface is instant + consistent.
+  void writeStatsCache(wallet, payload);
+  return Response.json(payload, { headers: { ...okHeaders, "x-cache": fresh ? "REFRESH" : "MISS" } });
 }

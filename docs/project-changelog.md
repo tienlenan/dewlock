@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-06-20 — user-stats Redis cache + copilot/dashboard consistency + swap/profile fixes
+
+### Added
+- **Redis read-through cache for `/api/user-stats`** (`lib/user-stats/stats-cache.ts`,
+  `lib/redis-client.ts`). Per-wallet `userstats:<wallet>` (60s TTL). A hit returns instantly and
+  identically to every surface, so the dashboard and the copilot profile card can't show different
+  levels/badges. The cache mirrors the receipt-derived value (on-chain receipt log = source of
+  truth), never client-written. Fail-soft when Redis is absent.
+
+### Fixed
+- **Dashboard stuck at an old level/badges after a swap while the copilot showed the new ones.**
+  Both surfaces read memwal live (eventually-consistent ~30s + slow), so they disagreed by timing.
+  Now they read the same cached value (consistent); the dashboard's post-tx re-polls call
+  `?fresh=1` to re-derive from the authoritative source and overwrite the cache, so a confirmed
+  swap propagates to both surfaces.
+- **Swap sign-card showed the output amount ~1000× off for non-curated tokens** (a 6-decimal
+  output rendered 0.04 instead of ~44). The Guardian now resolves real decimals per coin type
+  (curated map → on-chain CoinMetadata → 9) and threads a `coinDecimals` map into the preview;
+  the card formats with it. Display-only — signed bytes unchanged.
+- **Profile "my stats" + self-fetching cards errored on a cold first load.** Added
+  `lib/fetch-with-retry.ts` (auto-retry 3×, signal-aware) + a manual Retry button on the profile
+  and protocol-registry cards; applied the helper across the swap/lend/protocol cards.
+
+### Known issues
+- The **Memory page** still recalls memwal live, so its counts load slowly (~5-15s) and can read
+  empty under relayer rate-limit. Caching it is a future improvement.
+
 ## 2026-06-20 — Conversation index → Upstash Redis (drop memwal) + encrypted titles
 
 ### Changed
