@@ -17,7 +17,7 @@ import { NextRequest } from "next/server";
 // `server-only` is a Next.js build guard, not resolvable in the vitest node env — stub it.
 vi.mock("server-only", () => ({}));
 
-const h = vi.hoisted(() => ({ memoryOn: false, lines: [] as string[] }));
+const h = vi.hoisted(() => ({ memoryOn: false, lines: [] as string[], portfolioUsd: null as number | null }));
 
 vi.mock("@dewlock/walrus", () => ({
   isMemoryEnabled: () => h.memoryOn,
@@ -38,8 +38,8 @@ vi.mock("@dewlock/sui", () => ({
 // must filter them out (privacy). Receipt-derived badges are unaffected.
 vi.mock("@/lib/blockvision/client", () => ({
   getWalletOverview: async () => ({
-    degraded: false,
-    totalUsdValue: 50_000,
+    degraded: h.portfolioUsd == null,
+    totalUsdValue: h.portfolioUsd,
     coins: [],
     onchainTxCount: null,
     recent: [],
@@ -63,6 +63,7 @@ function req(url: string) {
 beforeEach(() => {
   h.memoryOn = false;
   h.lines = [];
+  h.portfolioUsd = null;
 });
 
 describe("GET /api/passport — validation", () => {
@@ -90,8 +91,9 @@ describe("GET /api/passport — memory disabled (newbie)", () => {
 });
 
 describe("GET /api/passport — with receipts", () => {
-  it("derives the SAME receipt identity as user-stats and filters portfolio badges", async () => {
+  it("derives the SAME identity as user-stats, INCLUDING portfolio badges (in sync)", async () => {
     h.memoryOn = true;
+    h.portfolioUsd = 50_000; // earns portfolio-tier badges (now surfaced, in sync with user-stats)
     h.lines = [
       "action log: 2026-01-01T00:00:00.000Z | Swap SUI for USDC | tx:0x1 | usd:$4.00 | blob:pending",
       "action log: 2026-01-02T00:00:00.000Z | Transfer 1 SUI to 888.sui | tx:0x2 | usd:$2.00 | blob:pending",
@@ -110,11 +112,11 @@ describe("GET /api/passport — with receipts", () => {
     expect(earned).toContain("newbie");
     expect(earned).toContain("first-swap");
     expect(earned).toContain("first-send");
-    // Portfolio-tier badges are WITHHELD from the public passport even though the wallet
-    // holds $50k (they'd leak wallet size). user-stats would include these.
-    expect(earned).not.toContain("portfolio-starter");
-    expect(earned).not.toContain("portfolio-builder");
-    expect(earned.some((id) => id.startsWith("portfolio-"))).toBe(false);
+    // Portfolio-tier badges ARE included — the passport renders the SAME badge set as
+    // /api/user-stats (the copilot), so the surfaces stay in sync. Wallet $50k earns these.
+    expect(earned).toContain("portfolio-starter");
+    expect(earned).toContain("portfolio-builder");
+    expect(earned).toContain("portfolio-whale");
 
     // XP-bar progress is present and derived from the same level state.
     expect(body.progress).toHaveProperty("xpIntoLevel");

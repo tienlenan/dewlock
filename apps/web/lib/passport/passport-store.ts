@@ -17,13 +17,6 @@ import type { LevelState } from "@dewlock/agent/memory/level";
 import type { UserStats } from "@dewlock/agent/memory/user-stats";
 import type { UserStatsPayload } from "@/lib/user-stats/build-user-stats";
 
-/**
- * Earned-badge categories withheld from the PUBLIC passport blob — they'd leak wallet
- * size. Every other field is the SAME value the dashboard + copilot render (one shared,
- * cached, on-chain-derived identity), so the surfaces never diverge.
- */
-const PRIVATE_BADGE_CATEGORIES = new Set<string>(["portfolio"]);
-
 const POINTER_PREFIX = "passport:";
 const POINTER_RE = /^passport:\s+(\S+)\s+(\S+)\s+(\S+)\s+@\s+(\d+)/;
 
@@ -68,26 +61,24 @@ async function readPassportPointer(wallet: string): Promise<PassportPointer | nu
 }
 
 /**
- * Shared builder: a derived identity → the PUBLIC Passport. Withholds portfolio-tier
- * badges (they'd leak wallet size); level/xp/counts are portfolio-independent so they
- * match the dashboard + copilot exactly.
+ * Shared builder: a derived identity → the Passport. Renders the SAME earned badges
+ * (and level/xp/counts) the dashboard + copilot show from the cached on-chain-derived
+ * identity, so no surface diverges. (The wallet address is already on the blob and its
+ * balance is queryable on-chain, so portfolio-tier badges leak nothing extra.)
  */
 export function buildPublicPassport(input: {
   walletAddress: string;
   level: LevelState;
-  earnedBadges: { id: string; category?: string }[];
+  earnedBadges: { id: string }[];
   stats: UserStats;
   nowMs: number;
 }): DewlockPassport {
-  const earnedBadgeIds = input.earnedBadges
-    .filter((b) => !PRIVATE_BADGE_CATEGORIES.has(b.category ?? ""))
-    .map((b) => b.id);
   return {
     walletAddress: input.walletAddress,
     level: input.level.level,
     xp: input.level.xp,
     title: input.level.title,
-    earnedBadgeIds,
+    earnedBadgeIds: input.earnedBadges.map((b) => b.id),
     actionCounts: input.stats.actions,
     txCount: input.stats.txCount,
     distinctActions: input.stats.distinctActions,
