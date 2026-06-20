@@ -10,6 +10,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
+// `server-only` is a Next.js build guard, not resolvable in the vitest node env — stub it.
+// (The shared build-user-stats module imports it.)
+vi.mock("server-only", () => ({}));
+
 const h = vi.hoisted(() => ({ memoryOn: false, lines: [] as string[] }));
 
 vi.mock("@dewlock/walrus", () => ({

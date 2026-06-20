@@ -81,10 +81,13 @@ export function PassportCard() {
   const [copied, setCopied] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const load = useCallback(async () => {
+  // `fresh` bypasses the shared `userstats:` cache to re-derive from the authoritative
+  // source — used on a post-tx re-poll so the new action lands AND the cache is warmed
+  // for every surface (dashboard / copilot / passport stay in sync).
+  const load = useCallback(async (fresh = false) => {
     if (!wallet) return;
     try {
-      const res = await fetch(`/api/passport?wallet=${encodeURIComponent(wallet)}`);
+      const res = await fetch(`/api/passport?wallet=${encodeURIComponent(wallet)}${fresh ? "&fresh=1" : ""}`);
       if (res.ok) {
         const json = (await res.json()) as PassportApi;
         setData(json);
@@ -104,10 +107,11 @@ export function PassportCard() {
     function onTx() {
       timers.current.forEach(clearTimeout);
       // memwal indexes the action log ~30-43s after the write, so include a later
-      // refetch (70s) — 40s alone can land just before it's queryable.
-      timers.current = [8_000, 20_000, 40_000, 70_000].map((d) => setTimeout(() => void load(), d));
+      // refetch (70s) — 40s alone can land just before it's queryable. Force fresh so
+      // each re-poll re-derives (bypassing cache) and re-warms it for every surface.
+      timers.current = [8_000, 20_000, 40_000, 70_000].map((d) => setTimeout(() => void load(true), d));
     }
-    const onReload = () => void load(); // user-triggered hard reload → refetch now
+    const onReload = () => void load(true); // user-triggered hard reload → fresh refetch now
     window.addEventListener(TX_CONFIRMED_EVENT, onTx);
     window.addEventListener(DASHBOARD_RELOAD_EVENT, onReload);
     return () => {

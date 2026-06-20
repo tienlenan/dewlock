@@ -40,7 +40,7 @@ export async function readProfile(wallet: string): Promise<WalletProfile | null>
   }
 }
 
-async function persistProfile(wallet: string, profile: WalletProfile): Promise<void> {
+export async function persistProfile(wallet: string, profile: WalletProfile): Promise<void> {
   if (!isMemoryEnabled()) return;
   try {
     const ptr = await publishJsonBlob("dewlock-wallet-profile", profile);

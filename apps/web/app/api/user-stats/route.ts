@@ -20,13 +20,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
-import { memNamespace, recall, isMemoryEnabled } from "@dewlock/walrus";
-import { deriveStats, deriveBadgeInput, parseReceipts, sumVolumeForLocalDay } from "@dewlock/agent/memory/user-stats";
-import { computeBadges, badgesFromEarnedIds } from "@dewlock/agent/memory/badges";
-import { computeLevel } from "@dewlock/agent/memory/level";
-import { getWalletOverview } from "@/lib/blockvision/client";
-import { readProfile, reconcileProfile } from "@/lib/profile/profile-store";
-import { readStatsCache, writeStatsCache } from "@/lib/user-stats/stats-cache";
+import { getUserStatsPayload } from "@/lib/user-stats/build-user-stats";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
 const WALLET_RE = /^0x[0-9a-fA-F]{1,64}$/;
@@ -44,17 +38,6 @@ function corsHeaders(origin: string | null): Record<string, string> {
 
 export async function OPTIONS(req: NextRequest) {
   return new Response(null, { status: 204, headers: corsHeaders(req.headers.get("origin")) });
-}
-
-/** Recall the wallet's receipt log lines from memwal (empty when memory off). */
-async function recallReceipts(wallet: string): Promise<string[]> {
-  if (!isMemoryEnabled()) return [];
-  try {
-    const lines = await recall(memNamespace(wallet), "action log:", 100);
-    return lines.filter((l) => l.trim().startsWith("action log:"));
-  } catch {
-    return []; // recall failure is non-fatal — derive an empty (newbie) state
-  }
 }
 
 export async function GET(req: NextRequest) {
@@ -85,71 +68,14 @@ export async function GET(req: NextRequest) {
   };
 
   // Read-through Redis cache: a hit returns instantly and identically to every surface
-  // (dashboard + copilot read the same value → no level/badge mismatch). `?fresh=1`
-  // bypasses it to re-derive from the authoritative source (used by the post-tx refresh).
+  // (dashboard + copilot + passport read the same value → no level/badge mismatch).
+  // `?fresh=1` bypasses it to re-derive from the authoritative source (post-tx refresh).
+  // "today" uses the VIEWER's local day (client passes tzOffset = Date.getTimezoneOffset();
+  // default 0 = UTC for older clients) so a swap made in the local morning isn't dropped.
   const fresh = new URL(req.url).searchParams.get("fresh") === "1";
-  if (!fresh) {
-    const cached = await readStatsCache<Record<string, unknown>>(wallet);
-    if (cached) {
-      return Response.json(cached, { headers: { ...okHeaders, "x-cache": "HIT" } });
-    }
-  }
-
-  // Receipts (badge/level source) + wallet footprint (BlockVision) + the durable
-  // monotonic profile, all in parallel. readProfile is fail-soft (null on miss).
-  const [receipts, wallet_, persisted] = await Promise.all([
-    recallReceipts(wallet),
-    getWalletOverview(wallet),
-    readProfile(wallet),
-  ]);
-
-  const stats = deriveStats(receipts);
-  // Richer badge input: receipt-derived stats + the wallet's portfolio value
-  // (from BlockVision) + wallet age, then level from the combined XP.
-  const badgeInput = deriveBadgeInput(receipts, { portfolioUsd: wallet_.totalUsdValue }, Date.now());
-  const level = computeLevel(badgeInput);
-  const derivedBadges = computeBadges({ ...badgeInput, level: level.level });
-
-  // Render from the MONOTONIC union (durable ∪ derived-now): a badge once earned
-  // stays lit even when a volatile source (e.g. BlockVision portfolio value) would
-  // not re-award it now. The durable WRITE is scheduled in the background, so the
-  // response never blocks on Walrus/memwal.
-  const merged = reconcileProfile(
-    persisted,
-    { walletAddress: wallet, level: level.level, xp: level.xp, earnedBadgeIds: derivedBadges.earned.map((b) => b.id) },
-    new Date().toISOString(),
-  );
-  const badges = badgesFromEarnedIds(merged.earnedBadges.map((b) => b.id));
-
-  // Recent receipts (newest first) + today's volume vs the daily cap — both
-  // derived from the same immutable receipt source. This daily figure is an
-  // informational view; the enforced daily tracker (prepare-trade) is the authority.
-  const parsed = parseReceipts(receipts);
-  const recentReceipts = parsed.slice(0, 5);
-  // "today" is the VIEWER's local day (client passes tzOffset = Date.getTimezoneOffset();
-  // default 0 = UTC for older clients). Receipts are stored in UTC, so a UTC day boundary
-  // would drop a swap made in the local morning (still the previous UTC date) → wrong $0.
   const tzRaw = Number(new URL(req.url).searchParams.get("tzOffset"));
   const tzOffsetMinutes = Number.isFinite(tzRaw) ? tzRaw : 0;
-  const localToday = new Date(Date.now() - tzOffsetMinutes * 60_000).toISOString().slice(0, 10);
-  const capRaw = Number(process.env.DAILY_USD_CAP);
-  const dailyUsage = {
-    usedUsd: sumVolumeForLocalDay(parsed, localToday, tzOffsetMinutes),
-    capUsd: Number.isFinite(capRaw) && capRaw > 0 ? capRaw : null,
-  };
 
-  const payload = {
-    walletAddress: wallet,
-    stats,
-    level,
-    badges,
-    wallet: wallet_,
-    recentReceipts,
-    dailyUsage,
-    memoryEnabled: isMemoryEnabled(),
-  };
-  // Mirror the freshly-derived value into the cache (best-effort, non-blocking) so the next
-  // read on any surface is instant + consistent.
-  void writeStatsCache(wallet, payload);
-  return Response.json(payload, { headers: { ...okHeaders, "x-cache": fresh ? "REFRESH" : "MISS" } });
+  const { payload, cache } = await getUserStatsPayload(wallet, { fresh, tzOffsetMinutes });
+  return Response.json(payload, { headers: { ...okHeaders, "x-cache": cache } });
 }

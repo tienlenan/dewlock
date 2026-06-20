@@ -37,7 +37,7 @@ describe("buildPassport", () => {
   });
 
   it("NEVER includes cap / riskProfile / volumeUsd (privacy + no-fabrication)", () => {
-    const p = buildPassport(WALLET, LINES, NOW) as Record<string, unknown>;
+    const p = buildPassport(WALLET, LINES, NOW) as unknown as Record<string, unknown>;
     expect(p.cap).toBeUndefined();
     expect(p.riskProfile).toBeUndefined();
     expect(p.volumeUsd).toBeUndefined();

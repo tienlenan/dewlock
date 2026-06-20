@@ -12,10 +12,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
-import { memNamespace, recall, isMemoryEnabled } from "@dewlock/walrus";
-import { buildAndMaybePersistPassport } from "@/lib/passport/passport-store";
-import { buildPassport } from "@dewlock/agent/memory/passport";
-import { levelFromXp } from "@dewlock/agent/memory/level";
+import { getUserStatsPayload } from "@/lib/user-stats/build-user-stats";
+import { passportFromUserStats, attachPassportProof } from "@/lib/passport/passport-store";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
 const WALLET_RE = /^0x[0-9a-fA-F]{1,64}$/;
@@ -47,31 +45,24 @@ export async function GET(req: NextRequest) {
   }
   const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", ...rateLimitHeaders(rl, RATE_LIMIT_MAX), ...corsHeaders(origin) };
 
-  // Recall the action log (XP source). When memory is off, return a newbie passport
-  // built from an empty log — honest, never fabricated.
-  let lines: string[] = [];
-  if (isMemoryEnabled()) {
-    try {
-      lines = (await recall(memNamespace(wallet), "action log:", 100)).filter((l) => l.trim().startsWith("action log:"));
-    } catch {
-      lines = [];
-    }
-  }
-
-  if (!isMemoryEnabled()) {
-    const passport = buildPassport(wallet, [], Date.now());
-    const lvl = levelFromXp(passport.xp);
-    return Response.json(
-      { memoryEnabled: false, passport, blobId: null, blobObjectId: null, suiObjectId: null, progress: { xpIntoLevel: lvl.xpIntoLevel, xpForNext: lvl.xpForNext } },
-      { headers },
-    );
-  }
-
-  const result = await buildAndMaybePersistPassport(wallet, lines, Date.now());
-  // XP-bar progress, derived live (not persisted in the blob).
-  const lvl = levelFromXp(result.passport.xp);
+  // ONE shared identity for every surface: read-through the same `userstats:` cache the
+  // dashboard + copilot use (on-chain receipt log → durable monotonic profile). `?fresh=1`
+  // re-derives. The Passport drops portfolio-tier badges (privacy) but otherwise renders
+  // the SAME level/xp/counts/badges — so it can never lag behind the copilot again.
+  const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+  const { payload } = await getUserStatsPayload(wallet, { fresh });
+  const passport = passportFromUserStats(payload, Date.now());
+  const proof = await attachPassportProof(wallet, passport);
+  // XP-bar progress comes from the same level state (not persisted in the blob).
   return Response.json(
-    { memoryEnabled: true, ...result, progress: { xpIntoLevel: lvl.xpIntoLevel, xpForNext: lvl.xpForNext } },
+    {
+      memoryEnabled: payload.memoryEnabled,
+      passport: proof.passport,
+      blobId: proof.blobId,
+      blobObjectId: proof.blobObjectId,
+      suiObjectId: proof.suiObjectId,
+      progress: { xpIntoLevel: payload.level.xpIntoLevel, xpForNext: payload.level.xpForNext },
+    },
     { headers },
   );
 }

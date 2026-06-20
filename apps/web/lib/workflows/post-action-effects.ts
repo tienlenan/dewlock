@@ -5,7 +5,8 @@
  *
  *   1. publish        → Walrus blob (immutable receipt) + its on-chain Blob object
  *   2. logAction      → memwal "action log:" line  (the XP source of truth)
- *   3. updateProfile  → recompute level/XP + badges, persist monotonically (backstop)
+ *   3. updateProfile  → recompute level/XP + badges; persist durable profile (on change)
+ *                       + refresh the public passport blob (every action, counts stay current)
  *   4. anchor         → on-chain HEAD anchor (operational key; optional package)
  *
  * A plain sequential runner (NOT a Mastra workflow) so each step can report live
@@ -20,14 +21,12 @@ import {
   buildAndPublishReceipt,
   memNamespace,
   rememberBulk,
-  recall,
   isMemoryEnabled,
 } from "@dewlock/walrus";
 import { anchorReceiptHead } from "@dewlock/sui";
-import { deriveStats, deriveBadgeInput } from "@dewlock/agent/memory/user-stats";
-import { computeBadges } from "@dewlock/agent/memory/badges";
-import { computeLevel } from "@dewlock/agent/memory/level";
-import { mergeAndPersistProfile } from "@/lib/profile/profile-store";
+import { getUserStatsPayload } from "@/lib/user-stats/build-user-stats";
+import { persistProfile } from "@/lib/profile/profile-store";
+import { passportFromUserStats, publishPassportBlob } from "@/lib/passport/passport-store";
 
 // Walrus mainnet publish is ~11s typically but occasionally fails/slows
 // transiently. Bound EACH attempt, and allow a second attempt within a total
@@ -43,6 +42,9 @@ const ANCHOR_TIMEOUT_MS = 10_000;
 // XP). The recall now returns up to 100 rows, so a 5s cap spuriously skipped it;
 // 12s lets the recompute land while still leaving the 60s request budget headroom.
 const PROFILE_TIMEOUT_MS = 12_000;
+// The profile + public-passport blob writes run in parallel; bound the pair so a slow
+// Walrus publish degrades (blob refreshes next action) instead of risking the 60s budget.
+const PROFILE_PASSPORT_TIMEOUT_MS = 18_000;
 
 /** Reject if `p` doesn't settle within `ms` — bounds each external step. */
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -68,6 +70,9 @@ const ctxSchema = z.object({
   // Guardian-computed USD value of the action — recorded in the action-log line so the
   // dashboard's "today via Dewlock" volume + per-receipt USD are real (not $0).
   estimatedUsdValue: z.number().default(0),
+  // The just-written "action log:" line — passed to updateProfile so the profile + public
+  // passport reflect THIS action immediately (memwal indexing lags ~30-43s).
+  actionLogLine: z.string().nullable().default(null),
   blobId: z.string().nullable(),
   blobObjectId: z.string().nullable(),
   contentHashHex: z.string().nullable(),
@@ -161,7 +166,7 @@ async function stepLogAction(c: Ctx): Promise<StepOutcome> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       await withTimeout(rememberBulk(memNamespace(c.walletAddress), [line]), MEMWAL_TIMEOUT_MS, "memwal remember");
-      return { ctx: c, status: "done", detail: attempt === 0 ? "XP queued to memwal" : "XP queued (retry)" };
+      return { ctx: { ...c, actionLogLine: line }, status: "done", detail: attempt === 0 ? "XP queued to memwal" : "XP queued (retry)" };
     } catch (err) {
       lastErr = err;
     }
@@ -174,27 +179,36 @@ async function stepUpdateProfile(c: Ctx): Promise<StepOutcome> {
     return { ctx: c, status: "skipped", detail: "memory off" };
   }
   try {
-    const receipts = (await withTimeout(recall(memNamespace(c.walletAddress), "action log:", 100), PROFILE_TIMEOUT_MS, "memwal recall"))
-      .filter((l) => l.trim().startsWith("action log:"));
-    const stats = deriveStats(receipts);
-    const badgeInput = deriveBadgeInput(receipts, { portfolioUsd: 0 }, Date.now());
-    const level = computeLevel(badgeInput);
-    const badges = computeBadges({ ...badgeInput, level: level.level });
-    await withTimeout(
-      mergeAndPersistProfile(
-        {
-          walletAddress: c.walletAddress,
-          level: level.level,
-          xp: level.xp,
-          earnedBadgeIds: badges.earned.map((b) => b.id),
-        },
-        new Date().toISOString(),
-      ),
+    // Re-derive the SHARED identity INCLUDING the just-signed action (folded in via
+    // extraReceiptLines so counts reflect it before memwal indexes, ~30-43s) and WRITE it
+    // to the `userstats:` cache. So immediately after sign every surface — dashboard,
+    // copilot, passport — reads the fresh value (no empty-cache window, no stale counts).
+    // persist:"skip" → we await the durable-profile write below (a background write is
+    // unreliable in a serverless lambda).
+    const { payload, profile, changed } = await withTimeout(
+      getUserStatsPayload(c.walletAddress, {
+        fresh: true,
+        extraReceiptLines: c.actionLogLine ? [c.actionLogLine] : [],
+        persist: "skip",
+      }),
       PROFILE_TIMEOUT_MS,
-      "persist profile",
+      "derive + cache user-stats",
+    );
+
+    // Durable profile blob (only on identity change) + public passport blob (every action)
+    // in PARALLEL — two independent Walrus writes, fits the 60s budget. The on-chain HEAD
+    // anchor (a Sui tx) runs only on a change; counts-only refreshes carry it forward.
+    const passport = passportFromUserStats(payload, Date.now());
+    await withTimeout(
+      Promise.all([
+        changed && profile ? persistProfile(c.walletAddress, profile) : Promise.resolve(),
+        publishPassportBlob(c.walletAddress, passport, { anchor: !!changed }),
+      ]),
+      PROFILE_PASSPORT_TIMEOUT_MS,
+      "persist profile + passport",
     ).catch(() => undefined);
-    void stats; // stats are derived live by /api/user-stats; profile holds level+badges
-    return { ctx: c, status: "done", detail: `level ${level.level}` };
+
+    return { ctx: c, status: "done", detail: `level ${payload.level.level}` };
   } catch {
     // fail-soft — dashboard recompute will catch up
     return { ctx: c, status: "skipped", detail: "deferred to dashboard" };
@@ -234,7 +248,7 @@ async function stepAnchor(c: Ctx): Promise<StepOutcome> {
 const STEPS: { id: StepId; label: string; run: StepFn }[] = [
   { id: "publish", label: "Publishing receipt to Walrus", run: stepPublish },
   { id: "logAction", label: "Writing XP to memwal", run: stepLogAction },
-  { id: "updateProfile", label: "Updating profile & badges", run: stepUpdateProfile },
+  { id: "updateProfile", label: "Updating profile, badges & passport", run: stepUpdateProfile },
   { id: "anchor", label: "Anchoring on Sui", run: stepAnchor },
 ];
 
@@ -292,6 +306,7 @@ export async function runPostActionEffectsStreaming(
   let ctx: Ctx = {
     ...input,
     estimatedUsdValue: input.estimatedUsdValue ?? 0,
+    actionLogLine: null,
     blobId: null,
     blobObjectId: null,
     contentHashHex: null,
