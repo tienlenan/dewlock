@@ -15,7 +15,7 @@ import { NextRequest } from "next/server";
 import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import { memNamespace, recallByPrefix, isMemoryEnabled } from "@dewlock/walrus";
 import { MEMORY_CATEGORIES, getCategory } from "@/lib/memory/memory-inventory";
-import { clearConversations } from "@/lib/conversations/conversation-store";
+import { clearConversations, listConversations } from "@/lib/conversations/conversation-store";
 import { listContacts, clearContacts } from "@/lib/contacts/contacts-store";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
@@ -66,6 +66,17 @@ export async function GET(req: NextRequest) {
           clearable: c.clearable, permanentReason: c.permanentReason,
           approxCount: contacts.length,
           samples: contacts.slice(0, 3).map((ct) => `${ct.name} = ${ct.address}`),
+        };
+      }
+      // Conversations now live in Redis (exact count), not memwal. Titles are
+      // client-encrypted, so we report the count only — no plaintext samples.
+      if (c.key === "conversation-index") {
+        const convos = await listConversations(wallet).catch(() => []);
+        return {
+          key: c.key, label: c.label, description: c.description, scope: c.scope,
+          clearable: c.clearable, permanentReason: c.permanentReason,
+          approxCount: convos.length,
+          samples: convos.slice(0, 3).map(() => "🔒 (encrypted title)"),
         };
       }
       const lines = await recallByPrefix(ns, c.prefix, 50).catch(() => []);

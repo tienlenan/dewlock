@@ -79,9 +79,12 @@ export const MEMORY_CATEGORIES: MemoryCategory[] = [
     permanentReason: "Auto-managed backstop — rebuilt from your activity.",
   },
   {
+    // Conversation index now lives in Upstash Redis (exact key-value), not memwal.
+    // The count/samples come from the store (listConversations), not a prefix recall;
+    // `prefix` is retained only for the stable category key. Clearable via Redis DEL.
     key: "conversation-index",
     label: "Conversations",
-    description: "Index of your saved chat conversations.",
+    description: "Index of your saved chat conversations (titles encrypted).",
     scope: "user",
     prefix: "conversation-index:",
     clearable: true,

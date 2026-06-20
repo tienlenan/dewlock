@@ -2,36 +2,44 @@
 
 /**
  * useConversations — client hook coordinating saved conversations with the chat
- * hook. Lists sessions from /api/conversations, opens one (rehydrating the
- * thread), creates/removes, and saves the current thread (debounced) to Walrus.
+ * hook. Lists sessions from /api/conversations (Redis index), opens one (rehydrating
+ * the thread from its Walrus blob), creates/removes, and saves the current thread
+ * (debounced).
  *
- * Encryption: when Seal is usable, saveCurrent Seal-encrypts message content
- * before POST (the server stores `enc` opaquely). Opening an encrypted thread
- * lazily creates a SessionKey (1 wallet signature, first open) and decrypts
- * client-side. Legacy plaintext `messages` records open with no signature.
+ * Index: the per-wallet index is an Upstash Redis HASH (exact, no lag), so the list is
+ * immediately consistent across reloads — no localStorage save/delete bridges needed
+ * (the old memwal index lagged ~30-43s, which those bridges papered over).
  *
- * Fail-soft: when persistence or Seal is unavailable the hook degrades gracefully —
- * list is empty / saves fall back to plaintext / decrypt errors show a locked panel.
+ * Encryption:
+ *  - CONTENT: when Seal is usable, saveCurrent Seal-encrypts message content before POST
+ *    (server stores `enc` opaquely); opening decrypts client-side via a SessionKey.
+ *  - TITLES: encrypted client-side with a wallet-derived key (title-crypto). The list
+ *    arrives as ciphertext titles and is decrypted in the browser; before the key is
+ *    derived (one sign/session, then cached) titles render as a locked placeholder.
+ *
+ * Fail-soft: when persistence/Seal is unavailable the hook degrades gracefully —
+ * list is empty / saves no-op / decrypt errors show a locked panel.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ChatMessage } from "@/components/chat/chat-thread";
 import type { ConversationRecord, ConversationIndexEntry } from "./conversation-store";
 import { serializeMessages, deserializeMessages, deriveTitle } from "./serialize";
-import { addDeletedId, clearDeletedIds, reconcileDeletedIds } from "./deleted-ids";
-import {
-  recordLocalEntry,
-  removeLocalEntry,
-  clearLocalEntries,
-  readLocalEntries,
-  mergeServerEntries,
-} from "./local-index";
 import { isSealUsable } from "@/lib/seal/seal-client";
 import { encryptConversation, decryptConversation, isSealCiphertext } from "@/lib/seal/conversation-crypto";
 import { ensureSessionKey } from "@/lib/seal/session-key";
 import { ensureWriteAuth } from "./conversation-auth-client";
+import { ensureTitleKey, getCachedTitleKey, encryptTitle, decryptTitle } from "./title-crypto";
 
 type SignPersonalMessage = (input: { message: Uint8Array }) => Promise<{ signature: string }>;
+
+/** A list row: the Redis index entry plus its DECRYPTED display title (client-only). */
+export interface SessionItem extends ConversationIndexEntry {
+  title: string;
+}
+
+/** Placeholder shown for a row whose title can't be decrypted yet (key not derived). */
+const LOCKED_TITLE = "🔒 Locked";
 
 interface UseConversationsOpts {
   onLoad: (msgs: ChatMessage[]) => void;
@@ -43,7 +51,6 @@ interface UseConversationsOpts {
 interface ConversationGetResponse {
   id?: string;
   walletAddress?: string;
-  title?: string;
   createdAt: number;
   updatedAt?: number;
   messages?: Parameters<typeof deserializeMessages>[0];
@@ -58,8 +65,25 @@ function newId(): string {
   }
 }
 
+/** Decrypt each entry's title with `key` (or mark locked when no key / on failure). */
+async function decryptEntries(
+  entries: ConversationIndexEntry[],
+  key: CryptoKey | null,
+): Promise<SessionItem[]> {
+  if (!key) return entries.map((e) => ({ ...e, title: LOCKED_TITLE }));
+  return Promise.all(
+    entries.map(async (e) => {
+      try {
+        return { ...e, title: await decryptTitle(e.titleEnc, key) };
+      } catch {
+        return { ...e, title: LOCKED_TITLE };
+      }
+    }),
+  );
+}
+
 export function useConversations(wallet: string | undefined, opts: UseConversationsOpts) {
-  const [list, setList] = useState<ConversationIndexEntry[]>([]);
+  const [list, setList] = useState<SessionItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   /** Id of the thread currently showing the locked-preview (needs explicit unlock). */
@@ -72,8 +96,11 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   const autoOpenedFor = useRef<string | undefined>(undefined);
   /** True once the user has produced a SessionKey in this browser session. */
   const sessionReady = useRef(false);
-  /** Single-flight guard: only one save runs at a time (serialized → no racing encrypts
-   * onto the shared index). NOT skip-and-drop — overlapping saves are QUEUED below. */
+  /** True once the title key has been derived this session — flip drives a one-time
+   * list re-decrypt so any previously-locked rows reveal their titles. */
+  const titleKeyReady = useRef(false);
+  /** Single-flight guard: only one save runs at a time (serialized → no racing encrypts).
+   * NOT skip-and-drop — overlapping saves are QUEUED below. */
   const saving = useRef(false);
   /** The latest messages requested while a save was in-flight — drained after it finishes
    * so the final batch is never lost (the Seal encrypt is slow, so saves overlap). */
@@ -85,10 +112,10 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
    * calls through this so it never invokes a stale closure. */
   const saveCurrentRef = useRef<((m: ChatMessage[]) => Promise<string | null>) | null>(null);
   /** True once the user has composed/opened anything. Auto-open only fires on the
-   * initial blank landing — it must NEVER clobber a live thread. Critically, the
-   * Seal save is slow (write-auth signature + encrypt), so the first autosave can
-   * complete + flip the list to non-empty WHILE the user is mid-swap; without this
-   * guard, auto-open would reload a stale snapshot and wipe the live tx-preview. */
+   * initial blank landing — it must NEVER clobber a live thread. The Seal save is slow
+   * (write-auth + encrypt), so the first autosave can complete + flip the list to
+   * non-empty WHILE the user is mid-swap; without this guard, auto-open would reload a
+   * stale snapshot and wipe the live tx-preview. */
   const interacted = useRef(false);
 
   const { onLoad, onReset, signPersonalMessage } = opts;
@@ -98,21 +125,15 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       setList([]);
       return;
     }
-    // Hydrate the client's just-saved entries FIRST. The server's memwal index pointer lags
-    // ~30-43s, so without this a reload would resolve an older blob (fewer messages). Local
-    // entries carry the authoritative newest blobId until the server pointer catches up; they
-    // already exclude same-device deletions, so no deleted-id filter is needed on this pass.
-    const localFirst = readLocalEntries(wallet);
-    if (localFirst.length > 0) setList(localFirst);
     try {
       const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`);
       if (!res.ok) return;
       const data: { conversations?: ConversationIndexEntry[] } = await res.json();
-      // Merge local-fresh entries over the (possibly stale) server list; self-cleans entries
-      // the server has caught up on. Server still owns existence — deleted/cleared ids stay gone.
-      const merged = mergeServerEntries(wallet, data.conversations ?? []);
-      const hidden = reconcileDeletedIds(wallet, new Set(merged.map((c) => c.id)));
-      setList(hidden.size > 0 ? merged.filter((c) => !hidden.has(c.id)) : merged);
+      const entries = data.conversations ?? [];
+      // Decrypt titles with the cached key (no prompt). Without a key yet → locked rows.
+      const key = await getCachedTitleKey(wallet);
+      if (key) titleKeyReady.current = true;
+      setList(await decryptEntries(entries, key));
     } catch {
       /* fail-soft */
     }
@@ -162,7 +183,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
         const record: ConversationGetResponse = await res.json();
         if (record.createdAt) createdAt.current[id] = record.createdAt;
 
-        // --- Branch enc FIRST (spec: [#9]) ---
+        // --- Branch enc FIRST ---
         if (record.enc && isSealCiphertext(record.enc)) {
           // Auto-open before the user has unlocked this session → locked preview, no prompt.
           if (openOpts?.auto && !sessionReady.current) {
@@ -227,13 +248,21 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     void open(list[0].id, { auto: true });
   }, [wallet, list, open]);
 
+  /** Build the session write-auth query (message + signature) for a DELETE, or "". */
+  const authQuery = useCallback(
+    async (): Promise<string> => {
+      if (!wallet || !signPersonalMessage) return "";
+      const auth = await ensureWriteAuth(wallet, signPersonalMessage);
+      return `&message=${encodeURIComponent(auth.message)}&signature=${encodeURIComponent(auth.signature)}`;
+    },
+    [wallet, signPersonalMessage],
+  );
+
   const remove = useCallback(
     async (id: string) => {
       if (!wallet) return;
       const prev = list;
       setList((cur) => cur.filter((c) => c.id !== id));
-      addDeletedId(wallet, id);
-      removeLocalEntry(wallet, id);
       if (activeId === id) {
         idRef.current = null;
         setActiveId(null);
@@ -242,14 +271,9 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
         onReset();
       }
       try {
-        // Auth gate: pass session write-auth as query params (DELETE has no standard body).
-        let authQuery = "";
-        if (signPersonalMessage) {
-          const auth = await ensureWriteAuth(wallet, signPersonalMessage);
-          authQuery = `&message=${encodeURIComponent(auth.message)}&signature=${encodeURIComponent(auth.signature)}`;
-        }
+        // Signed HDEL — Redis is authoritative, so a deleted id never resurrects.
         const res = await fetch(
-          `/api/conversations/${id}?wallet=${encodeURIComponent(wallet)}${authQuery}`,
+          `/api/conversations/${id}?wallet=${encodeURIComponent(wallet)}${await authQuery()}`,
           { method: "DELETE" },
         );
         if (!res.ok) throw new Error(`delete ${res.status}`);
@@ -257,7 +281,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
         setList(prev);
       }
     },
-    [wallet, activeId, list, onReset, signPersonalMessage],
+    [wallet, activeId, list, onReset, authQuery],
   );
 
   const clearAll = useCallback(async () => {
@@ -270,28 +294,29 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     setDecryptError(null);
     cache.current.clear();
     createdAt.current = {};
-    clearDeletedIds(wallet);
-    clearLocalEntries(wallet);
     onReset();
     try {
-      const res = await fetch(`/api/conversations?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });
+      // Signed DEL of the whole index (clear-all is destructive → wallet-gated).
+      const res = await fetch(
+        `/api/conversations?wallet=${encodeURIComponent(wallet)}${await authQuery()}`,
+        { method: "DELETE" },
+      );
       if (!res.ok) throw new Error(`clear ${res.status}`);
     } catch {
       setList(prev);
     }
-  }, [wallet, list, onReset]);
+  }, [wallet, list, onReset, authQuery]);
 
   /** Persist the current thread. Returns the conversation id (or null). */
   const saveCurrent = useCallback(
     async (messages: ChatMessage[]): Promise<string | null> => {
-      if (!wallet || messages.length === 0) return null;
-      // Mark interaction synchronously (before the slow write-auth + encrypt awaits) so the
-      // auto-open effect can't fire on the list flipping non-empty mid-save and clobber the
-      // live thread with this save's (now stale) snapshot.
+      // A write needs the signer (write-auth + title key); without it, save no-ops.
+      if (!wallet || messages.length === 0 || !signPersonalMessage) return null;
+      // Mark interaction synchronously (before the slow awaits) so the auto-open effect
+      // can't fire on the list flipping non-empty mid-save and clobber the live thread.
       interacted.current = true;
-      // A save is in-flight → QUEUE the latest messages (do NOT drop them) and drain after it
-      // finishes. The Seal encrypt is slow, so the 1.5s autosaves overlap; skipping here was
-      // losing the final message batch ("not all messages saved").
+      // A save is in-flight → QUEUE the latest messages (do NOT drop them) and drain after
+      // it finishes. The Seal encrypt is slow, so the 1.5s autosaves overlap.
       if (saving.current) {
         pendingSave.current = messages;
         return null;
@@ -299,8 +324,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       saving.current = true;
 
       try {
-        // idRef is the stable conversation id across queued/recursive saves (activeId state
-        // may not have flushed yet) — prevents the queued save from minting a duplicate convo.
+        // idRef is the stable conversation id across queued/recursive saves.
         const id = idRef.current ?? activeId ?? newId();
         idRef.current = id;
         const now = Date.now();
@@ -308,58 +332,60 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
 
         const serialized = serializeMessages(messages);
         const jsonBytes = new TextEncoder().encode(JSON.stringify(serialized));
+        const plainTitle = deriveTitle(messages);
 
-        // Build record: encrypt if Seal is usable + suiClient present, else plaintext fallback.
-        let record: Omit<ConversationRecord, "messages" | "enc"> & { messages?: ConversationRecord["messages"]; enc?: string };
-        const base = {
-          id,
-          walletAddress: wallet,
-          title: deriveTitle(messages),
-          createdAt: createdAt.current[id],
-          updatedAt: now,
-        };
-
+        // Build the CONTENT record (no title — the title is indexed as ciphertext, never
+        // on the blob). Encrypt content if Seal is usable, else plaintext fallback.
+        const base = { id, walletAddress: wallet, createdAt: createdAt.current[id], updatedAt: now };
+        let record: ConversationRecord;
         if (isSealUsable()) {
           try {
             const enc = await encryptConversation(jsonBytes, wallet);
             record = { ...base, enc };
           } catch {
-            // Encrypt failed (key-server down / kill-switch off) → plaintext fallback (Decision 3).
-            // The save still completes; the in-memory thread is preserved.
+            // Encrypt failed (key-server down / kill-switch off) → plaintext fallback.
             record = { ...base, messages: serialized };
           }
         } else {
           record = { ...base, messages: serialized };
         }
 
-        // Require write-auth if signPersonalMessage is available.
-        let authFields: { message: string; signature: string } | null = null;
-        if (signPersonalMessage) {
-          authFields = await ensureWriteAuth(wallet, signPersonalMessage);
-        }
+        // Write-auth (session token) + title key (one sign each, both cached for the session).
+        const authFields = await ensureWriteAuth(wallet, signPersonalMessage);
+        const justDerivedKey = !titleKeyReady.current;
+        const titleKey = await ensureTitleKey(wallet, signPersonalMessage);
+        titleKeyReady.current = true;
+        const titleEnc = await encryptTitle(plainTitle, titleKey);
 
-        const body = authFields ? { ...record, ...authFields } : record;
+        const body = { ...record, titleEnc, ...authFields };
         const res = await fetch("/api/conversations", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
         const data: { ok?: boolean; blobId?: string } = await res.json().catch(() => ({}));
+        // "saved" only when the server confirms the Redis index write (report-after-HSET).
         if (data.ok) {
           cache.current.set(id, messages);
           if (activeId !== id) setActiveId(id);
-          const entry: ConversationIndexEntry = { id, title: base.title, updatedAt: now, blobId: data.blobId ?? "" };
-          // Persist the freshest blobId so a reload uses it before the server pointer catches up.
-          recordLocalEntry(wallet, entry);
-          setList((cur) => [entry, ...cur.filter((c) => c.id !== id)]);
+          const item: SessionItem = {
+            id,
+            title: plainTitle, // we know the plaintext here — show it immediately
+            titleEnc,
+            blobId: data.blobId ?? "",
+            createdAt: createdAt.current[id],
+            updatedAt: now,
+          };
+          setList((cur) => [item, ...cur.filter((c) => c.id !== id)]);
+          // First key derivation this session → re-decrypt to reveal any locked rows.
+          if (justDerivedKey) void refresh();
           return id;
         }
       } catch {
         /* fail-soft — in-memory thread kept; save silently no-ops */
       } finally {
         saving.current = false;
-        // Drain the queue: a newer save was requested while this one ran → save it now so the
-        // latest messages always land (idRef keeps it on the same conversation).
+        // Drain the queue: a newer save was requested while this one ran → save it now.
         const queued = pendingSave.current;
         if (queued) {
           pendingSave.current = null;
@@ -368,18 +394,15 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
       }
       return null;
     },
-    [wallet, activeId, signPersonalMessage],
+    [wallet, activeId, signPersonalMessage, refresh],
   );
 
-  // Keep the ref pointing at the LATEST saveCurrent so the finally-drain never calls a stale
-  // closure (idRef pins the conversation id regardless).
+  // Keep the ref pointing at the LATEST saveCurrent so the finally-drain never calls a
+  // stale closure (idRef pins the conversation id regardless).
   saveCurrentRef.current = saveCurrent;
 
   /** Explicit unlock: re-open with a forced signature (no auto shortcut). */
-  const unlock = useCallback(
-    (id: string) => open(id),
-    [open],
-  );
+  const unlock = useCallback((id: string) => open(id), [open]);
 
   return {
     list,

@@ -1,39 +1,60 @@
 /**
- * Tests for conversation persistence: the serializer safety invariant
- * (NEVER persist signable tx bytes) and the Walrus+memwal store round-trip.
- * Walrus/memwal is fully mocked — no live services.
+ * Tests for conversation persistence: the serializer safety invariant (NEVER persist
+ * signable tx bytes) and the conversation-store orchestration over a Walrus content
+ * blob + a Redis index. The index (index-kv) and Walrus are mocked — no live services.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChatMessage, ToolCard } from "@/components/chat/chat-thread";
 import { serializeMessages, deserializeMessages, deriveTitle } from "../serialize";
 
-const h = vi.hoisted(() => ({
-  blobs: new Map<string, unknown>(),
-  pointers: [] as string[],
-  n: 0,
-  enabled: true,
-}));
-
+// --- Walrus content blob (publish/read only — no memwal on the conversation path) ---
+const h = vi.hoisted(() => ({ blobs: new Map<string, unknown>(), n: 0 }));
 vi.mock("@dewlock/walrus", () => ({
-  isMemoryEnabled: () => h.enabled,
-  memNamespace: (w: string) => `ns:${w}`,
-  remember: async (_ns: string, text: string) => { h.pointers.push(text); },
-  // The conversation store writes pointers via rememberBulk (non-blocking/queued) to stay
-  // under the serverless time limit — model it as appending each text to the pointer log.
-  rememberBulk: async (_ns: string, texts: string[]) => {
-    for (const t of texts) h.pointers.push(t);
-    return { jobIds: [], total: texts.length };
-  },
-  // Honor topK (the real wrapper passes limit through to the SDK) so "latest
-  // pointer among the returned set" is modeled faithfully.
-  recall: async (_ns: string, _q: string, topK = 8) => h.pointers.slice(-topK),
   publishJsonBlob: async (_kind: string, value: unknown) => {
     const blobId = `blob-${++h.n}`;
     h.blobs.set(blobId, value);
     return { status: "published", blobId, objectId: null, hash: "x" };
   },
   readJsonBlob: async (id: string) => h.blobs.get(id) ?? null,
+}));
+
+// --- In-memory fake of the Redis index (index-kv) ---
+type StoredVal = { blobId: string; titleEnc: string; createdAt: number; updatedAt: number };
+const kv = vi.hoisted(() => ({
+  store: new Map<string, Map<string, StoredVal>>(),
+  configured: true,
+  throwOnUpsert: false, // simulate a Redis write failure (network/credentials)
+}));
+vi.mock("../index-kv", () => ({
+  isKvConfigured: () => kv.configured,
+  kvGetIndex: async (wallet: string) => {
+    const m = kv.store.get(wallet.toLowerCase());
+    if (!m) return [];
+    return [...m.entries()]
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+  kvUpsertEntry: async (wallet: string, entry: { id: string } & StoredVal) => {
+    if (kv.throwOnUpsert) throw new Error("redis down");
+    const key = wallet.toLowerCase();
+    let m = kv.store.get(key);
+    if (!m) {
+      m = new Map();
+      kv.store.set(key, m);
+    }
+    const cur = m.get(entry.id);
+    if (cur && entry.updatedAt < cur.updatedAt) return { ok: false, reason: "stale" };
+    const { id, ...v } = entry;
+    m.set(id, v);
+    return { ok: true };
+  },
+  kvDeleteEntry: async (wallet: string, id: string) => {
+    kv.store.get(wallet.toLowerCase())?.delete(id);
+  },
+  kvClearIndex: async (wallet: string) => {
+    kv.store.delete(wallet.toLowerCase());
+  },
 }));
 
 import {
@@ -49,9 +70,10 @@ const WALLET = "0x" + "1".repeat(64);
 
 beforeEach(() => {
   h.blobs.clear();
-  h.pointers = [];
   h.n = 0;
-  h.enabled = true;
+  kv.store.clear();
+  kv.configured = true;
+  kv.throwOnUpsert = false;
 });
 
 describe("serializeMessages — safety invariant", () => {
@@ -75,7 +97,6 @@ describe("serializeMessages — safety invariant", () => {
     expect(json).not.toContain("approvedDigest");
     expect(out[1].cards).toHaveLength(1);
     expect(out[1].cards[0].type).toBe("block");
-    // round-trips back to chat messages (read-only history)
     expect(deserializeMessages(out)[1].cards[0].type).toBe("block");
   });
 
@@ -85,83 +106,80 @@ describe("serializeMessages — safety invariant", () => {
   });
 });
 
-describe("conversation-store — Walrus + memwal round-trip", () => {
-  function record(id: string, title: string, updatedAt: number): ConversationRecord {
-    return { id, walletAddress: WALLET, title, createdAt: updatedAt, updatedAt, messages: [{ id: "u", role: "user", text: title, cards: [] }] };
+describe("conversation-store — Redis index + Walrus blob", () => {
+  function record(id: string, updatedAt: number): ConversationRecord {
+    return {
+      id,
+      walletAddress: WALLET,
+      createdAt: updatedAt,
+      updatedAt,
+      messages: [{ id: "u", role: "user", text: id, cards: [] }],
+    };
   }
 
   it("upserts, lists (newest first), reads, and removes", async () => {
-    expect(await upsertConversation(record("c1", "First", 1000))).toMatchObject({ ok: true });
-    expect(await upsertConversation(record("c2", "Second", 2000))).toMatchObject({ ok: true });
+    expect(await upsertConversation(record("c1", 1000), "enc-c1")).toMatchObject({ ok: true });
+    expect(await upsertConversation(record("c2", 2000), "enc-c2")).toMatchObject({ ok: true });
 
     const list = await listConversations(WALLET);
     expect(list.map((c) => c.id)).toEqual(["c2", "c1"]); // newest first
+    expect(list[0].titleEnc).toBe("enc-c2"); // index stores ciphertext title
 
     const got = await getConversation(WALLET, "c1");
-    expect(got?.title).toBe("First");
+    expect(got?.id).toBe("c1");
 
     expect(await removeConversation(WALLET, "c1")).toBe(true);
     expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c2"]);
   });
 
-  it("fail-soft when memory is disabled", async () => {
-    h.enabled = false;
+  it("never writes a plaintext title onto the content blob (server stays title-blind)", async () => {
+    await upsertConversation(record("c1", 1000), "enc-secret-title");
+    const blob = [...h.blobs.values()][0] as Record<string, unknown>;
+    expect(blob.title).toBeUndefined();
+    expect(blob.titleEnc).toBeUndefined();
+    expect(JSON.stringify(blob)).not.toContain("enc-secret-title");
+  });
+
+  it("report-after-HSET: a failed index write returns ok:false (no false 'saved')", async () => {
+    kv.throwOnUpsert = true;
+    const res = await upsertConversation(record("c1", 1000), "enc-c1");
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("index");
+    expect(res.blobId).toBeTruthy(); // blob published, but NOT reported as saved
+    expect(await listConversations(WALLET)).toEqual([]);
+  });
+
+  it("rejects a stale (non-monotonic) upsert via the index guard", async () => {
+    await upsertConversation(record("c1", 2000), "enc-new");
+    const res = await upsertConversation(record("c1", 1000), "enc-old"); // older stamp
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("stale");
+  });
+
+  it("fail-soft when Redis is unconfigured", async () => {
+    kv.configured = false;
     expect(await listConversations(WALLET)).toEqual([]);
     expect(await getConversation(WALLET, "c1")).toBeNull();
-    expect(await upsertConversation(record("c1", "x", 1))).toMatchObject({ ok: false });
+    expect(await upsertConversation(record("c1", 1), "enc")).toMatchObject({ ok: false, reason: "unconfigured" });
   });
 
-  it("clearConversations empties the list — a clear tombstone wins over the index", async () => {
-    await upsertConversation(record("c1", "First", 1000));
-    await upsertConversation(record("c2", "Second", 2000));
+  it("clearConversations empties the list (one atomic DEL)", async () => {
+    await upsertConversation(record("c1", 1000), "enc-c1");
+    await upsertConversation(record("c2", 2000), "enc-c2");
     expect((await listConversations(WALLET)).length).toBe(2);
 
     expect(await clearConversations(WALLET)).toBe(true);
     expect(await listConversations(WALLET)).toEqual([]);
   });
 
-  it("clear stays cleared even if the tombstone is NOT recalled (empty-index pointer wins)", async () => {
-    await upsertConversation(record("c1", "First", 1000));
-    await upsertConversation(record("c2", "Second", 2000));
-    expect((await listConversations(WALLET)).length).toBe(2);
-
-    expect(await clearConversations(WALLET)).toBe(true);
-    // Simulate memwal's capped/semantic recall dropping the clear tombstone (the real-world
-    // failure that made a cleared list reappear). The empty-index pointer clear now writes
-    // must still resolve the newest index to an empty list.
-    h.pointers = h.pointers.filter((p) => !p.startsWith("conversation-cleared:"));
-    expect(await listConversations(WALLET)).toEqual([]);
-  });
-
-  it("a genuine save after a clear reappears (out-dates the tombstone)", async () => {
-    await upsertConversation(record("c1", "First", 1000));
-    await clearConversations(WALLET);
-    expect(await listConversations(WALLET)).toEqual([]);
-
-    // saveCurrent stamps record.updatedAt with the save time — after the clear.
-    await upsertConversation(record("c3", "After clear", Date.now() + 60_000));
-    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c3"]);
-  });
-
-  it("a deleted conversation stays hidden even if a race re-adds it to the index (delete tombstone wins)", async () => {
-    await upsertConversation(record("c1", "First", 1000));
-    await upsertConversation(record("c2", "Second", 2000));
+  it("a deleted conversation does not resurrect (Redis is authoritative)", async () => {
+    await upsertConversation(record("c1", 1000), "enc-c1");
+    await upsertConversation(record("c2", 2000), "enc-c2");
     expect(await removeConversation(WALLET, "c1")).toBe(true);
     expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c2"]);
 
-    // Simulate a concurrent save that re-published an index still listing c1 with its old
-    // stamp (the read-modify-write race the tombstone insures against). The per-conversation
-    // tombstone (newer than c1's updatedAt) must still hide it on read.
-    await upsertConversation(record("c1", "Resurrected by race", 1500));
-    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c2"]);
-  });
-
-  it("re-saving a deleted conversation with a newer timestamp brings it back (out-dates the delete tombstone)", async () => {
-    await upsertConversation(record("c1", "First", 1000));
-    expect(await removeConversation(WALLET, "c1")).toBe(true);
-    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual([]);
-
-    await upsertConversation(record("c1", "Revived", Date.now() + 60_000));
-    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c1"]);
+    // A later genuine re-save with a newer stamp brings it back (normal upsert).
+    await upsertConversation(record("c1", 3000), "enc-c1b");
+    expect((await listConversations(WALLET)).map((c) => c.id)).toEqual(["c1", "c2"]);
   });
 });

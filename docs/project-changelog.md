@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-06-20 — Conversation index → Upstash Redis (drop memwal) + encrypted titles
+
+### Changed
+- **Conversation list/read/delete was slow + flaky → moved the index to Redis.** Root cause:
+  the per-wallet conversation INDEX lived in memwal, a semantic *vector* store (embed-on-write,
+  similarity-recall-on-read) with no get-by-key/list, a ~30-43s indexing lag, and a relayer rate
+  limit shared app-wide — the wrong tool for an exact key-value index. The index now lives in an
+  Upstash Redis HASH `convo:idx:<wallet>` (`HGETALL`/`HSET`/`HDEL`/`DEL`) — exact, no lag, no
+  shared limit. Per-conversation CONTENT still lives in an immutable Seal-encrypted Walrus blob
+  (unchanged). memwal is no longer on the conversation path; it stays scoped to semantic memory
+  (XP/action-log, contacts, profile).
+- **No more lag-masking.** Because Redis is read-after-write consistent, the client-side
+  localStorage bridges that papered over memwal's lag (`local-index.ts`, `deleted-ids.ts`) were
+  retired — a delete is a plain `HDEL` (no resurrection, no tombstones), consistent across reload.
+
+### Added
+- **Conversation titles are encrypted client-side** (`titleEnc`, wallet-derived AES-GCM key:
+  sign-once → HKDF, cached so only the first session prompts; titles show `🔒 Locked` until then).
+  The list read stays OPEN but now exposes only ciphertext titles + Seal-protected blobIds — the
+  server stays title-blind, preserving the "server can't read conversations" Seal posture.
+
+### Security
+- **Closed a clear-all IDOR.** `DELETE /api/conversations?wallet=…` (clear all) was unauthenticated —
+  anyone could wipe a wallet's index by address. It is now session-signature-gated like the other
+  writes (recovers the signer → must equal the wallet). All writes (upsert, per-id delete, clear)
+  now require wallet control.
+- **Atomicity (report-after-HSET):** a save reports "saved" only after the Redis index write
+  confirms — Redis is the sole durable index now, so a silent index-write failure (orphan blob,
+  expires on Walrus) never shows as success.
+
+### Notes
+- New env: `UPSTASH_REDIS_REST_URL`/`TOKEN` (or Vercel's `KV_REST_API_*`); server-only.
+- Tests: +`index-kv` / +`title-crypto` specs, conversation-store spec rewritten for Redis; full
+  suite 629 green; typecheck clean. Existing conversations don't migrate — Redis starts empty, so
+  the old memwal-indexed conversations simply stop appearing (fresh start).
+
 ## 2026-06-19 — Fix: conversations dropped the final messages (single-flight save skip)
 
 ### Fixed

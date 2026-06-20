@@ -1,15 +1,18 @@
 /**
- * GET  /api/conversations?wallet=0x…  — list a wallet's saved conversations.
- * POST /api/conversations              — upsert a conversation (Walrus + memwal).
+ * GET    /api/conversations?wallet=0x…  — list a wallet's saved conversations.
+ * POST   /api/conversations             — upsert a conversation (Walrus blob + Redis index).
+ * DELETE /api/conversations?wallet=0x…  — clear ALL of a wallet's conversations (signed).
  *
- * POST requires a session write-auth signature ({message, signature} in body alongside
- * the record) — mirrors the contacts/memory write-gate pattern. The signature proves
- * wallet control without a per-write prompt (30-min session token).
+ * Content lives in an immutable Walrus blob; the per-wallet index lives in Upstash Redis
+ * (titles encrypted client-side as `titleEnc`). Every WRITE (POST upsert, DELETE clear)
+ * requires a session write-auth signature ({message, signature}) that recovers to the
+ * wallet — proving control without a per-write prompt (30-min session token), which closes
+ * the unauthenticated-write / cross-wallet-wipe (IDOR) hole.
  *
- * Server-only Walrus/memwal access; per-wallet isolation. Fail-soft: when
- * persistence is unavailable, GET returns [] and POST returns ok:false (the
- * client keeps the in-memory conversation). No signable bytes are accepted —
- * the client serializer drops tx-preview cards before POSTing.
+ * Server-only Walrus/Redis access; per-wallet isolation. Fail-soft: when persistence is
+ * unavailable, GET returns [] and POST returns ok:false (the client keeps the in-memory
+ * conversation). No signable bytes are accepted — the client serializer drops tx-preview
+ * cards before POSTing.
  */
 
 export const runtime = "nodejs";
@@ -51,15 +54,19 @@ export async function GET(req: NextRequest) {
   return Response.json({ conversations }, { headers: { "cache-control": "no-store", ...rateLimitHeaders(rl, RATE_LIMIT_MAX), ...corsHeaders(origin) } });
 }
 
-/** Accept a record with EITHER plaintext messages (legacy) OR encrypted ciphertext (enc). */
-function isValidRecord(b: unknown): b is ConversationRecord & { message: string; signature: string } {
+/** Accept a record with EITHER plaintext messages (legacy) OR encrypted ciphertext (enc).
+ * `titleEnc` is the client-encrypted title for the index — the server never receives a
+ * plaintext title. `message`/`signature` are the session write-auth. */
+function isValidRecord(
+  b: unknown,
+): b is ConversationRecord & { titleEnc: string; message: string; signature: string } {
   if (!b || typeof b !== "object") return false;
   const r = b as Record<string, unknown>;
   const hasBase =
     typeof r.id === "string" &&
     typeof r.walletAddress === "string" &&
     WALLET_RE.test(r.walletAddress) &&
-    typeof r.title === "string" &&
+    typeof r.titleEnc === "string" &&
     typeof r.createdAt === "number" &&
     typeof r.updatedAt === "number";
   if (!hasBase) return false;
@@ -96,9 +103,10 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 403, headers: corsHeaders(origin) });
   }
 
-  // Strip auth fields before persisting (server stays agnostic of them)
-  const { message: _msg, signature: _sig, ...record } = body;
-  const result = await upsertConversation(record as ConversationRecord);
+  // Strip auth + titleEnc before persisting the content blob (the title is indexed in
+  // Redis as ciphertext, never written onto the Walrus blob — server stays title-blind).
+  const { message: _msg, signature: _sig, titleEnc, ...record } = body;
+  const result = await upsertConversation(record as ConversationRecord, titleEnc);
   return Response.json(result, { status: result.ok ? 200 : 202, headers: { ...rateLimitHeaders(rl, RATE_LIMIT_MAX), ...corsHeaders(origin) } });
 }
 
@@ -113,7 +121,17 @@ export async function DELETE(req: NextRequest) {
   if (!wallet || !WALLET_RE.test(wallet)) {
     return Response.json({ error: "Missing or invalid wallet" }, { status: 400, headers: corsHeaders(origin) });
   }
-  // Clear-all has no body (matches existing client call); left ungated for now as per spec.
+  // Clear-all is destructive → signature-gated (message + signature as query params, like
+  // the per-id delete). Without this, anyone could wipe a wallet's index by address (IDOR).
+  const sp = new URL(req.url).searchParams;
+  const authed = await verifyConversationAuth({
+    wallet,
+    message: sp.get("message") ?? "",
+    signature: sp.get("signature") ?? "",
+  });
+  if (!authed) {
+    return Response.json({ error: "Unauthorized" }, { status: 403, headers: corsHeaders(origin) });
+  }
   const ok = await clearConversations(wallet);
   return Response.json({ ok }, { headers: { ...rateLimitHeaders(rl, RATE_LIMIT_MAX), ...corsHeaders(origin) } });
 }
