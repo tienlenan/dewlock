@@ -36,10 +36,14 @@ type SignPersonalMessage = (input: { message: Uint8Array }) => Promise<{ signatu
 /** A list row: the Redis index entry plus its DECRYPTED display title (client-only). */
 export interface SessionItem extends ConversationIndexEntry {
   title: string;
+  /** True when the title key isn't derived yet → the row renders an encrypted state
+   * (icon placeholder) instead of the real title. */
+  locked?: boolean;
 }
 
-/** Placeholder shown for a row whose title can't be decrypted yet (key not derived). */
-const LOCKED_TITLE = "🔒 Locked";
+/** Tooltip/aria fallback for a row whose title can't be decrypted yet (key not derived).
+ * The list renders an icon for these — this string is only the accessible label. */
+const LOCKED_TITLE = "Encrypted";
 
 interface UseConversationsOpts {
   onLoad: (msgs: ChatMessage[]) => void;
@@ -65,18 +69,27 @@ function newId(): string {
   }
 }
 
+/**
+ * Reveal a row's title from its just-decrypted messages (and unlock it). Used when a
+ * conversation is opened: decrypting its CONTENT already yields the plaintext, so the
+ * title shows with no extra title-key signature — only the active conversation is unlocked.
+ */
+function revealTitle(list: SessionItem[], id: string, msgs: ChatMessage[]): SessionItem[] {
+  return list.map((c) => (c.id === id ? { ...c, title: deriveTitle(msgs), locked: false } : c));
+}
+
 /** Decrypt each entry's title with `key` (or mark locked when no key / on failure). */
 async function decryptEntries(
   entries: ConversationIndexEntry[],
   key: CryptoKey | null,
 ): Promise<SessionItem[]> {
-  if (!key) return entries.map((e) => ({ ...e, title: LOCKED_TITLE }));
+  if (!key) return entries.map((e) => ({ ...e, title: LOCKED_TITLE, locked: true }));
   return Promise.all(
     entries.map(async (e) => {
       try {
         return { ...e, title: await decryptTitle(e.titleEnc, key) };
       } catch {
-        return { ...e, title: LOCKED_TITLE };
+        return { ...e, title: LOCKED_TITLE, locked: true };
       }
     }),
   );
@@ -171,6 +184,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
         setLoadingId(null);
         if (lockedId === id) setLockedId(null);
         setDecryptError(null);
+        setList((cur) => revealTitle(cur, id, cached));
         return;
       }
 
@@ -206,6 +220,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
             onLoad(msgs);
             setLockedId(null);
             setDecryptError(null);
+            setList((cur) => revealTitle(cur, id, msgs));
           } catch (err) {
             // Rejected signature or key-server failure → keep locked panel, do NOT crash.
             const msg = err instanceof Error ? err.message : "Decryption failed";
@@ -222,6 +237,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
           onLoad(msgs);
           setLockedId(null);
           setDecryptError(null);
+          setList((cur) => revealTitle(cur, id, msgs));
           return;
         }
 

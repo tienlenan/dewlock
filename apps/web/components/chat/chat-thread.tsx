@@ -33,6 +33,7 @@ import { SwapFormCard, type SwapFormData } from "@/components/chat/swap-form-car
 import { ActionFormCard, type ActionFormData } from "@/components/chat/action-form-card";
 import { ContactPickerCard, type ContactPickerData } from "@/components/chat/contact-picker-card";
 import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
+import { AgentThinkingLoader } from "@/components/chat/agent-thinking-loader";
 import { ProfileChatCard } from "@/components/dashboard/profile-chat-card";
 import { ProtocolMetricsSection } from "@/components/dashboard/protocol-metrics-section";
 import type { UserStatsData, BadgeStateDto } from "@/components/dashboard/types";
@@ -312,26 +313,34 @@ function MessageRow({
     <div className="flex gap-3" style={{ animation: "fadeUp 0.3s ease both" }}>
       <DewdropAvatar variant={hasBlock ? "blocked" : "normal"} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Assistant text — rendered as streaming markdown (Streamdown handles
-            incomplete markdown mid-stream); the blinking cursor follows while streaming. */}
-        {(message.text || message.streaming) && (
-          <div className="dewlock-md" style={{ fontSize: "14px", color: "var(--fg)", marginBottom: 10, lineHeight: 1.55, overflowWrap: "anywhere" }}>
-            {message.text && <Streamdown>{message.text}</Streamdown>}
-            {message.streaming && (
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 6,
-                  height: 13,
-                  marginLeft: 2,
-                  background: "currentColor",
-                  opacity: 0.6,
-                  animation: "pulse 1s ease-in-out infinite",
-                  verticalAlign: "text-bottom",
-                }}
-              />
-            )}
+        {/* "Thinking" gap — shown after the request is sent but before the first
+            token or card lands. A random dot-matrix loader fills the wait. */}
+        {message.streaming && !message.text && cards.length === 0 ? (
+          <div style={{ display: "flex", alignItems: "flex-end", minHeight: 30, marginTop: -4, marginBottom: 10 }}>
+            <AgentThinkingLoader />
           </div>
+        ) : (
+          /* Assistant text — rendered as streaming markdown (Streamdown handles
+             incomplete markdown mid-stream); the blinking cursor follows while streaming. */
+          (message.text || message.streaming) && (
+            <div className="dewlock-md" style={{ fontSize: "14px", color: "var(--fg)", marginBottom: 10, lineHeight: 1.55, overflowWrap: "anywhere" }}>
+              {message.text && <Streamdown>{message.text}</Streamdown>}
+              {message.streaming && (
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 6,
+                    height: 13,
+                    marginLeft: 2,
+                    background: "currentColor",
+                    opacity: 0.6,
+                    animation: "pulse 1s ease-in-out infinite",
+                    verticalAlign: "text-bottom",
+                  }}
+                />
+              )}
+            </div>
+          )
         )}
 
         {/* Tool cards */}

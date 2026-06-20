@@ -8,11 +8,13 @@
  * Honest empty state when there are none (or persistence is unavailable).
  */
 
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, EyeOff } from "lucide-react";
 
 export interface SessionEntry {
   id: string;
   title: string;
+  /** Title not yet decrypted (key not derived) → show an encrypted-state icon. */
+  locked?: boolean;
 }
 
 interface SessionListProps {
@@ -75,7 +77,14 @@ export function SessionList({ sessions, activeId = null, loadingId = null, onSel
                 title={s.title}
               >
                 {isLoading && <Loader2 size={13} className="shrink-0 animate-spin" style={{ color: "var(--accent)" }} aria-hidden />}
-                <span className="truncate">{s.title}</span>
+                {s.locked ? (
+                  <span className="flex items-center gap-1.5 truncate" style={{ color: "var(--fg-faint)" }}>
+                    <EyeOff size={12} className="shrink-0" aria-hidden />
+                    <span className="truncate">Encrypted</span>
+                  </span>
+                ) : (
+                  <span className="truncate">{s.title}</span>
+                )}
               </button>
               {onDelete && (
                 <button

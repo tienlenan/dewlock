@@ -10,6 +10,7 @@ import { ColorSwatchesWrapper } from "@/components/brand-design/color-swatches-w
 import { TypeScaleSection } from "@/components/brand-design/type-scale-section";
 import { SpacingShadowsSection } from "@/components/brand-design/spacing-shadows-section";
 import { SampleComponentsSection } from "@/components/brand-design/sample-components-section";
+import { ThinkingLoadersSection } from "@/components/brand-design/thinking-loaders-section";
 import { BrandLogo } from "@/components/brand/brand-logo";
 
 export const metadata = {
@@ -222,6 +223,11 @@ export default function BrandDesignPage() {
             to the URL to switch.
           </p>
           <SampleComponentsSection />
+        </Section>
+
+        {/* 5. Thinking loaders — dot-matrix wait indicators */}
+        <Section title="Thinking loaders" sub="dot-matrix · random per request">
+          <ThinkingLoadersSection />
         </Section>
       </div>
 
