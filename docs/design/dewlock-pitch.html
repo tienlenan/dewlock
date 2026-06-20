@@ -266,11 +266,14 @@
       <rect x="388" y="270" width="222" height="56" rx="11" fill="#fff" stroke="#cfe2fb"/>
       <text class="d-lab" x="404" y="294" font-size="13.5">PTB builders</text>
       <text class="d-sub" x="404" y="312" font-size="10">transfer · swap · limit-order</text>
+      <rect x="388" y="336" width="222" height="56" rx="11" fill="#fff" stroke="#cfe2fb" stroke-dasharray="4 3"/>
+      <text class="d-lab" x="404" y="360" font-size="13">Upstash Redis</text>
+      <text class="d-sub" x="404" y="378" font-size="9.5">cache layer · convo index + user-stats</text>
 
       <!-- ZONE 3 -->
       <rect x="730" y="40" width="264" height="404" rx="16" fill="#F4F1FF" stroke="#cdd6fb"/>
-      <text class="d-tag" x="750" y="68" font-size="11" fill="#4a51c9">ON-CHAIN · DECENTRALIZED</text>
-      <text class="d-sub" x="750" y="84" font-size="9.5">Sui mainnet + Walrus</text>
+      <text class="d-tag" x="750" y="68" font-size="11" fill="#4a51c9">ON-CHAIN · SOURCE OF TRUTH</text>
+      <text class="d-sub" x="750" y="84" font-size="9.5">Sui mainnet + Walrus · authoritative state</text>
       <rect x="750" y="104" width="224" height="50" rx="10" fill="#fff" stroke="#d7defb"/>
       <text class="d-lab" x="765" y="126" font-size="12.5">Sui RPC</text><text class="d-sub" x="765" y="143" font-size="9.5">dry-run · balances · decimals</text>
       <rect x="750" y="166" width="108" height="50" rx="10" fill="#fff" stroke="#d7defb"/>
@@ -304,6 +307,8 @@
       <text class="d-flow" x="520" y="108" font-size="9" text-anchor="middle">signed tx submitted on-chain</text>
       <line x1="610" y1="300" x2="748" y2="312" stroke="#7C9CFF" stroke-width="1.8" marker-end="url(#b-peri)"/>
       <text class="d-flow" x="688" y="294" font-size="9" text-anchor="middle">receipt write</text>
+      <line x1="748" y1="364" x2="612" y2="364" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="3 3" marker-end="url(#b-grey)"/>
+      <text class="d-flow" x="680" y="358" font-size="8.5" text-anchor="middle">re-derive → cache</text>
     </svg>
 
     <div class="legend">
@@ -530,6 +535,7 @@
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
         <div><div style="font-size:12.5px;font-weight:700;color:#fff">PTB composition</div><div style="font-size:10px;color:var(--accent-2);font-family:var(--mono)">atomic multi-leg · one signature</div></div>
         <div><div style="font-size:12.5px;font-weight:700;color:#fff">Walrus + memwal</div><div style="font-size:10px;color:var(--accent-2);font-family:var(--mono)">tamper-evident receipts + memory</div></div>
+        <div><div style="font-size:12.5px;font-weight:700;color:#fff">Upstash Redis</div><div style="font-size:10px;color:var(--accent-2);font-family:var(--mono)">cache layer · on-chain = source of truth</div></div>
         <div><div style="font-size:12.5px;font-weight:700;color:#fff">SuiNS · Seal</div><div style="font-size:10px;color:var(--accent-2);font-family:var(--mono)">named sends · owner-only chat</div></div>
       </div>
     </div>
@@ -540,7 +546,7 @@
     <div class="stack">
       <span class="chip">Next.js 16</span><span class="chip">React 19</span><span class="chip">TypeScript</span><span class="chip">Tailwind v4</span><span class="chip">@mysten/sui</span><span class="chip">dapp-kit</span>
       <span class="chip">@mysten/deepbook-v3</span><span class="chip">Cetus</span><span class="chip">Aftermath</span><span class="chip">NAVI · Suilend</span><span class="chip">@mysten/suins</span><span class="chip">Wormhole</span>
-      <span class="chip">Walrus</span><span class="chip">memwal</span><span class="chip">Seal</span><span class="chip">Mastra · AI Gateway</span><span class="chip">Claude · Gemini</span><span class="chip">Move</span>
+      <span class="chip">Walrus</span><span class="chip">Upstash Redis</span><span class="chip">memwal</span><span class="chip">Seal</span><span class="chip">Mastra · AI Gateway</span><span class="chip">Claude · Gemini</span><span class="chip">Move</span>
     </div>
     <div style="margin-top:9px;font-family:var(--mono);font-size:8.5px;color:var(--fg-faint)">mainnet · dewlock_receipt 0x8c3b…2361 · dewlock_seal 0x77aa…0709 · live at dewlock.vercel.app</div>
   </div>
