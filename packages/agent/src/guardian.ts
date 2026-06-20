@@ -229,6 +229,10 @@ export interface TxPreview {
   estimatedUsdValue: number;
   gasCostMist: bigint;
   balanceDeltas: DryRunResult["balanceDeltas"];
+  /** Real decimals per coin type the preview displays (curated map → on-chain
+   * CoinMetadata → 9). The client formats native amounts with these, so a non-9-decimal
+   * swap output renders at the correct scale instead of a hardcoded default. */
+  coinDecimals: Record<string, number>;
   capsWarning: boolean;
   /** True when any arg has provenance="derived" — surfaces provenance confirm. */
   requiresProvenanceConfirm: boolean;
@@ -537,7 +541,20 @@ export async function guardianCheck(
     return { ok: false, reasons, gates };
   }
 
-  // All gates passed — return pass with approvedDigest and preview
+  // All gates passed — return pass with approvedDigest and preview.
+  // Resolve real decimals for EVERY coin type the preview displays (in/out + each dry-run
+  // balance delta) so the client never falls back to a hardcoded default (a non-9-decimal
+  // swap output otherwise renders ~1000× off, e.g. 44 → 0.04).
+  const coinDecimals: Record<string, number> = {};
+  const previewCoinTypes = new Set<string>([
+    proposal.coinTypeIn,
+    ...(proposal.coinTypeOut ? [proposal.coinTypeOut] : []),
+    ...dryRunResult!.balanceDeltas.map((d) => d.coinType),
+  ]);
+  for (const ct of previewCoinTypes) {
+    coinDecimals[ct] = await resolveCoinDecimals(ct, suiClient);
+  }
+
   const preview: TxPreview = {
     actionLabel: proposal.actionLabel,
     coinTypeIn: proposal.coinTypeIn,
@@ -551,6 +568,7 @@ export async function guardianCheck(
     estimatedUsdValue,
     gasCostMist: dryRunResult!.gasCostMist,
     balanceDeltas: dryRunResult!.balanceDeltas,
+    coinDecimals,
     capsWarning,
     requiresProvenanceConfirm,
     demoFixture: process.env.NEXT_PUBLIC_DEMO_MODE === "fixture",
@@ -935,6 +953,23 @@ function checkSwapPriceImpact(
 }
 
 // Gate 9: Coin-type on-chain verification
+/**
+ * Resolve a coin type's decimals for the preview display: curated map first (fast path
+ * for known coins), then on-chain CoinMetadata, then a 9-decimal default. Display-only —
+ * the signed PTB uses native units regardless of this.
+ */
+export async function resolveCoinDecimals(coinType: string, suiClient: SuiClient): Promise<number> {
+  const curated = COIN_DECIMALS[coinType];
+  if (curated !== undefined) return curated;
+  try {
+    const meta = await suiClient.getCoinMetadata({ coinType });
+    if (meta && typeof meta.decimals === "number") return meta.decimals;
+  } catch {
+    /* fall through to default */
+  }
+  return 9;
+}
+
 export async function checkCoinTypeOnChain(
   coinType: string,
   suiClient: SuiClient,

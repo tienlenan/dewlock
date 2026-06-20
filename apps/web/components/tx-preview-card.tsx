@@ -50,6 +50,8 @@ export interface TxPreviewData {
   estimatedUsdValue: number;
   gasCostMist: string;
   balanceDeltas: BalanceDeltaDisplay[];
+  /** Real decimals per coin type (server-resolved). Absent → fall back to the curated map. */
+  coinDecimals?: Record<string, number>;
   capsWarning: boolean;
   requiresProvenanceConfirm: boolean;
   demoFixture: boolean;
@@ -72,13 +74,16 @@ function shortCoinType(coinType: string): string {
   return parts[parts.length - 1] ?? coinType;
 }
 
-function formatNative(native: string, coinType: string): string {
-  const DECIMALS: Record<string, number> = {
-    "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI": 9,
-    "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC": 6,
-    "0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT": 6,
-  };
-  const decimals = DECIMALS[coinType] ?? 9;
+// Curated last-resort decimals — only used when the server didn't supply coinDecimals
+// (legacy payloads / fixtures). The server-resolved map is authoritative for any token.
+const FALLBACK_DECIMALS: Record<string, number> = {
+  "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI": 9,
+  "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC": 6,
+  "0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT": 6,
+};
+
+function formatNative(native: string, coinType: string, coinDecimals?: Record<string, number>): string {
+  const decimals = coinDecimals?.[coinType] ?? FALLBACK_DECIMALS[coinType] ?? 9;
   const value = Number(BigInt(native)) / 10 ** decimals;
   return value.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
@@ -125,10 +130,10 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
   const lendVerb: "deposit" | "repay" = /repay/i.test(preview.actionLabel) ? "repay" : "deposit";
   const confirmEnabled = !isPending && (!preview.requiresProvenanceConfirm || provenanceAcknowledged);
 
-  const amountIn = formatNative(preview.amountInNative, preview.coinTypeIn);
+  const amountIn = formatNative(preview.amountInNative, preview.coinTypeIn, preview.coinDecimals);
   const tickerIn = shortCoinType(preview.coinTypeIn);
   const amountOut = preview.minAmountOutNative && preview.coinTypeOut
-    ? formatNative(preview.minAmountOutNative, preview.coinTypeOut)
+    ? formatNative(preview.minAmountOutNative, preview.coinTypeOut, preview.coinDecimals)
     : null;
   const tickerOut = preview.coinTypeOut ? shortCoinType(preview.coinTypeOut) : null;
   const gasCost = formatMist(preview.gasCostMist);
@@ -399,6 +404,7 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
                 const formatted = formatNative(
                   (amount < 0n ? -amount : amount).toString(),
                   delta.coinType,
+                  preview.coinDecimals,
                 );
                 return (
                   <div

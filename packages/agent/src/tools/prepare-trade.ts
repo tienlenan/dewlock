@@ -221,6 +221,9 @@ export const prepareTrade = createTool({
             owner: z.string(),
           }),
         ),
+        // Real decimals (curated map → on-chain CoinMetadata) for every coin type the
+        // preview displays, so the client formats amounts with the correct scale.
+        coinDecimals: z.record(z.string(), z.number()).optional(),
         // Limit-order preview fields (present when actionType==="limit_order")
         poolKey: z.string().optional(),
         side: z.enum(["BUY", "SELL"]).optional(),
