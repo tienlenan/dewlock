@@ -35,6 +35,9 @@ importers:
       '@ai-sdk/gateway':
         specifier: ^1.0.0
         version: 1.0.41(zod@3.25.76)
+      '@defillama/api':
+        specifier: ^0.1.3
+        version: 0.1.3
       '@dewlock/agent':
         specifier: workspace:*
         version: link:../../packages/agent
@@ -728,6 +731,10 @@ packages:
 
   '@cosmjs/utils@0.33.1':
     resolution: {integrity: sha512-UnLHDY6KMmC+UXf3Ufyh+onE19xzEXjT4VZ504Acmk4PXxqyvG4cCPprlKUFnGUX7f0z8Or9MAOHXBx41uHBcg==}
+
+  '@defillama/api@0.1.3':
+    resolution: {integrity: sha512-6gj1VfGz1+eIyCpKehvnFAa88nHDOE5bzmjAOsrN12Ybz13fCsixdKjCuzus4EJnZpDoR6PUsobzsv80eHqk4w==}
+    engines: {node: '>=18.0.0'}
 
   '@ecies/ciphers@0.2.6':
     resolution: {integrity: sha512-patgsRPKGkhhoBjETV4XxD0En4ui5fbX0hzayqI3M8tvNMGUoUvmyYAIWwlxBc1KX5cturfqByYdj5bYGRpN9g==}
@@ -12162,6 +12169,8 @@ snapshots:
   '@cosmjs/utils@0.32.4': {}
 
   '@cosmjs/utils@0.33.1': {}
+
+  '@defillama/api@0.1.3': {}
 
   '@ecies/ciphers@0.2.6(@noble/ciphers@1.3.0)':
     dependencies:

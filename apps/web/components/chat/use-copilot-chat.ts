@@ -138,7 +138,7 @@ function hasKeys(v: unknown, keys: string[]): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && keys.every((k) => k in v);
 }
 
-function toolResultToCard(toolName: string, result: unknown): ToolCard | null {
+export function toolResultToCard(toolName: string, result: unknown): ToolCard | null {
   if (toolName === "prepareTrade" && isPrepareTradeResult(result)) {
     return result.ok ? makePreviewCard(result) : makeBlockCard(result);
   }
@@ -176,6 +176,17 @@ function toolResultToCard(toolName: string, result: unknown): ToolCard | null {
   if (toolName === "getProtocolMetrics" && hasKeys(result, ["supportedProtocols", "perProtocol"])) {
     // Card self-fetches /api/metrics for live TVL; the registry counts are in `result`.
     return { type: "protocol-metrics" };
+  }
+  // Ecosystem discovery markers → self-fetching cards (routed by toolName; the
+  // tool result is just a { chain: "Sui" } marker — the card owns the data fetch).
+  if (toolName === "getStablecoinYields") {
+    return { type: "ecosystem-yields" };
+  }
+  if (toolName === "getTopTvl") {
+    return { type: "ecosystem-tvl" };
+  }
+  if (toolName === "getTrendingTokens") {
+    return { type: "ecosystem-tokens" };
   }
   return null;
 }

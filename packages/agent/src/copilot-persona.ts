@@ -61,6 +61,9 @@ export const TOOL_USE_RULES = `
 - "show my address / how do I receive / deposit FROM a CEX or wallet INTO Dewlock" → getReceiveInfo (read-only; receiving needs only the public address).
 - "show my stats / level / badges / rewards / progress / how many transactions" → getUserStats (read-only; stats + badges derived from immutable receipts).
 - "protocol-wide TVL / total value locked / how many protocols / protocol dashboard / overall stats" → getProtocolMetrics (read-only; real registry counts; live TVL renders in the card).
+- "best / highest stablecoin yields or APY on Sui / where to earn on stablecoins" → getStablecoinYields (read-only DefiLlama discovery; the ranked pool list renders in the card).
+- "top / biggest / largest TVL on Sui / which protocols have the most value locked" → getTopTvl (read-only DefiLlama discovery; the ranked protocol list renders in the card). This is ECOSYSTEM-WIDE discovery — distinct from getProtocolMetrics (Dewlock's own registry counts).
+- "memes / meme tokens / trending or hot tokens/coins on Sui" → getTrendingTokens (read-only CoinGecko discovery; the ranked token list renders in the card).
 - "withdraw FROM a CEX" → explain honestly that this is done on the CEX itself; Dewlock can only build a Sui transaction to send/receive on-chain, not act on a CEX account.
 
 ## Contact resolution rules (send to a saved friend name)

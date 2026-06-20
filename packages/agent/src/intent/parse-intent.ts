@@ -41,7 +41,12 @@ export type Intent =
   | { action: "portfolio" }
   | { action: "protocols" }
   | { action: "stats" }
-  | { action: "receive" };
+  | { action: "receive" }
+  // Read-only Sui-ecosystem discovery — each renders a card that self-fetches
+  // its /api/ecosystem/* route. No value move, no args.
+  | { action: "ecosystemYields" }
+  | { action: "ecosystemTvl" }
+  | { action: "ecosystemTokens" };
 
 // Swap-picker binding: the swap form emits the EXACT allowlisted coin types (+ chosen source)
 // as a machine marker so token mapping never depends on symbol re-parsing — the LLM can't
@@ -205,6 +210,30 @@ export function parseIntent(text: string): Intent | null {
     const tok = resolveSymbol(sm[3]);
     if (!tok) return null;
     return { action: "send", coinType: tok.coinType, amount: parseAmount(sm[2]) };
+  }
+
+  // Read-only ecosystem discovery — matched LAST so every value verb (swap/send/
+  // lend) wins first. Each requires a domain noun so generic "top"/"best" can't
+  // hijack routing; bare "total value locked" stays with the LLM (dashboard).
+  // "best/highest stablecoin yields or APY"
+  if (/\bstable\s?coins?\b/.test(lower) && /\b(yield|yields|apy|apr|earn|earning)\b/.test(lower)) {
+    return { action: "ecosystemYields" };
+  }
+  // "top/biggest/largest TVL or protocols by value locked"; "tvl on sui"
+  if (
+    /\b(top|biggest|largest|highest|most)\b[\s\S]{0,24}\b(tvl|protocols?|value\s+locked|defi)\b/.test(lower) ||
+    /\btvl\b[\s\S]{0,12}\bsui\b/.test(lower) ||
+    /\bsui\b[\s\S]{0,12}\btvl\b/.test(lower)
+  ) {
+    return { action: "ecosystemTvl" };
+  }
+  // "memes / trending / hot tokens or coins"
+  if (
+    /\bmemes?\b/.test(lower) ||
+    /\b(trending|hot)\b[\s\S]{0,16}\b(tokens?|coins?)\b/.test(lower) ||
+    /\b(tokens?|coins?)\b[\s\S]{0,16}\b(trending|hot)\b/.test(lower)
+  ) {
+    return { action: "ecosystemTokens" };
   }
 
   return null; // nothing matched → LLM fallback

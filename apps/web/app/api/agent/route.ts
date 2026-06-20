@@ -57,6 +57,9 @@ async function buildAgent(walletAddress?: string) {
   const { getSwapForm } = require("@dewlock/agent/tools/get-swap-form") as { getSwapForm: AnyTool };
   const { getReceiveInfo } = require("@dewlock/agent/tools/get-receive-info") as { getReceiveInfo: AnyTool };
   const { getProtocolMetrics } = require("@dewlock/agent/tools/get-protocol-metrics") as { getProtocolMetrics: AnyTool };
+  const { getStablecoinYields } = require("@dewlock/agent/tools/get-stablecoin-yields") as { getStablecoinYields: AnyTool };
+  const { getTopTvl } = require("@dewlock/agent/tools/get-top-tvl") as { getTopTvl: AnyTool };
+  const { getTrendingTokens } = require("@dewlock/agent/tools/get-trending-tokens") as { getTrendingTokens: AnyTool };
   const { getUserStats } = require("@dewlock/agent/tools/get-user-stats") as { getUserStats: AnyTool };
   const { requestActionForm } = require("@dewlock/agent/tools/request-action-form") as { requestActionForm: AnyTool };
   const { requestContactPicker } = require("@dewlock/agent/tools/request-contact-picker") as { requestContactPicker: AnyTool };
@@ -74,7 +77,7 @@ async function buildAgent(walletAddress?: string) {
     name: "Dewlock Sui DeFi Copilot",
     instructions: `${COPILOT_PERSONA}\n${TOOL_USE_RULES}\n${SECURITY_RULES}${walletContext}`,
     model: gateway(process.env.AGENT_MODEL ?? "google/gemini-2.5-flash"),
-    tools: { getPortfolio, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getReceiveInfo, getProtocolMetrics, getUserStats, requestActionForm, requestContactPicker },
+    tools: { getPortfolio, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getReceiveInfo, getProtocolMetrics, getStablecoinYields, getTopTvl, getTrendingTokens, getUserStats, requestActionForm, requestContactPicker },
   });
 }
 

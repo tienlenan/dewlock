@@ -81,6 +81,9 @@ export async function buildIntentDirective(
     case "protocols": return only("listProtocols");
     case "stats": return only("getUserStats");
     case "receive": return only("getReceiveInfo");
+    case "ecosystemYields": return only("getStablecoinYields");
+    case "ecosystemTvl": return only("getTopTvl");
+    case "ecosystemTokens": return only("getTrendingTokens");
 
     case "lend": {
       // Lending must NEVER become a portfolio call. Route by what the user already

@@ -28,6 +28,12 @@ export function buildSuggestions(ctx: SuggestionContext): Suggestion[] {
   out.push({ label: "My portfolio", text: "my portfolio" });
   out.push({ label: "Supported protocols", text: "protocols" });
 
+  // Sui-ecosystem discovery — read-only, always relevant (mirror the welcome chips).
+  // Each text routes deterministically to its ecosystem tool via the intent parser.
+  out.push({ label: "Best yields", text: "best stablecoin yields on Sui" });
+  out.push({ label: "Top TVL", text: "top TVL on Sui" });
+  out.push({ label: "Trending tokens", text: "trending tokens on Sui" });
+
   if (ctx.connected && ctx.holdings.length > 0) {
     // Actions on what they actually hold (counter-asset rule: USDC→SUI, else→USDC).
     if (has("USDC")) out.push({ label: "Swap all USDC → SUI", text: "swap all USDC to SUI" });
@@ -43,7 +49,8 @@ export function buildSuggestions(ctx: SuggestionContext): Suggestion[] {
     out.push({ label: "My stats", text: "my stats" });
   }
 
-  // De-dup by text + cap to keep the row tidy.
+  // De-dup by text + cap to keep the row tidy (chips wrap, so a slightly higher
+  // cap fits the discovery set alongside a couple of holdings/context actions).
   const seen = new Set<string>();
-  return out.filter((s) => (seen.has(s.text) ? false : (seen.add(s.text), true))).slice(0, 5);
+  return out.filter((s) => (seen.has(s.text) ? false : (seen.add(s.text), true))).slice(0, 7);
 }

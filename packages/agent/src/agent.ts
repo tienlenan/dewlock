@@ -25,6 +25,9 @@ import { getSwapForm } from "./tools/get-swap-form";
 import { getReceiveInfo } from "./tools/get-receive-info";
 import { getUserStats } from "./tools/get-user-stats";
 import { getProtocolMetrics } from "./tools/get-protocol-metrics";
+import { getStablecoinYields } from "./tools/get-stablecoin-yields";
+import { getTopTvl } from "./tools/get-top-tvl";
+import { getTrendingTokens } from "./tools/get-trending-tokens";
 import { requestActionForm } from "./tools/request-action-form";
 import { requestContactPicker } from "./tools/request-contact-picker";
 
@@ -51,6 +54,9 @@ export const copilot = new Agent({
     getReceiveInfo,
     getUserStats,
     getProtocolMetrics,
+    getStablecoinYields,
+    getTopTvl,
+    getTrendingTokens,
     requestActionForm,
     requestContactPicker,
   },

@@ -34,6 +34,9 @@ import { ActionFormCard, type ActionFormData } from "@/components/chat/action-fo
 import { ContactPickerCard, type ContactPickerData } from "@/components/chat/contact-picker-card";
 import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
 import { AgentThinkingLoader } from "@/components/chat/agent-thinking-loader";
+import { EcosystemYieldsCard } from "@/components/chat/ecosystem-yields-card";
+import { EcosystemTvlCard } from "@/components/chat/ecosystem-tvl-card";
+import { EcosystemTokensCard } from "@/components/chat/ecosystem-tokens-card";
 import { ProfileChatCard } from "@/components/dashboard/profile-chat-card";
 import { ProtocolMetricsSection } from "@/components/dashboard/protocol-metrics-section";
 import type { UserStatsData, BadgeStateDto } from "@/components/dashboard/types";
@@ -90,6 +93,10 @@ export type ToolCard =
       userStats: { stats: UserStatsData; badges: { earned: BadgeStateDto[]; locked: BadgeStateDto[] } };
     }
   | { type: "protocol-metrics" }
+  // Read-only Sui-ecosystem discovery cards — each self-fetches its /api/ecosystem/* route.
+  | { type: "ecosystem-yields" }
+  | { type: "ecosystem-tvl" }
+  | { type: "ecosystem-tokens" }
   | { type: "receipt"; receipt: TxReceipt }
   | { type: "wysiwys-error"; wysiwysMessage: string }
   /**
@@ -441,6 +448,15 @@ function CardSlot({
   if (card.type === "protocol-metrics") {
     // Self-fetches /api/metrics for live TVL (registry counts come from the tool result).
     return <ProtocolMetricsSection />;
+  }
+  if (card.type === "ecosystem-yields") {
+    return <EcosystemYieldsCard />;
+  }
+  if (card.type === "ecosystem-tvl") {
+    return <EcosystemTvlCard />;
+  }
+  if (card.type === "ecosystem-tokens") {
+    return <EcosystemTokensCard />;
   }
   if (card.type === "receipt") {
     return (
