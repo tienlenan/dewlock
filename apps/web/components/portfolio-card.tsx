@@ -58,12 +58,30 @@ function formatUsd(value: number): string {
   });
 }
 
-/** More precision for sub-dollar tokens so micro-priced coins read clearly. */
+/**
+ * Token amount for display: trims trailing zeros and caps at 3 decimals
+ * (30.000000 → "30", 1.123456 → "1.123"), with thousands separators for large
+ * holdings. A tiny non-zero balance falls back to 3 significant digits so it never
+ * collapses to "0".
+ */
+function formatTokenAmount(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  if (value > 0 && value < 0.001) {
+    return value.toLocaleString("en-US", { maximumSignificantDigits: 3 });
+  }
+  return value.toLocaleString("en-US", { maximumFractionDigits: 3 });
+}
+
+/**
+ * Unit price: same trailing-zero trim as the balance ($30.00 → "$30", $1.123456 →
+ * "$1.123"). Sub-$1 keeps more precision so micro-priced coins read clearly.
+ */
 function formatPrice(value: number): string {
   return value.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: value < 1 ? 6 : 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: value < 1 ? 6 : 3,
   });
 }
 
@@ -287,7 +305,7 @@ function CoinRow({ b, pct, pctColor, onAction }: CoinRowProps) {
           {/* Balance + unit price */}
           <div className="text-left sm:text-right shrink-0">
             <div className="mono" style={{ fontSize: 13.5, fontWeight: 650, color: "var(--fg)", lineHeight: 1.2 }}>
-              {b.humanBalance}
+              {formatTokenAmount(Number(b.humanBalance))}
             </div>
             {b.priceUsd != null && b.priceUsd > 0 ? (
               <div className="mono" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 2 }}>
