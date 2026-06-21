@@ -4,8 +4,8 @@
  * TxFlowSection — directional asset-flow visualization with a Rows ⇄ Map switcher.
  *
  * Rows (default, mobile-safe): one labelled line per non-zero balance delta.
- * Map: a hub-and-spoke node graph (You ⇄ counterparties) — opt-in "wow" view that
- * still stacks vertically so it never overflows the narrow chat column.
+ * Map: an interactive React Flow node graph (You ⇄ counterparties) — a compact static
+ * preview in-card, with a "View full" dialog that gives it room to pan/zoom.
  *
  * Both views render deriveFlowRows() (tested in tx-preview-format.test.ts), which
  * preserves every non-zero delta — so this section is a faithful, labelled
@@ -14,7 +14,10 @@
  */
 
 import React, { useState } from "react";
+import { Maximize2 } from "lucide-react";
 import { deriveFlowRows, type FlowPreviewInput, type FlowRow } from "./tx-preview-format";
+import { TxFlowGraph } from "./tx-flow-graph";
+import { TxFlowDialog } from "./tx-flow-dialog";
 
 const OUT = "var(--destructive)";
 const IN = "var(--success)";
@@ -118,59 +121,50 @@ function RowsView({ rows }: { rows: FlowRow[] }) {
   );
 }
 
-function nodeChip(label: string, accent = false): React.ReactNode {
-  return (
-    <span
-      style={{
-        fontSize: "11px",
-        fontWeight: 600,
-        padding: "4px 10px",
-        borderRadius: 8,
-        background: accent ? "var(--accent-soft)" : "var(--bg-sub)",
-        color: accent ? "var(--accent-ink)" : "var(--fg)",
-        border: "1px solid var(--border)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-// Hub-and-spoke "map": a central You node with one labelled edge per flow. Built
-// with flex (not fixed-coord SVG) so it stacks and never overflows on mobile.
+// Map: the asset flow as an interactive React Flow graph. The compact in-card preview
+// is static (no pan/zoom); "View full" opens a tall, explorable dialog with room to read.
 function MapView({ rows }: { rows: FlowRow[] }) {
+  const [full, setFull] = useState(false);
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "12px",
-        borderRadius: 8,
-        border: "1px solid var(--border)",
-        background: "var(--bg-sub)",
-        flexWrap: "wrap",
-      }}
-    >
-      <div style={{ flexShrink: 0 }}>{nodeChip("You", true)}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
-        {rows.map((r, i) => {
-          const color = r.direction === "out" ? OUT : IN;
-          const arrow = r.direction === "out" ? "──▶" : "◀──";
-          return (
-            <div key={i} className="flex items-center gap-2" style={{ minWidth: 0 }}>
-              <span className="mono" style={{ fontSize: "10px", color }}>{arrow}</span>
-              <span className="mono split-mono" style={amountStyle(r.direction)}>
-                {r.direction === "out" ? "−" : "+"}
-                {r.amountFormatted} {r.ticker}
-              </span>
-              <span className="mono" style={{ fontSize: "10px", color }}>{arrow}</span>
-              {nodeChip(r.counterparty)}
-            </div>
-          );
-        })}
+    <>
+      <div
+        style={{
+          position: "relative",
+          height: 200,
+          borderRadius: 8,
+          border: "1px solid var(--border)",
+          background: "var(--bg-sub)",
+          overflow: "hidden",
+        }}
+      >
+        <TxFlowGraph rows={rows} />
+        <button
+          type="button"
+          onClick={() => setFull(true)}
+          className="split-mono"
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            zIndex: 5,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: "10px",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            padding: "4px 9px",
+            borderRadius: 7,
+            border: "1px solid var(--border)",
+            background: "var(--bg-elev)",
+            color: "var(--fg-muted)",
+            cursor: "pointer",
+          }}
+        >
+          <Maximize2 size={11} aria-hidden /> View full
+        </button>
       </div>
-    </div>
+      <TxFlowDialog open={full} onClose={() => setFull(false)} rows={rows} />
+    </>
   );
 }
