@@ -11,7 +11,7 @@
  */
 
 import React, { useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import type { TxPreviewData } from "./tx-preview-card";
 
 export function TxPreviewFooter({
@@ -80,9 +80,10 @@ export function TxPreviewFooter({
         aria-expanded={showDigest}
         aria-controls="tx-digest-panel"
         onClick={() => setShowDigest((v) => !v)}
-        className="split-mono text-left"
-        style={{ fontSize: "10px", color: "var(--fg-subtle)", textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+        className="split-mono inline-flex items-center gap-1.5"
+        style={{ alignSelf: "flex-start", fontSize: "10px", color: "var(--fg-muted)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
       >
+        {showDigest ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
         {showDigest ? "Hide" : "Show"} transaction digest
       </button>
       {showDigest && (
