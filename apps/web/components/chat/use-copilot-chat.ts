@@ -22,7 +22,7 @@
  *  getPortfolio          → { type: "portfolio", portfolio: {...} }
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, ToolCard, PendingTx } from "./chat-thread";
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
@@ -245,6 +245,23 @@ export function useCopilotChat(
   const currentAssistantId = useRef<string | null>(null);
   const contactsRef = useRef(contacts);
   contactsRef.current = contacts;
+  // Live wallet + the in-flight stream's AbortController. A stream started under wallet A
+  // must NOT keep appending text/cards into wallet B's thread after a switch — so we abort
+  // it on a wallet change and also guard each append against the owning wallet.
+  const currentWalletRef = useRef(walletAddress);
+  currentWalletRef.current = walletAddress;
+  const abortRef = useRef<AbortController | null>(null);
+  const prevWalletRef = useRef(walletAddress);
+
+  // Wallet switch → abort any in-flight agent stream (the thread reset itself is driven by
+  // useConversations.onReset). Fires only on a genuine change, never initial mount.
+  useEffect(() => {
+    if (prevWalletRef.current !== walletAddress) {
+      prevWalletRef.current = walletAddress;
+      abortRef.current?.abort();
+      abortRef.current = null;
+    }
+  }, [walletAddress]);
 
   /** Append a text delta to the last assistant message. */
   const appendText = useCallback((delta: string) => {
@@ -328,11 +345,18 @@ export function useCopilotChat(
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
 
+      // Owner of this stream + an abort handle: if the wallet switches mid-stream we abort
+      // and stop appending, so wallet A's response can never bleed into wallet B's thread.
+      const streamWallet = walletAddress;
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+
       try {
         const res = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ messages: historyForAgent, walletAddress, contacts: contactsRef.current }),
+          signal: ctrl.signal,
         });
 
         if (!res.ok || !res.body) {
@@ -354,6 +378,8 @@ export function useCopilotChat(
 
         // Read NDJSON stream line by line
         outer: while (true) {
+          // Stop the moment the wallet changed under us — never append A's stream to B.
+          if (ctrl.signal.aborted || currentWalletRef.current !== streamWallet) break;
           const { value, done } = await reader.read();
           if (done) break;
 
@@ -364,6 +390,7 @@ export function useCopilotChat(
           buffer = lines.pop() ?? "";
 
           for (const line of lines) {
+            if (currentWalletRef.current !== streamWallet) break outer; // wallet switched mid-chunk
             const trimmed = line.trim();
             if (!trimmed) continue;
 
@@ -394,14 +421,18 @@ export function useCopilotChat(
           }
         }
       } catch (err) {
+        // Aborted by a wallet switch (or superseded) → silent: the thread is being reset,
+        // so an "AbortError" card would just be noise (or land in the wrong wallet's thread).
+        if (ctrl.signal.aborted || currentWalletRef.current !== streamWallet) return;
         const msg = err instanceof Error ? err.message : String(err);
-        // Network / fetch-level error (offline, DNS, AbortError) — retryable.
+        // Network / fetch-level error (offline, DNS) — retryable.
         appendCard({
           type: "agent-error",
           message: `Connection error: ${msg}`,
           retryable: true,
         });
       } finally {
+        if (abortRef.current === ctrl) abortRef.current = null;
         // Clear streaming cursor on the assistant message
         setMessages((prev) =>
           prev.map((m) =>
