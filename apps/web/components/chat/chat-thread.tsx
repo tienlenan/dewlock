@@ -49,6 +49,7 @@ import {
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
 import { useSignAndExecuteTx, WysiwysError } from "@/lib/use-sign-and-execute-tx";
+import { friendlySignError } from "@/lib/sign-error-message";
 import { emitTxConfirmed } from "@/lib/tx-events";
 import { useLivePositions } from "@/lib/use-live-positions";
 import { useReceiptStream } from "./use-receipt-stream";
@@ -395,12 +396,15 @@ function DefiPositionsCardWithActions({
         <div
           style={{
             maxWidth: 440,
+            minWidth: 0,
             borderRadius: 10,
             border: "1px solid color-mix(in srgb, var(--destructive) 40%, transparent)",
             background: "color-mix(in srgb, var(--destructive) 5%, transparent)",
             padding: "10px 13px",
             fontSize: 12.5,
             color: "var(--destructive)",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
           }}
         >
           {inlineError}
@@ -457,9 +461,7 @@ function InlineTxSign({
       const msg =
         err instanceof WysiwysError
           ? "Transaction bytes changed since Guardian approval — blocked for safety."
-          : err instanceof Error
-          ? err.message
-          : String(err);
+          : friendlySignError(err instanceof Error ? err.message : String(err));
       onError(msg);
     } finally {
       setIsPending(false);
@@ -805,6 +807,7 @@ function CardSlot({
       <div
         style={{
           maxWidth: "440px",
+          minWidth: 0,
           borderRadius: "10px",
           border: "1px solid color-mix(in srgb, var(--destructive) 40%, transparent)",
           background: "color-mix(in srgb, var(--destructive) 5%, transparent)",
@@ -812,6 +815,9 @@ function CardSlot({
           fontSize: "13px",
           color: "var(--destructive)",
           lineHeight: 1.45,
+          // Long 0x object ids / addresses in a raw error must wrap, not overflow the card.
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
         }}
       >
         {card.wysiwysMessage}
@@ -965,8 +971,8 @@ function TxPreviewCardWithSigning({
             "Please start a new transaction.",
         });
       } else {
-        const msg = err instanceof Error ? err.message : String(err);
-        onReplace({ type: "wysiwys-error", wysiwysMessage: `Signing failed: ${msg}` });
+        const msg = friendlySignError(err instanceof Error ? err.message : String(err));
+        onReplace({ type: "wysiwys-error", wysiwysMessage: msg });
       }
     } finally {
       setIsPending(false);
