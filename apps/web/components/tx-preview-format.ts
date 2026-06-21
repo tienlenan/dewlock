@@ -20,7 +20,7 @@ export interface ContractCallDisplay {
   allowlistKind: AllowlistKind;
 }
 
-export type ObjectOwnerKind = "you" | "shared" | "object" | "third-party";
+export type ObjectOwnerKind = "you" | "recipient" | "shared" | "object" | "third-party";
 
 export interface ObjectTouchedDisplay {
   objectId: string;

@@ -285,7 +285,7 @@ export const prepareTrade = createTool({
             objectId: z.string(),
             changeType: z.enum(["created", "mutated", "transferred", "deleted", "wrapped"]),
             objectType: z.string().optional(),
-            ownerKind: z.enum(["you", "shared", "object", "third-party"]),
+            ownerKind: z.enum(["you", "recipient", "shared", "object", "third-party"]),
           }),
         ),
         objectsTouchedTotal: z.number(),

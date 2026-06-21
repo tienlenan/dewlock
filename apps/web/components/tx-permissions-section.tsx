@@ -70,9 +70,16 @@ function ContractRow({ c }: { c: ContractCallDisplay }) {
 }
 
 function ObjectRow({ o }: { o: ObjectTouchedDisplay }) {
+  // Only a genuinely unexpected outflow (not the address the user designated) is "danger".
   const danger = o.ownerKind === "third-party";
   const dest =
-    o.ownerKind === "you" ? "you" : o.ownerKind === "third-party" ? "→ third party" : o.ownerKind;
+    o.ownerKind === "you"
+      ? "you"
+      : o.ownerKind === "recipient"
+        ? "→ recipient"
+        : o.ownerKind === "third-party"
+          ? "→ third party"
+          : o.ownerKind;
   return (
     <div
       className="flex items-center justify-between gap-2"

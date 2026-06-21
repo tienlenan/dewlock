@@ -558,7 +558,7 @@ export async function guardianCheck(
 
   if (reasons.length === 0) {
     // Only attempt dry-run if all prior gates passed (avoid leaking RPC calls on blocked tx)
-    const dryRunCheck = await runDryRunGate(proposal.txBytes, suiClient, proposal.walletAddress);
+    const dryRunCheck = await runDryRunGate(proposal.txBytes, suiClient, proposal.walletAddress, proposal.recipientAddress);
     if (!dryRunCheck.ok) {
       block("dry_run", dryRunCheck.reason);
     } else {
@@ -1455,12 +1455,13 @@ async function runDryRunGate(
   txBytesB64: string,
   suiClient: SuiClient,
   senderAddress?: string,
+  recipientAddress?: string,
 ): Promise<DryRunGateResult & { result: DryRunResult; digest: string; signableBytes: string }> {
   let result: DryRunResult;
   try {
-    // senderAddress only labels object-change ownership in the preview; it never
-    // affects the gate decision (which is bytes + balance-delta driven).
-    result = await dryRunTransaction(suiClient, txBytesB64, senderAddress);
+    // sender/recipient only LABEL object-change ownership in the preview (you / recipient /
+    // third-party); they never affect the gate decision (bytes + balance-delta driven).
+    result = await dryRunTransaction(suiClient, txBytesB64, senderAddress, recipientAddress);
   } catch (err) {
     // DryRunFailedError or any other error → fail-closed (hardening #5)
     const isDryRunError = err instanceof DryRunFailedError;

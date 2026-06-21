@@ -41,6 +41,25 @@ describe("extractObjectChanges", () => {
     expect(out[0].ownerKind).toBe("third-party");
   });
 
+  it("classifies a transfer to the INTENDED recipient as 'recipient' (not the third-party alarm)", () => {
+    const out = extractObjectChanges(
+      resp([{ type: "transferred", objectId: "0x2r", objectType: USDC_COIN, recipient: { AddressOwner: OTHER } }]),
+      SENDER,
+      OTHER, // OTHER is the address the user designated for this transfer
+    );
+    expect(out[0].ownerKind).toBe("recipient");
+  });
+
+  it("still flags a transfer to an UNEXPECTED address as 'third-party' even when a recipient is set", () => {
+    const UNEXPECTED = "0x" + "e".repeat(64);
+    const out = extractObjectChanges(
+      resp([{ type: "transferred", objectId: "0x2u", objectType: USDC_COIN, recipient: { AddressOwner: UNEXPECTED } }]),
+      SENDER,
+      OTHER, // intended recipient is OTHER, but the asset goes to UNEXPECTED → real alarm
+    );
+    expect(out[0].ownerKind).toBe("third-party");
+  });
+
   it("classifies a shared object (pool) as 'shared'", () => {
     const out = extractObjectChanges(
       resp([{ type: "mutated", objectId: "0x3", objectType: "0xp::pool::Pool", owner: { Shared: { initial_shared_version: 1 } } }]),

@@ -14,12 +14,17 @@
 /**
  * Who ends up holding / controlling the object:
  *  - "you":         an address owner equal to the tx sender.
+ *  - "recipient":   the address the user INTENTIONALLY chose for a transfer (== the
+ *                   action's recipientAddress). Expected by definition, so it must NOT
+ *                   raise the "unexpected outflow" alarm — only neutral "verify the address".
  *  - "shared":      a shared object (e.g. a DEX pool).
  *  - "object":      owned by another object (dynamic field / wrapped) or Immutable.
- *  - "third-party": an address owner that is NOT the sender, OR an owner shape the
- *                   parser could not classify (fail-loud, never hidden).
+ *  - "third-party": an address owner that is NEITHER the sender NOR the intended recipient,
+ *                   OR an owner shape the parser could not classify (fail-loud, never hidden).
+ *                   This is the genuine security signal — an asset leaving to an address the
+ *                   user did not designate (e.g. a malicious swap rerouting funds).
  */
-export type ObjectOwnerKind = "you" | "shared" | "object" | "third-party";
+export type ObjectOwnerKind = "you" | "recipient" | "shared" | "object" | "third-party";
 
 /** A single object change surfaced to the permissions UI. */
 export interface ObjectChange {
@@ -32,24 +37,29 @@ export interface ObjectChange {
 
 type RawChange = Record<string, unknown>;
 
-/** Classify the owner-of-interest of a change relative to the sender. */
-function classifyOwner(owner: unknown, sender?: string): ObjectChange["ownerKind"] {
+/** Classify the owner-of-interest of a change relative to the sender + intended recipient. */
+function classifyOwner(owner: unknown, sender?: string, recipient?: string): ObjectChange["ownerKind"] {
   // Address comparison is case-insensitive: the wallet address may arrive mixed-case
   // while the RPC emits lowercase owners — matching the lowercase-both convention used
   // by the outflow / price-impact gates. A case-sensitive miss would mislabel the
   // user's own objects as "third-party" and raise false security alarms.
   const senderNorm = sender?.toLowerCase();
-  const matchesSender = (addr?: string) => !!senderNorm && addr?.toLowerCase() === senderNorm;
+  const recipientNorm = recipient?.toLowerCase();
+  // An address owner → "you" (sender), "recipient" (the address the user designated for
+  // this transfer), else "third-party" (the real alarm: an address the user never chose).
+  const classifyAddr = (addr?: string): ObjectChange["ownerKind"] => {
+    const a = addr?.toLowerCase();
+    if (senderNorm && a === senderNorm) return "you";
+    if (recipientNorm && a === recipientNorm) return "recipient";
+    return "third-party";
+  };
   if (owner === "Immutable") return "object";
   if (owner && typeof owner === "object") {
-    if ("AddressOwner" in owner) {
-      return matchesSender((owner as { AddressOwner: string }).AddressOwner) ? "you" : "third-party";
-    }
+    if ("AddressOwner" in owner) return classifyAddr((owner as { AddressOwner: string }).AddressOwner);
     if ("Shared" in owner) return "shared";
     if ("ObjectOwner" in owner) return "object";
     if ("ConsensusAddressOwner" in owner) {
-      const addr = (owner as { ConsensusAddressOwner: { owner?: string } }).ConsensusAddressOwner?.owner;
-      return matchesSender(addr) ? "you" : "third-party";
+      return classifyAddr((owner as { ConsensusAddressOwner: { owner?: string } }).ConsensusAddressOwner?.owner);
     }
   }
   // Unrecognized owner shape → never assume benign.
@@ -75,6 +85,7 @@ function isSuiCoin(objectType?: string): boolean {
 export function extractObjectChanges(
   response: { objectChanges?: unknown },
   senderAddress?: string,
+  recipientAddress?: string,
 ): ObjectChange[] {
   const changes = (response.objectChanges ?? []) as RawChange[];
   const out: ObjectChange[] = [];
@@ -83,8 +94,8 @@ export function extractObjectChanges(
     if (!type || type === "published") continue;
 
     let ownerKind: ObjectChange["ownerKind"];
-    if (type === "transferred") ownerKind = classifyOwner(c.recipient, senderAddress);
-    else if (type === "created" || type === "mutated") ownerKind = classifyOwner(c.owner, senderAddress);
+    if (type === "transferred") ownerKind = classifyOwner(c.recipient, senderAddress, recipientAddress);
+    else if (type === "created" || type === "mutated") ownerKind = classifyOwner(c.owner, senderAddress, recipientAddress);
     else ownerKind = "object"; // deleted | wrapped — no destination owner
 
     const objectType = typeof c.objectType === "string" ? c.objectType : undefined;

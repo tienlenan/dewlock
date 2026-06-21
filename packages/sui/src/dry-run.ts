@@ -52,11 +52,15 @@ export interface DryRunResult {
  * @param senderAddress - Optional tx sender; used only to classify object-change
  *   ownership ("you" vs "third-party"). Omitting it never affects the gate decision,
  *   only the preview's ownerKind labels.
+ * @param recipientAddress - Optional INTENDED transfer recipient; an object landing here
+ *   is classified "recipient" (expected) rather than "third-party" (the unexpected-outflow
+ *   alarm). Display-only — never affects the gate decision.
  */
 export async function dryRunTransaction(
   client: SuiClient,
   txBytes: string,
   senderAddress?: string,
+  recipientAddress?: string,
 ): Promise<DryRunResult> {
   let response: DryRunTransactionBlockResponse;
 
@@ -88,7 +92,7 @@ export async function dryRunTransaction(
 
   const gasCostMist = extractGasCost(response);
   const balanceDeltas = extractBalanceDeltas(response);
-  const objectChanges = extractObjectChanges(response, senderAddress);
+  const objectChanges = extractObjectChanges(response, senderAddress, recipientAddress);
 
   return {
     effects: response.effects,
