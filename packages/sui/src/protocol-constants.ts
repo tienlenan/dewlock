@@ -47,6 +47,17 @@ export const COIN_TYPES = {
   FUD: "0x76cb819b01abed502bee8a702b4c2d547532c12f25001c9dea795a5e631c26f1::fud::FUD",
   BLUB: "0xfa7ac3951fdca92c5200d468d31a365eb03b2be9936fde615e69f0c1274ad3a0::BLUB::BLUB",
   LOFI: "0xf22da9a24ad027cccb5f2d496cbe91de953d363513db08a3a734d361c7c17503::LOFI::LOFI",
+  // Verified Sui memes — on-chain CoinMetadata checked + a CoinGecko USD feed (price-oracle
+  // idMap) confirmed live. Route quality is NOT pre-verified per token: the Guardian gates it
+  // live (min-out + ≤5% price-impact block thin pools; a stale/missing feed fail-closes the
+  // USD cap). So a low-liquidity meme simply can't pass — no manual route check needed.
+  HIPPO: "0x8993129d72e733985f7f1a00396cbd055bad6f817fee36576ce483c8bbb8b87b::sudeng::SUDENG",
+  MIU: "0x32a976482bf4154961bf20bfa3567a80122fdf8e8f8b28d752b609d8640f7846::miu::MIU",
+  AAA: "0xd976fda9a9786cda1a36dee360013d775a5e5f206f8e20f84fad3385e99eeb2d::aaa::AAA",
+  MEMEFI: "0x506a6fc25f1c7d52ceb06ea44a3114c9380f8e2029b4356019822f248b49e411::memefi::MEMEFI",
+  TATO: "0x04deb377c33bfced1ab81cde96918e2538fe78735777150b0064ccf7df5e1c81::tato::TATO",
+  AXOL: "0xf00eb7ab086967a33c04a853ad960e5c6b0955ef5a47d50b376d83856dc1215e::axol::AXOL",
+  PANS: "0xc9523f683256502be15ec4979098d510f67b6d3f0df02eebf124515014433270::pans::PANS",
 } as const;
 
 export type SupportedCoinType = (typeof COIN_TYPES)[keyof typeof COIN_TYPES];
@@ -81,6 +92,14 @@ export const COIN_DECIMALS: Record<string, number> = {
   [COIN_TYPES.FUD]: 5,
   [COIN_TYPES.BLUB]: 2,
   [COIN_TYPES.LOFI]: 9,
+  // Promoted memes (on-chain CoinMetadata-verified decimals; MIU carries 3)
+  [COIN_TYPES.HIPPO]: 9,
+  [COIN_TYPES.MIU]: 3,
+  [COIN_TYPES.AAA]: 6,
+  [COIN_TYPES.MEMEFI]: 9,
+  [COIN_TYPES.TATO]: 9,
+  [COIN_TYPES.AXOL]: 9,
+  [COIN_TYPES.PANS]: 9,
 };
 
 // ---------------------------------------------------------------------------

@@ -61,6 +61,17 @@ function idMap(): Record<string, string> {
     [COIN_TYPES.FUD]: "fud-the-pug",
     [COIN_TYPES.BLUB]: "blub",
     [COIN_TYPES.LOFI]: "lofi-2",
+    // Promoted memes — each id verified live via /simple/price (the sui-platform id from
+    // CoinGecko, so the feed prices the RIGHT token). Low-volume memes can read stale on
+    // CoinGecko; a >10min-stale entry is treated as missing → the cap fail-closes (sell blocks),
+    // which is the safe direction.
+    [COIN_TYPES.HIPPO]: "sudeng",
+    [COIN_TYPES.MIU]: "miu-2",
+    [COIN_TYPES.AAA]: "aaa-cat",
+    [COIN_TYPES.MEMEFI]: "memefi-2",
+    [COIN_TYPES.TATO]: "pawtato",
+    [COIN_TYPES.AXOL]: "axol",
+    [COIN_TYPES.PANS]: "pandasui-coin",
   };
 }
 
