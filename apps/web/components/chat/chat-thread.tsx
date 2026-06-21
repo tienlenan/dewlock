@@ -22,6 +22,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { TxPreviewCard } from "@/components/tx-preview-card";
+import { TxRebuildCard } from "@/components/tx-rebuild-card";
 import { BlockCard } from "@/components/block-card";
 import { Streamdown } from "streamdown";
 import { PortfolioCard } from "@/components/portfolio-card";
@@ -86,7 +87,10 @@ export interface TxReceipt {
 }
 
 export type ToolCard =
-  | { type: "tx-preview"; pendingTx: PendingTx }
+  | { type: "tx-preview"; pendingTx: PendingTx; rebuildCommand?: string }
+  // tx-rebuild: what a reloaded conversation shows where a tx-preview was. We never
+  // persist signable bytes, so it carries only the command to re-issue → fresh preview.
+  | { type: "tx-rebuild"; command: string; label: string }
   | { type: "block"; blockReasons: string[]; blockGates: string[] }
   | { type: "portfolio"; portfolio: PortfolioCardProps }
   | { type: "protocols"; protocols: ProtocolsData }
@@ -712,6 +716,10 @@ function CardSlot({
         walletAddress={walletAddress}
       />
     );
+  }
+  if (card.type === "tx-rebuild") {
+    // Re-issue the original command → fresh prepareTrade → fresh, re-checked tx-preview.
+    return <TxRebuildCard label={card.label} onRebuild={() => onSend?.(card.command)} />;
   }
   if (card.type === "block") {
     // When the only gate is onboarding_required, surface the BM setup wizard

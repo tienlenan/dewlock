@@ -378,7 +378,13 @@ export function useCopilotChat(
               appendText(parsed.text);
             } else if (parsed.type === "tool-result") {
               const card = toolResultToCard(parsed.toolName, parsed.result);
-              if (card) appendCard(card);
+              if (card) {
+                // Stamp the raw command (with its binding marker) so a reloaded conversation
+                // can offer a "re-build" affordance — the signable bytes are never persisted,
+                // only this command, which re-runs the full pipeline for a fresh preview.
+                if (card.type === "tx-preview") card.rebuildCommand = text;
+                appendCard(card);
+              }
             } else if (parsed.type === "error") {
               // Server-side stream error — surface as a card, not raw text.
               appendCard({ type: "agent-error", message: parsed.message, retryable: false });

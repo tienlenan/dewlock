@@ -3,9 +3,11 @@
  *
  * SAFETY INVARIANT: never persist signable material. `tx-preview` cards carry
  * `pendingTx.txBytes` + `approvedDigest` (the exact bytes a wallet would sign) —
- * those are transient and MUST NOT be written to a blob. We drop tx-preview
- * cards on serialize; receipt cards (public on-chain digest / blob id) are safe
- * to keep. Rehydrated conversations are read-only history, not re-signable.
+ * those are transient and MUST NOT be written to a blob. On serialize we DROP the
+ * signable bytes; a tx-preview that carries a `rebuildCommand` is converted to a
+ * `tx-rebuild` card holding ONLY that command (intent params, not bytes), so a reloaded
+ * conversation can re-issue it for a fresh, re-checked preview. Receipt cards (public
+ * on-chain digest / blob id) are safe to keep.
  */
 
 import type { ChatMessage, ToolCard } from "@/components/chat/chat-thread";
@@ -20,18 +22,29 @@ export interface SerializableMessage {
   cards: PersistableCard[];
 }
 
-/** True when a card is safe to persist (no signable bytes). */
-function isPersistable(card: ToolCard): card is PersistableCard {
-  return card.type !== "tx-preview";
+// Strip a binding marker ([[swap:…]] / [[limit:…]]) for a human-readable rebuild label.
+const BIND_MARKER = /\s*\[\[(?:swap|limit):[^\]]*\]\]/gi;
+
+/**
+ * Convert a card to its persistable form. A tx-preview is never stored with its signable
+ * bytes: with a rebuild command it becomes a non-signable tx-rebuild card; without one it
+ * is dropped. Everything else (already non-signable) passes through.
+ */
+function toPersistable(card: ToolCard): PersistableCard | null {
+  if (card.type === "tx-preview") {
+    if (!card.rebuildCommand) return null;
+    return { type: "tx-rebuild", command: card.rebuildCommand, label: card.rebuildCommand.replace(BIND_MARKER, "").trim() };
+  }
+  return card;
 }
 
-/** Serialize chat messages for storage — drops tx-preview cards + transient flags. */
+/** Serialize chat messages for storage — drops signable bytes (tx-preview → tx-rebuild). */
 export function serializeMessages(messages: ChatMessage[]): SerializableMessage[] {
   return messages.map((m) => ({
     id: m.id,
     role: m.role,
     text: m.text,
-    cards: m.cards.filter(isPersistable),
+    cards: m.cards.map(toPersistable).filter((c): c is PersistableCard => c !== null),
   }));
 }
 

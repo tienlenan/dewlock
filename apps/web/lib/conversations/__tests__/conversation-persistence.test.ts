@@ -100,6 +100,33 @@ describe("serializeMessages — safety invariant", () => {
     expect(deserializeMessages(out)[1].cards[0].type).toBe("block");
   });
 
+  it("converts a tx-preview WITH a rebuild command into a non-signable tx-rebuild card", () => {
+    const cmd = "swap 1 SUI to USDC via Aftermath Router [[swap:in=0x2::sui::SUI|out=0xusdc::usdc::USDC|src=aftermath]]";
+    const messages: ChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        text: "prepared",
+        cards: [
+          { type: "tx-preview", rebuildCommand: cmd, pendingTx: { txBytes: "AAAAsignable", approvedDigest: "0xdeadbeef", preview: {} } } as unknown as ToolCard,
+        ],
+      },
+    ];
+    const out = serializeMessages(messages);
+    const json = JSON.stringify(out);
+    // Still NO signable material persisted.
+    expect(json).not.toContain("txBytes");
+    expect(json).not.toContain("AAAAsignable");
+    expect(json).not.toContain("approvedDigest");
+    // But a re-issuable command (intent params) + a clean label survive.
+    expect(out[0].cards).toHaveLength(1);
+    const card = out[0].cards[0] as unknown as { type: string; command: string; label: string };
+    expect(card.type).toBe("tx-rebuild");
+    expect(card.command).toContain("src=aftermath");
+    expect(card.label).toBe("swap 1 SUI to USDC via Aftermath Router"); // marker stripped
+    expect(deserializeMessages(out)[0].cards[0].type).toBe("tx-rebuild");
+  });
+
   it("derives a title from the first user message", () => {
     const messages: ChatMessage[] = [{ id: "u1", role: "user", text: "How's my portfolio?", cards: [] }];
     expect(deriveTitle(messages)).toBe("How's my portfolio?");
