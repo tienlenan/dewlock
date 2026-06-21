@@ -18,6 +18,7 @@
  * per-wallet tracker (as prepareTrade does) for the abuse-rate ceiling.
  */
 
+import { Transaction } from "@mysten/sui/transactions";
 import { dryRunTransaction, getSuiMainnetClient } from "@dewlock/sui";
 import { parseVaa } from "@dewlock/sui/wormhole-vaa";
 import { buildRedeem } from "@dewlock/sui/build-redeem";
@@ -103,17 +104,20 @@ export async function prepareBridgeRedeem(input: BridgeRedeemInput): Promise<Bri
   const shape = await checkActionShape(proposalShim);
   if (!shape.ok) return { ok: false, reasons: [shape.reason], gates: ["action_shape"] };
 
-  // 5. Dry-run (fail-closed) + WYSIWYS digest.
+  // 5. Dry-run the FULL bytes (fail-closed), then WYSIWYS over the gas-less TransactionKind:
+  //    the client signs the kind and the wallet fills gas at sign time (no stale gas coin).
   try {
     await dryRunTransaction(client, redeem.txBytes);
   } catch (err) {
     return { ok: false, reasons: [err instanceof Error ? err.message : String(err)], gates: ["dry_run"] };
   }
-  const approvedDigest = await sha256Hex(redeem.txBytes);
+  const kindBytes = await Transaction.from(redeem.txBytes).build({ onlyTransactionKind: true });
+  const signableTxBytes = Buffer.from(kindBytes).toString("base64");
+  const approvedDigest = await sha256Hex(signableTxBytes);
 
   return {
     ok: true,
-    txBytes: redeem.txBytes,
+    txBytes: signableTxBytes,
     approvedDigest,
     preview: {
       sourceChain: vaa.emitterChain,

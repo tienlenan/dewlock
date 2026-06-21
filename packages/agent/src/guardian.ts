@@ -552,6 +552,9 @@ export async function guardianCheck(
   // But if other gates already blocked, we skip the RPC call (saves latency).
   let dryRunResult: DryRunResult | null = null;
   let approvedDigest = "";
+  // Gas-less TransactionKind the client signs (wallet fills gas fresh). Falls back to the
+  // full bytes only if dry-run is skipped (it never is on the pass path).
+  let signableBytes = proposal.txBytes;
 
   if (reasons.length === 0) {
     // Only attempt dry-run if all prior gates passed (avoid leaking RPC calls on blocked tx)
@@ -561,6 +564,7 @@ export async function guardianCheck(
     } else {
       dryRunResult = dryRunCheck.result;
       approvedDigest = dryRunCheck.digest;
+      signableBytes = dryRunCheck.signableBytes;
 
       // --- Authoritative value gate: cap from ACTUAL net outflow ---
       // Value the transaction from the dry-run's net balance deltas (what really
@@ -696,7 +700,8 @@ export async function guardianCheck(
 
   return {
     ok: true,
-    txBytes: proposal.txBytes,
+    // The client signs the gas-less TransactionKind; the wallet adds gas at sign time.
+    txBytes: signableBytes,
     approvedDigest,
     dryRunResult: dryRunResult!,
     preview,
@@ -1450,7 +1455,7 @@ async function runDryRunGate(
   txBytesB64: string,
   suiClient: SuiClient,
   senderAddress?: string,
-): Promise<DryRunGateResult & { result: DryRunResult; digest: string }> {
+): Promise<DryRunGateResult & { result: DryRunResult; digest: string; signableBytes: string }> {
   let result: DryRunResult;
   try {
     // senderAddress only labels object-change ownership in the preview; it never
@@ -1466,14 +1471,21 @@ async function runDryRunGate(
         : `Unexpected error during dry-run: ${err instanceof Error ? err.message : String(err)}`,
       result: undefined as unknown as DryRunResult,
       digest: "",
+      signableBytes: "",
     };
   }
 
-  // WYSIWYS digest (hardening #3): compute over the exact bytes the Guardian inspected
-  const rawBytes = Buffer.from(txBytesB64, "base64");
-  const digest = await sha256HexNode(rawBytes);
+  // WYSIWYS digest over the TransactionKind ONLY (gas-agnostic signing). The dry-run
+  // above ran the FULL bytes (server-resolved gas) for effects/value, but the user signs
+  // a gas-less kind: the wallet fills the gas coin at sign time, so a single/​churning gas
+  // coin can never go stale between build and sign ("unavailable for consumption"). We
+  // approve + hash exactly the programmable content (inputs + commands) the user consents
+  // to; gas selection is the wallet's concern and is excluded from WYSIWYS.
+  const kindBytes = await Transaction.from(txBytesB64).build({ onlyTransactionKind: true });
+  const signableBytes = Buffer.from(kindBytes).toString("base64");
+  const digest = await sha256HexNode(kindBytes);
 
-  return { ok: true, reason: "", result, digest };
+  return { ok: true, reason: "", result, digest, signableBytes };
 }
 
 // ---------------------------------------------------------------------------
