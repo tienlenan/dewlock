@@ -50,6 +50,7 @@ import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
 import { useSignAndExecuteTx, WysiwysError } from "@/lib/use-sign-and-execute-tx";
 import { emitTxConfirmed } from "@/lib/tx-events";
+import { useLivePositions } from "@/lib/use-live-positions";
 import { useReceiptStream } from "./use-receipt-stream";
 import { ReceiptProgressInline } from "./receipt-progress-inline";
 import { WelcomeActions } from "./welcome-actions";
@@ -222,6 +223,10 @@ function DefiPositionsCardWithActions({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
 
+  // LIVE data — never the static tool-result snapshot. Reloads on mount + after every
+  // confirmed tx so a withdraw/cancel/claim can't leave a stale balance to re-act on.
+  const livePositions = useLivePositions(positions, walletAddress);
+
   // Context needed to optimistic-hide after signing
   // Keys are scoped per-BM: `${balanceManagerId}:${orderId}` and `${balanceManagerId}:${coinKey}`
   const pendingActionRef = useRef<
@@ -301,7 +306,7 @@ function DefiPositionsCardWithActions({
     (coinType: string, _coinSymbol: string, humanAmount: string, balanceManagerId: string) => {
       // Find coinKey for this coinType in the specific BM to optimistic-hide the row.
       // Scoped per-BM so hiding a coin in one account doesn't affect another.
-      const bm = positions.deepbook.balanceManagers.find(
+      const bm = livePositions.deepbook.balanceManagers.find(
         (b) => b.balanceManagerId === balanceManagerId,
       );
       const bal = bm?.settledBalances.find((b) => b.coinType === coinType);
@@ -331,7 +336,7 @@ function DefiPositionsCardWithActions({
         argProvenance: { amount: "user_turn" },
       });
     },
-    [positions.deepbook.balanceManagers, prepareAndPreview],
+    [livePositions.deepbook.balanceManagers, prepareAndPreview],
   );
 
   // ── Claim settled handler ─────────────────────────────────────────────────
@@ -367,7 +372,7 @@ function DefiPositionsCardWithActions({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
       <DefiPositionsSection
-        data={positions}
+        data={livePositions}
         hiddenOrderIds={hiddenOrderIds}
         hiddenCoinKeys={hiddenCoinKeys}
         onCancel={handleCancel}
