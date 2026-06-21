@@ -116,26 +116,56 @@ export type BalanceManagerResolution =
  * Used to detect whether onboarding is needed before placing an order, and to
  * validate any client-supplied BM id against the sender's actual set (ownership).
  *
- * CRITICAL: an RPC error is reported as `rpc_error` — NOT as an empty list. The two
- * are indistinguishable in the raw SDK call but mean opposite things ("can't tell"
- * vs "definitely none"); conflating them mints duplicate BalanceManagers.
+ * WHY events, not the DeepBook registry: `createAndShareBalanceManager` does only
+ * `balance_manager::new` + share — it never calls `register_balance_manager`, so the
+ * SDK's registry-based `getBalanceManagerIds` (registry::get_balance_manager_ids)
+ * returns [] for our BMs FOREVER (not lag). That made every returning user ("account
+ * cũ") fall to onboarding and risk minting a duplicate. Instead we resolve from the
+ * `balance_manager::BalanceManagerEvent` emitted on creation ({balance_manager_id,
+ * owner}), filtered to events from the sender's own txs where owner === sender. This
+ * finds BMs whether or not they were ever registered, including pre-existing ones.
+ *
+ * CRITICAL: an RPC error is reported as `rpc_error` — NOT an empty list. The two mean
+ * opposite things ("can't tell" vs "definitely none"); conflating them mints duplicates.
+ *
+ * Bound: scans the sender's most-recent events (paginated, capped). A BM created long
+ * ago behind hundreds of newer events may not be found; the onboarding flow then
+ * carries the id client-side for the active session (see resolve-balance-manager).
  */
+const BALANCE_MANAGER_EVENT_SUFFIX = "::balance_manager::BalanceManagerEvent";
+const BM_EVENT_SCAN_MAX_PAGES = 10;
+const BM_EVENT_PAGE_SIZE = 50;
+
 export async function getExistingBalanceManagers(
   suiClient: SuiClient,
   senderAddress: string,
 ): Promise<BalanceManagerResolution> {
   try {
-    const PLACEHOLDER_BM = "0x" + "0".repeat(64);
-    const { client } = await createDeepBookClient({
-      suiClient,
-      senderAddress,
-      balanceManagerId: PLACEHOLDER_BM,
-    });
-    const ids = await client.getBalanceManagerIds(senderAddress);
-    return { status: "ok", ids: ids ?? [] };
+    const owner = senderAddress.toLowerCase();
+    const ids = new Set<string>();
+    let cursor: Awaited<ReturnType<SuiClient["queryEvents"]>>["nextCursor"] = null;
+
+    for (let page = 0; page < BM_EVENT_SCAN_MAX_PAGES; page++) {
+      const res = await suiClient.queryEvents({
+        query: { Sender: senderAddress },
+        cursor,
+        limit: BM_EVENT_PAGE_SIZE,
+        order: "descending",
+      });
+      for (const ev of res.data) {
+        if (!ev.type.endsWith(BALANCE_MANAGER_EVENT_SUFFIX)) continue;
+        const pj = ev.parsedJson as { balance_manager_id?: string; owner?: string } | undefined;
+        if (pj?.balance_manager_id && pj.owner?.toLowerCase() === owner) {
+          ids.add(pj.balance_manager_id);
+        }
+      }
+      if (!res.hasNextPage || !res.nextCursor) break;
+      cursor = res.nextCursor;
+    }
+    return { status: "ok", ids: [...ids] };
   } catch (err) {
     // Observability for a fail-closed path: surface WHY resolution failed (RPC down,
-    // SDK load error, …) so a "couldn't verify your account" block can be traced in prod.
+    // event query error, …) so a "couldn't verify your account" block can be traced in prod.
     console.warn("[bm-resolve] getExistingBalanceManagers failed:", err instanceof Error ? err.message : String(err));
     return { status: "rpc_error", ids: [] };
   }
