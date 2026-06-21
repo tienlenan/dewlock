@@ -22,7 +22,7 @@ Most "AI wallet" demos put the model *in the trust path*. Dewlock removes it.
 
 ## 2. The Solution
 
-Dewlock is a **copilot whose agent only ever *proposes*** an unsigned Programmable Transaction Block (PTB). Between the agent and your wallet sits the **Guardian** — deterministic, code-authoritative security that re-derives every number independently and **blocks on any failure**. The agent is untrusted; the Guardian is the trust boundary; you sign only the exact bytes that were dry-run.
+Dewlock is a **copilot whose agent only ever *proposes*** an unsigned Programmable Transaction Block (PTB). Between the agent and your wallet sits the **Guardian** — deterministic, code-authoritative security that re-derives every number independently and **blocks on any failure**. The agent is untrusted; the Guardian is the trust boundary; you sign only the exact action (TransactionKind) that was dry-run.
 
 ```
 You (natural language)
@@ -41,7 +41,7 @@ Copilot chat ──► deterministic intent parse + directive ──► Mastra a
       │                                   immutable BLOCK         │  unsigned PTB + approvedDigest
       │                                   receipt (proof)         ▼
       │                                                   WYSIWYS sign in wallet
-      │                                            (signed bytes == dry-run bytes)
+      │                                            (signed action == dry-run action; wallet adds gas)
       ▼                                                          │
    receipt card ◄── Walrus blob + Sui anchor + XP ◄── /api/receipt/stream (SSE)
 ```
@@ -61,7 +61,7 @@ Copilot chat ──► deterministic intent parse + directive ──► Mastra a
 
 **Security & trust (the moat)**
 - **Fail-closed Guardian** — 11 deterministic gates; any failure → terminal BLOCK, no auto-retry.
-- **WYSIWYS** — `approvedDigest = sha256(txBytes)` binds the preview you saw to the bytes you sign.
+- **WYSIWYS** — `approvedDigest = sha256(kindBytes)` over the TransactionKind binds the preview you saw to the action you sign; the wallet adds a fresh gas coin at sign time (gas-agnostic, so a single-coin wallet never hits a stale-gas error).
 - **Zero user-fund keys server-side** — the server builds unsigned PTBs only; your keys never leave your wallet.
 - **Price-impact / slippage guard** — refuses a swap whose output is worth materially less than its input (default 5%, configurable).
 - **Native-SUI gas safety** — guarantees the gas coin covers both the swap input and network gas (no cryptic `InsufficientGas`).
