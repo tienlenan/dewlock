@@ -48,6 +48,34 @@ describe("parseIntent — routing", () => {
   });
 });
 
+describe("parseIntent — limit order", () => {
+  it("bare 'place limit order' → limit_order_form (no side)", () => {
+    expect(parseIntent("place limit order")).toMatchObject({ action: "limit_order_form" });
+    expect(parseIntent("place a limit order")).toMatchObject({ action: "limit_order_form" });
+    const r = parseIntent("limit order");
+    expect(r).toMatchObject({ action: "limit_order_form" });
+    expect(r && "side" in r && r.side).toBeUndefined();
+  });
+
+  it("'limit buy' / 'limit sell' → limit_order_form with the side pre-selected", () => {
+    expect(parseIntent("limit buy")).toMatchObject({ action: "limit_order_form", side: "BUY" });
+    expect(parseIntent("place a limit sell order")).toMatchObject({ action: "limit_order_form", side: "SELL" });
+  });
+
+  it("the form's [[limit:…]] marker binds the EXACT order params → limit_order", () => {
+    const cmd = "limit BUY 10 SUI at 2.8 USDC on SUI_USDC [[limit:pool=SUI_USDC|side=BUY|price=2.8|qty=10|exp=4102444800000]]";
+    expect(parseIntent(cmd)).toEqual({
+      action: "limit_order", poolKey: "SUI_USDC", side: "BUY",
+      limitPrice: 2.8, limitQuantity: 10, expireTimestampMs: 4102444800000,
+    });
+  });
+
+  it("a marker with a non-whitelisted pool is rejected → degrades to the form, never a bad order", () => {
+    const cmd = "limit BUY 10 SUI on BADPOOL [[limit:pool=BADPOOL|side=BUY|price=2.8|qty=10|exp=4102444800000]]";
+    expect(parseIntent(cmd)).toMatchObject({ action: "limit_order_form" });
+  });
+});
+
 describe("parseIntent — swap/sell defaults", () => {
   it("'sell all USDC' → USDC→SUI, all", () => {
     expect(parseIntent("sell all USDC")).toEqual({

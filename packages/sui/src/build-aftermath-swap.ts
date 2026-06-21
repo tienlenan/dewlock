@@ -94,7 +94,8 @@ async function buildLiveAftermathPtb(client: SuiClient, spec: SwapSpec): Promise
   let estimatedAmountOut: bigint;
 
   try {
-    const af = new mod.Aftermath("MAINNET");
+    // aftermath-ts-sdk 2.x made the constructor private — use the async static factory.
+    const af = await mod.Aftermath.create({ network: "MAINNET" });
     const router = af.Router();
 
     // Step 1: fetch the best route for this pair + amount.

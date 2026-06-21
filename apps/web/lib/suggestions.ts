@@ -41,6 +41,8 @@ export function buildSuggestions(ctx: SuggestionContext): Suggestion[] {
     // First non-base holding → a "sell" shortcut.
     const other = ctx.holdings.find((h) => !["SUI", "USDC"].includes(h.toUpperCase()));
     if (other) out.push({ label: `Sell ${other}`, text: `sell ${other}` });
+    // Maker-side trade: open the DeepBook limit-order form (routes to limit_order_form).
+    out.push({ label: "Place limit order", text: "place limit order" });
   }
 
   // After a portfolio view or a completed action → suggest logical next steps.
@@ -50,7 +52,8 @@ export function buildSuggestions(ctx: SuggestionContext): Suggestion[] {
   }
 
   // De-dup by text + cap to keep the row tidy (chips wrap, so a slightly higher
-  // cap fits the discovery set alongside a couple of holdings/context actions).
+  // cap fits the discovery set alongside a couple of holdings/context actions
+  // plus the limit-order shortcut).
   const seen = new Set<string>();
-  return out.filter((s) => (seen.has(s.text) ? false : (seen.add(s.text), true))).slice(0, 7);
+  return out.filter((s) => (seen.has(s.text) ? false : (seen.add(s.text), true))).slice(0, 8);
 }

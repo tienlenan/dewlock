@@ -213,6 +213,8 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::balance_manager::generate_proof_as_trader") ||
         t.includes("::balance_manager::new") ||
         t.includes("::balance_manager::deposit") ||
+        // Settled-balance withdrawal (partial `withdraw` + full `withdraw_all`).
+        t.includes("::balance_manager::withdraw") ||
         t.includes("::transfer::public_share_object") ||
         // Aftermath Router — static scaffolding calls present in every Aftermath swap PTB
         // (per-DEX router calls matched dynamically via isAftermathSwapCall module::function)

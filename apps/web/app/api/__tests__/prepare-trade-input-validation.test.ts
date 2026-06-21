@@ -186,3 +186,69 @@ describe("POST /api/prepare-trade — input validation", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// DeepBook order-lifecycle actions — schema accepts + forwards to execute
+// (no 400). The stub prepareTrade.execute returns a block, so a non-400 status
+// proves the schema validated and the handler forwarded the new fields.
+// ---------------------------------------------------------------------------
+
+const BM_ID = "0x" + "b".repeat(64);
+const ORDER_ID = "0x" + "f".repeat(20);
+const USDC = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+const DEEP = "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP";
+
+describe("POST /api/prepare-trade — DeepBook order-lifecycle actions", () => {
+  it("accepts cancel_order with poolKey + orderId + balanceManagerId (no 400)", async () => {
+    const res = await POST(makeRequest({
+      walletAddress: VALID_WALLET,
+      actionType: "cancel_order",
+      poolKey: "DEEP_USDC",
+      orderId: ORDER_ID,
+      balanceManagerId: BM_ID,
+      coinTypeIn: DEEP,
+    }));
+    expect(res.status).not.toBe(400);
+  });
+
+  it("accepts cancel_order WITHOUT coin/amount (precondition relaxed)", async () => {
+    const res = await POST(makeRequest({
+      walletAddress: VALID_WALLET,
+      actionType: "cancel_order",
+      poolKey: "SUI_USDC",
+      orderId: ORDER_ID,
+      balanceManagerId: BM_ID,
+    }));
+    expect(res.status).not.toBe(400);
+  });
+
+  it("accepts withdraw_settled with coin + amount + balanceManagerId", async () => {
+    const res = await POST(makeRequest({
+      walletAddress: VALID_WALLET,
+      actionType: "withdraw_settled",
+      coinTypeIn: USDC,
+      amountInNative: "5000000",
+      balanceManagerId: BM_ID,
+    }));
+    expect(res.status).not.toBe(400);
+  });
+
+  it("accepts bm_create with only walletAddress (no coin/amount)", async () => {
+    const res = await POST(makeRequest({
+      walletAddress: VALID_WALLET,
+      actionType: "bm_create",
+    }));
+    expect(res.status).not.toBe(400);
+  });
+
+  it("rejects an invalid orderId shape (400)", async () => {
+    const res = await POST(makeRequest({
+      walletAddress: VALID_WALLET,
+      actionType: "cancel_order",
+      poolKey: "DEEP_USDC",
+      orderId: "nothex",
+      balanceManagerId: BM_ID,
+    }));
+    expect(res.status).toBe(400);
+  });
+});

@@ -30,6 +30,7 @@ import { ProtocolList, type ApiResponse as ProtocolsData } from "@/components/pr
 import { SwapOptionsCard, type SwapOptionsData } from "@/components/chat/swap-options-card";
 import { LendOptionsCard, type LendOptionsData } from "@/components/chat/lend-options-card";
 import { SwapFormCard, type SwapFormData } from "@/components/chat/swap-form-card";
+import { LimitOrderFormCard, type LimitOrderFormData } from "@/components/chat/limit-order-form-card";
 import { ActionFormCard, type ActionFormData } from "@/components/chat/action-form-card";
 import { ContactPickerCard, type ContactPickerData } from "@/components/chat/contact-picker-card";
 import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
@@ -53,6 +54,11 @@ import { useReceiptStream } from "./use-receipt-stream";
 import { ReceiptProgressInline } from "./receipt-progress-inline";
 import { WelcomeActions } from "./welcome-actions";
 import { SupportedProtocolsCard } from "./supported-protocols-card";
+import {
+  DefiPositionsSection,
+  type DefiPositionsData,
+} from "@/components/app/defi-positions-section";
+import { BmOnboardingCard } from "@/components/app/bm-onboarding-card";
 
 // ---------------------------------------------------------------------------
 // Shared types — keep identical to preserve contract with use-copilot-chat
@@ -85,6 +91,7 @@ export type ToolCard =
   | { type: "swap-options"; swapOptions: SwapOptionsData }
   | { type: "lend-options"; lendOptions: LendOptionsData }
   | { type: "swap-form"; swapForm: SwapFormData }
+  | { type: "limit-order-form"; limitOrderForm: LimitOrderFormData }
   | { type: "action-form"; form: ActionFormData }
   | { type: "contact-picker"; picker: ContactPickerData }
   | { type: "receive"; receive: ReceiveCardData }
@@ -104,7 +111,11 @@ export type ToolCard =
    * gateway timeout, 429, etc.). Separate from wysiwys-error to enable
    * a retry action without discarding the conversation.
    */
-  | { type: "agent-error"; message: string; retryable: boolean };
+  | { type: "agent-error"; message: string; retryable: boolean }
+  /** DeepBook order lifecycle + lending positions card */
+  | { type: "defi-positions"; positions: DefiPositionsData }
+  /** Two-step BalanceManager onboarding (shown when onboarding_required gate fires) */
+  | { type: "bm-onboarding"; walletAddress: string };
 
 export type ChatRole = "user" | "assistant";
 
@@ -151,6 +162,284 @@ function DewdropAvatar({ variant = "normal" }: { variant?: "normal" | "blocked" 
         )}
       </svg>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Prepare-trade result shapes (duplicated minimally from use-copilot-chat for
+// the inline prepare→preview flow; no NL round needed).
+// ---------------------------------------------------------------------------
+
+interface PrepareTradePass {
+  ok: true;
+  approvedDigest: string;
+  txBytes: string;
+  preview: TxPreviewData;
+}
+
+interface PrepareTradeBlock {
+  ok: false;
+  reasons: string[];
+  gates: string[];
+}
+
+type PrepareTradeResult = PrepareTradePass | PrepareTradeBlock;
+
+// ---------------------------------------------------------------------------
+// Optimistic-hide record — tracks acted rows with a timestamp so we can
+// suppress indexer-lag resurrections within a bounded window (~12 s).
+// ---------------------------------------------------------------------------
+
+interface HiddenEntry { hiddenAt: number }
+
+function isStillHidden(entry: HiddenEntry, WINDOW_MS = 12_000): boolean {
+  return Date.now() - entry.hiddenAt < WINDOW_MS;
+}
+
+// ---------------------------------------------------------------------------
+// DefiPositionsCardWithActions — self-contained card that owns:
+//   • optimistic hide state (hiddenOrderIds / hiddenCoinKeys)
+//   • inline prepare→preview→sign loop (cancel / withdraw)
+//   • onboarding_required → replaces card with bm-onboarding via onReplace
+// ---------------------------------------------------------------------------
+
+function DefiPositionsCardWithActions({
+  positions,
+  walletAddress,
+  onReplace,
+}: {
+  positions: DefiPositionsData;
+  walletAddress?: string;
+  onReplace: (card: ToolCard) => void;
+}) {
+  // hidden order ids: Map<orderId, HiddenEntry>
+  const [hiddenOrders, setHiddenOrders] = useState<Map<string, HiddenEntry>>(new Map());
+  // hidden coin keys: Map<coinKey, HiddenEntry>
+  const [hiddenCoins, setHiddenCoins] = useState<Map<string, HiddenEntry>>(new Map());
+
+  // inline pending tx (cancel / withdraw)
+  const [inlineTx, setInlineTx] = useState<PrepareTradePass | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+
+  // Context needed to optimistic-hide after signing
+  const pendingActionRef = useRef<
+    | { kind: "order"; orderId: string }
+    | { kind: "coin"; coinKey: string }
+    | null
+  >(null);
+
+  // ── Derive visible sets ──────────────────────────────────────────────────
+
+  const hiddenOrderIds = new Set(
+    [...hiddenOrders.entries()]
+      .filter(([, e]) => isStillHidden(e))
+      .map(([id]) => id),
+  );
+  const hiddenCoinKeys = new Set(
+    [...hiddenCoins.entries()]
+      .filter(([, e]) => isStillHidden(e))
+      .map(([key]) => key),
+  );
+
+  // ── prepareAndPreview ────────────────────────────────────────────────────
+
+  const prepareAndPreview = useCallback(
+    async (body: Record<string, unknown>) => {
+      if (!walletAddress) return;
+      setPreparing(true);
+      setInlineError(null);
+      try {
+        const res = await fetch("/api/prepare-trade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ walletAddress, ...body }),
+        });
+        const data = (await res.json()) as PrepareTradeResult;
+        if (!data.ok) {
+          const block = data as PrepareTradeBlock;
+          // onboarding_required → swap this card for the BM onboarding flow
+          if (block.gates.includes("onboarding_required")) {
+            onReplace({ type: "bm-onboarding", walletAddress });
+            return;
+          }
+          setInlineError(block.reasons.join("; "));
+          return;
+        }
+        setInlineTx(data as PrepareTradePass);
+      } catch (e) {
+        setInlineError(e instanceof Error ? e.message : "Network error");
+      } finally {
+        setPreparing(false);
+      }
+    },
+    [walletAddress, onReplace],
+  );
+
+  // ── Cancel handler ────────────────────────────────────────────────────────
+
+  const handleCancel = useCallback(
+    (orderId: string, poolKey: string, balanceManagerId: string, coinTypeIn: string) => {
+      pendingActionRef.current = { kind: "order", orderId };
+      void prepareAndPreview({
+        actionType: "cancel_order",
+        poolKey,
+        orderId,
+        balanceManagerId,
+        coinTypeIn,
+      });
+    },
+    [prepareAndPreview],
+  );
+
+  // ── Withdraw handler ──────────────────────────────────────────────────────
+
+  const handleWithdraw = useCallback(
+    (coinType: string, _coinSymbol: string, humanAmount: string, balanceManagerId: string) => {
+      // Find coinKey for this coinType to optimistic-hide the row
+      const bal = positions.deepbook.settledBalances.find((b) => b.coinType === coinType);
+      if (bal) pendingActionRef.current = { kind: "coin", coinKey: bal.coinKey };
+
+      // Convert human amount → native units
+      const DECIMALS: Record<string, number> = {
+        "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI": 9,
+        "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC": 6,
+        "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP": 6,
+      };
+      const decimals = DECIMALS[coinType] ?? 9;
+      const amountInNative = BigInt(
+        Math.round(parseFloat(humanAmount) * 10 ** decimals),
+      ).toString();
+
+      void prepareAndPreview({
+        actionType: "withdraw_settled",
+        coinTypeIn: coinType,
+        amountInNative,
+        balanceManagerId,
+        argProvenance: { amount: "user_turn" },
+      });
+    },
+    [positions.deepbook.settledBalances, prepareAndPreview],
+  );
+
+  // ── Inline sign success → optimistic hide ─────────────────────────────────
+
+  const handleSignSuccess = useCallback(() => {
+    const action = pendingActionRef.current;
+    if (action?.kind === "order") {
+      setHiddenOrders((prev) => new Map(prev).set(action.orderId, { hiddenAt: Date.now() }));
+    }
+    if (action?.kind === "coin") {
+      setHiddenCoins((prev) => new Map(prev).set(action.coinKey, { hiddenAt: Date.now() }));
+    }
+    pendingActionRef.current = null;
+    setInlineTx(null);
+    emitTxConfirmed();
+  }, []);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+      <DefiPositionsSection
+        data={positions}
+        hiddenOrderIds={hiddenOrderIds}
+        hiddenCoinKeys={hiddenCoinKeys}
+        onCancel={handleCancel}
+        onWithdraw={handleWithdraw}
+      />
+
+      {/* Preparing spinner */}
+      {preparing && (
+        <p
+          className="split-mono"
+          style={{ fontSize: 11, color: "var(--fg-muted)", margin: 0 }}
+        >
+          Preparing transaction…
+        </p>
+      )}
+
+      {/* Inline error */}
+      {inlineError && !preparing && (
+        <div
+          style={{
+            maxWidth: 440,
+            borderRadius: 10,
+            border: "1px solid color-mix(in srgb, var(--destructive) 40%, transparent)",
+            background: "color-mix(in srgb, var(--destructive) 5%, transparent)",
+            padding: "10px 13px",
+            fontSize: 12.5,
+            color: "var(--destructive)",
+          }}
+        >
+          {inlineError}
+        </div>
+      )}
+
+      {/* Inline tx preview + sign */}
+      {inlineTx && (
+        <InlineTxSign
+          prepared={inlineTx}
+          walletAddress={walletAddress}
+          onSuccess={handleSignSuccess}
+          onCancel={() => {
+            setInlineTx(null);
+            pendingActionRef.current = null;
+          }}
+          onError={(msg) => {
+            setInlineTx(null);
+            pendingActionRef.current = null;
+            setInlineError(msg);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InlineTxSign — one hook instance per inline tx (rules-of-hooks safe).
+// ---------------------------------------------------------------------------
+
+function InlineTxSign({
+  prepared,
+  walletAddress,
+  onSuccess,
+  onCancel,
+  onError,
+}: {
+  prepared: PrepareTradePass;
+  walletAddress?: string;
+  onSuccess: () => void;
+  onCancel: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [isPending, setIsPending] = useState(false);
+  const { signAndExecute } = useSignAndExecuteTx({ approvedDigest: prepared.approvedDigest });
+
+  const handleConfirm = useCallback(async () => {
+    setIsPending(true);
+    try {
+      await signAndExecute({ transaction: prepared.txBytes });
+      onSuccess();
+    } catch (err) {
+      const msg =
+        err instanceof WysiwysError
+          ? "Transaction bytes changed since Guardian approval — blocked for safety."
+          : err instanceof Error
+          ? err.message
+          : String(err);
+      onError(msg);
+    } finally {
+      setIsPending(false);
+    }
+  }, [signAndExecute, prepared.txBytes, onSuccess, onError]);
+
+  return (
+    <TxPreviewCard
+      preview={prepared.preview}
+      isPending={isPending}
+      onConfirm={() => void handleConfirm()}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -390,6 +679,11 @@ function CardSlot({
     );
   }
   if (card.type === "block") {
+    // When the only gate is onboarding_required, surface the BM setup wizard
+    // instead of a plain block message — the user can act immediately.
+    if (card.blockGates.includes("onboarding_required") && walletAddress) {
+      return <BmOnboardingCard walletAddress={walletAddress} />;
+    }
     return <BlockCard reasons={card.blockReasons} gates={card.blockGates} />;
   }
   if (card.type === "portfolio") {
@@ -428,6 +722,9 @@ function CardSlot({
         }
       />
     );
+  }
+  if (card.type === "limit-order-form") {
+    return <LimitOrderFormCard data={card.limitOrderForm} onSend={onSend} />;
   }
   if (card.type === "swap-form") {
     return <SwapFormCard data={card.swapForm} onSend={onSend} />;
@@ -513,6 +810,18 @@ function CardSlot({
         )}
       </div>
     );
+  }
+  if (card.type === "defi-positions") {
+    return (
+      <DefiPositionsCardWithActions
+        positions={card.positions}
+        walletAddress={walletAddress}
+        onReplace={onReplace}
+      />
+    );
+  }
+  if (card.type === "bm-onboarding") {
+    return <BmOnboardingCard walletAddress={card.walletAddress} />;
   }
   return null;
 }

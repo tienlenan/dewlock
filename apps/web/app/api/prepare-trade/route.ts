@@ -40,16 +40,30 @@ const SUPPORTED_COIN_TYPES = [
   "0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT",
   "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH",
   "0x027792d9fed7f9844eb4839566001bb6f6cb4804f66aa2da6fe1ee242d896881::coin::COIN",
+  // DeepBook native token — needed for DeepBook deposit/withdraw of DEEP balances.
+  "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
 ] as const;
 
 type SupportedCoinType = (typeof SUPPORTED_COIN_TYPES)[number];
+
+// Deterministic actions servable without the LLM. The DeepBook order-lifecycle verbs
+// are driven straight from the positions UI (no natural-language round).
+const DETERMINISTIC_ACTIONS = [
+  "transfer",
+  "swap",
+  "near_miss_fixture",
+  "bm_create",
+  "bm_deposit",
+  "cancel_order",
+  "withdraw_settled",
+] as const;
 
 const requestSchema = z.object({
   walletAddress: z
     .string()
     .regex(/^0x[0-9a-fA-F]{64}$/, "Must be a 0x-prefixed 64-hex-char Sui address"),
 
-  actionType: z.enum(["transfer", "swap", "near_miss_fixture"]),
+  actionType: z.enum(DETERMINISTIC_ACTIONS),
 
   coinTypeIn: z.enum(SUPPORTED_COIN_TYPES as readonly [SupportedCoinType, ...SupportedCoinType[]]).optional(),
 
@@ -69,6 +83,17 @@ const requestSchema = z.object({
 
   slippageBps: z.number().int().min(0).max(5000).optional(),
 
+  // --- DeepBook order-lifecycle fields (cancel_order / withdraw_settled / bm_deposit) ---
+  poolKey: z.enum(["DEEP_USDC", "SUI_USDC", "DEEP_SUI"]).optional(),
+  balanceManagerId: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{64}$/, "Must be a 0x-prefixed 64-hex-char Sui address")
+    .optional(),
+  orderId: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex order id")
+    .optional(),
+
   argProvenance: z
     .object({
       recipient: z.enum(["user_turn", "derived"]).optional(),
@@ -80,9 +105,32 @@ const requestSchema = z.object({
   verifiedContacts: z.array(z.string()).optional(),
 });
 
+/** DeepBook order-lifecycle actions that bypass the transfer/swap coin+amount precondition. */
+const DEEPBOOK_ACTIONS = new Set(["bm_create", "bm_deposit", "cancel_order", "withdraw_settled"]);
+
 // ---------------------------------------------------------------------------
 // CORS headers
 // ---------------------------------------------------------------------------
+
+/** Human-readable audit label per deterministic action. */
+function buildActionLabel(actionType: string, amountInNative: string): string {
+  switch (actionType) {
+    case "transfer":
+      return `Transfer ${amountInNative} native units`;
+    case "swap":
+      return `Swap ${amountInNative} native units`;
+    case "bm_create":
+      return "Create DeepBook trading account";
+    case "bm_deposit":
+      return `Fund DeepBook account (${amountInNative} native units)`;
+    case "cancel_order":
+      return "Cancel DeepBook order";
+    case "withdraw_settled":
+      return `Withdraw settled balance (${amountInNative} native units)`;
+    default:
+      return `Action ${amountInNative} native units`;
+  }
+}
 
 function corsHeaders(origin: string | null): Record<string, string> {
   const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean);
@@ -194,13 +242,28 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // coinTypeIn is required for transfer/swap paths (optional only for near_miss_fixture).
-    if (!input.coinTypeIn || !input.amountInNative) {
+    const isDeepbook = DEEPBOOK_ACTIONS.has(input.actionType);
+    // transfer/swap require coin+amount; DeepBook order-lifecycle verbs do not (cancel
+    // carries neither; create carries neither). The tool schema still wants a coinTypeIn,
+    // so default SUI + "0" for the value-less verbs while real values pass through.
+    if (!isDeepbook && (!input.coinTypeIn || !input.amountInNative)) {
       return Response.json(
         { error: "coinTypeIn and amountInNative are required for transfer/swap actions" },
         { status: 400, headers: corsHeaders(origin) },
       );
     }
+    const SUI_TYPE = SUPPORTED_COIN_TYPES[0];
+    const effectiveCoinTypeIn = input.coinTypeIn ?? SUI_TYPE;
+    const effectiveAmountInNative = input.amountInNative ?? "0";
+
+    // A button click IS the user's action: a UI-entered withdraw/deposit amount is a
+    // user_turn value (not memory/injection). cancel/create carry no value args.
+    const argProvenance =
+      input.actionType === "withdraw_settled" || input.actionType === "bm_deposit"
+        ? { ...input.argProvenance, amount: "user_turn" as const }
+        : input.argProvenance;
+
+    const actionLabel = buildActionLabel(input.actionType, effectiveAmountInNative);
 
     // Use require() so Turbopack excludes @dewlock/agent from the static bundle.
     // serverExternalPackages in next.config.ts ensures Node resolves at runtime.
@@ -214,16 +277,18 @@ export async function POST(req: NextRequest) {
     const result = await prepareTrade.execute({
       walletAddress: input.walletAddress,
       actionType: input.actionType,
-      coinTypeIn: input.coinTypeIn,
+      coinTypeIn: effectiveCoinTypeIn,
       coinTypeOut: input.coinTypeOut,
       recipientInput: input.recipientInput,
-      amountInNative: input.amountInNative,
+      amountInNative: effectiveAmountInNative,
       slippageBps: input.slippageBps ?? 50,
-      actionLabel:
-        input.actionType === "transfer"
-          ? `Transfer ${input.amountInNative} native units`
-          : `Swap ${input.amountInNative} native units`,
-      argProvenance: input.argProvenance,
+      // DeepBook order-lifecycle identifiers — forwarded so execute can route + gate them
+      // (dropping these is what made the no-NL-round path impossible before).
+      poolKey: input.poolKey,
+      balanceManagerId: input.balanceManagerId,
+      orderId: input.orderId,
+      actionLabel,
+      argProvenance,
       verifiedContacts: input.verifiedContacts ?? [],
     });
 

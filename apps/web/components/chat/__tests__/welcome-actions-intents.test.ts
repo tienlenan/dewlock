@@ -10,7 +10,7 @@ import { WELCOME_ACTION_INTENTS, DISCOVER_ACTION_INTENTS } from "@/components/ch
 describe("welcome action intents", () => {
   it("each value-action card intent maps to the expected concrete action", () => {
     const actions = WELCOME_ACTION_INTENTS.map((t) => parseIntent(t)?.action ?? null);
-    expect(actions).toEqual(["swap_form", "send", "lend", "portfolio"]);
+    expect(actions).toEqual(["swap_form", "limit_order_form", "send", "lend", "portfolio"]);
   });
 
   it("each discovery card intent maps to its ecosystem action", () => {

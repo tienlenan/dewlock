@@ -76,4 +76,30 @@ describe("buildIntentDirective — form routing for missing args", () => {
     expect(d).toContain("prepareTrade");
     expect(d).not.toContain("requestActionForm");
   });
+
+  it("'place limit order' (bare) → getLimitOrderForm, never getPortfolio/getDefiPositions", async () => {
+    const d = (await buildIntentDirective("place limit order", WALLET)) ?? "";
+    expect(d).toContain("Call ONLY `getLimitOrderForm`");
+    expect(d).toContain("do NOT call getPortfolio, getDefiPositions");
+    // The form route never emits build args (those belong to the marker path).
+    expect(d).not.toContain('actionType:');
+  });
+
+  it("'limit buy' (bare) → getLimitOrderForm with side pre-selected", async () => {
+    const d = (await buildIntentDirective("limit buy", WALLET)) ?? "";
+    expect(d).toContain("Call ONLY `getLimitOrderForm`");
+    expect(d).toContain('side: "BUY"');
+  });
+
+  it("the form's [[limit:…]] marker (complete) → prepareTrade limit_order, not a form", async () => {
+    const cmd = "limit BUY 10 SUI at 2.8 USDC on SUI_USDC [[limit:pool=SUI_USDC|side=BUY|price=2.8|qty=10|exp=4102444800000]]";
+    const d = (await buildIntentDirective(cmd, WALLET)) ?? "";
+    expect(d).toContain("prepareTrade");
+    expect(d).toContain('actionType: "limit_order"');
+    expect(d).toContain('poolKey: "SUI_USDC"');
+    expect(d).toContain('side: "BUY"');
+    expect(d).toContain("limitPrice: 2.8");
+    expect(d).toContain("expireTimestampMs: 4102444800000");
+    expect(d).not.toContain("getLimitOrderForm");
+  });
 });

@@ -13,6 +13,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { fetchJsonWithRetry } from "@/lib/fetch-with-retry";
+import { ProtocolLogo } from "@/components/chat/asset-logos";
 
 interface Incident {
   date: string;
@@ -71,6 +72,8 @@ function ProtocolRow({ p }: { p: ProtocolDto }) {
   const statusLabel = p.status === "active" ? "active" : p.status === "hacked" ? "hacked" : "excluded";
   return (
     <div className="flex items-start gap-3" style={{ padding: "13px 18px", borderTop: "1px solid var(--border)" }}>
+      {/* Brand icon — img-first via ProtocolLogo, with inline-mark / monogram fallback. */}
+      <ProtocolLogo id={p.id} size={28} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span style={{ fontSize: "14px", fontWeight: 650, color: "var(--fg)" }}>{p.name}</span>

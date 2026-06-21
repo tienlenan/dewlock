@@ -13,7 +13,7 @@
  */
 
 import type { ReactNode } from "react";
-import { ArrowLeftRight, Send, Landmark, Wallet, Percent, BarChart3, Flame } from "lucide-react";
+import { ArrowLeftRight, CandlestickChart, Send, Landmark, Wallet, Percent, BarChart3, Flame } from "lucide-react";
 
 interface ActionCard {
   key: string;
@@ -25,6 +25,7 @@ interface ActionCard {
 
 const ACTIONS: ActionCard[] = [
   { key: "swap", title: "Swap / Sell", subtitle: "Trade one token for another", intentText: "swap", Icon: ArrowLeftRight },
+  { key: "limit", title: "Limit Order", subtitle: "Place a DeepBook limit order", intentText: "place limit order", Icon: CandlestickChart },
   { key: "send", title: "Send", subtitle: "Transfer to an address or friend", intentText: "send SUI", Icon: Send },
   { key: "lend", title: "Lending", subtitle: "Deposit to earn — NAVI · Suilend", intentText: "lend", Icon: Landmark },
   { key: "portfolio", title: "View Portfolio", subtitle: "Balances & estimated value", intentText: "my portfolio", Icon: Wallet },

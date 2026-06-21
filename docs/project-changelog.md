@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-06-21 — DeepBook full order lifecycle + actionable DeFi positions
+
+### Added
+- **DeepBook order management:** full lifecycle from copilot. Four new Guardian-gated write actions:
+  - `bm_create` — onboard a new BalanceManager (idempotent; blocks duplicate creates)
+  - `bm_deposit` — fund the BalanceManager via transfer
+  - `cancel_order` — cancel a resting POST_ONLY order (settled funds return to BM)
+  - `withdraw_settled` — withdraw from settled balance (recipient hard-pinned to sender, amount ceilinged by server-recomputed balance, fail-closed on RPC error to prevent duplicate-BM minting)
+  - Each action has its own Guardian shape template; a swap or lend smuggled into a cancel/withdraw is rejected.
+- **DeFi positions card:** read-only actionable view with per-section fail-soft:
+  - Open DeepBook orders (show price/size, Cancel button)
+  - Settled BalanceManager balances (Withdraw button)
+  - NAVI supplied amount + health factor
+  - Suilend deep-link (no fabricated numbers, no on-demand reads)
+- **Web:** `/api/prepare-trade` widened to accept the new actions + orderId/poolKey/balanceManagerId; new portfolio UI with inline action buttons (no natural-language round → Guardian → sign).
+- **Builders:** `deepbook/order-management.ts` (`buildCancelOrder`, `buildWithdrawSettled`), `deepbook/account-orders.ts` (readSettledBalance, getOpenOrders), `lending-positions.ts` (readNaviLending).
+- **Registry:** allowlisted `balance_manager::withdraw` + `balance_manager::withdraw_all`; protocol-registry size now 38 (was 36).
+
+### Notes
+- `lend_withdraw` remains gated off (unchanged); Suilend is deep-link only.
+- Tests: 708/708 pass (78 files); typecheck clean except 2 pre-existing Aftermath errors (unrelated).
+- Live verified: mainnet orderbook lifecycle + position reads + withdraw mechanics.
+
 ## 2026-06-20 — user-stats Redis cache + copilot/dashboard consistency + swap/profile fixes
 
 ### Added

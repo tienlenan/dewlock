@@ -30,6 +30,15 @@ const TYPE_TO_SYMBOL = new Map<string, string>(
   Object.entries(COIN_TYPES).map(([sym, type]) => [type, sym]),
 );
 
+// Whitelisted DeepBook pool → base coin type. Satisfies prepareTrade's required
+// coinTypeIn enum for limit orders (the server re-derives the effective coin/amount
+// from poolKey + quantity, so this is only schema plumbing).
+const LIMIT_ORDER_BASE_COIN: Record<string, string> = {
+  DEEP_USDC: COIN_TYPES.DEEP,
+  SUI_USDC: COIN_TYPES.SUI,
+  DEEP_SUI: COIN_TYPES.DEEP,
+};
+
 function humanToNative(human: string, coinType: string): string {
   const decimals = COIN_DECIMALS[coinType] ?? 9;
   // Integer math to avoid float drift: split on the decimal point.
@@ -158,6 +167,41 @@ export async function buildIntentDirective(
         `The user typed a bare "swap" with no pair/amount.`,
         `Call ONLY \`getSwapForm\` (do NOT ask in prose, do NOT call prepareTrade or getPortfolio). Pass no args — the user picks from/to + amount in the card.`,
       ].join("\n");
+
+    case "limit_order_form":
+      // Bare/partial "place limit order" → render the DeepBook order form (pair +
+      // side + price + quantity), NOT a prose question and NOT a portfolio dump.
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user wants to place a DeepBook limit order but gave no pair/side/price/quantity.`,
+        `Call ONLY \`getLimitOrderForm\` (do NOT ask in prose, do NOT call getPortfolio, getDefiPositions, or prepareTrade).`,
+        intent.side ? `- side: "${intent.side}"` : ``,
+        intent.poolKey ? `- poolKey: "${intent.poolKey}"` : ``,
+        `Pass only the args above (omit any not listed) — the user fills the rest in the card.`,
+      ].filter(Boolean).join("\n");
+
+    case "limit_order": {
+      // Complete order (from the form's deterministic marker) → build directly. The
+      // base coin type satisfies prepareTrade's required coinTypeIn enum; the server
+      // overrides coinTypeIn/amountInNative for limit orders from poolKey + quantity.
+      const baseCoinType = LIMIT_ORDER_BASE_COIN[intent.poolKey];
+      return [
+        `## Deterministic intent (high confidence)`,
+        `Call \`prepareTrade\` with EXACTLY these arguments and no other tool:`,
+        `- actionType: "limit_order"`,
+        walletAddress ? `- walletAddress: "${walletAddress}"` : ``,
+        `- poolKey: "${intent.poolKey}"`,
+        `- side: "${intent.side}"`,
+        `- limitPrice: ${intent.limitPrice}`,
+        `- limitQuantity: ${intent.limitQuantity}`,
+        `- expireTimestampMs: ${intent.expireTimestampMs}`,
+        `- coinTypeIn: "${baseCoinType}"   (required by schema; server overrides for limit orders)`,
+        `- amountInNative: "0"   (required by schema; server derives the real amount from limitQuantity)`,
+        `- argProvenance: { "amount": "user_turn" }`,
+        `Then present the returned preview card. Do NOT call getPortfolio or getDefiPositions.`,
+        `If prepareTrade returns an onboarding_required block, present it so the UI shows the one-time trading-account setup — do NOT retry.`,
+      ].filter(Boolean).join("\n");
+    }
 
     case "send": {
       const sym = TYPE_TO_SYMBOL.get(intent.coinType) ?? "a token";

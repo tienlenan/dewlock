@@ -17,6 +17,7 @@
     "./price-oracle": "./dist/price-oracle.js",
     "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
     "./build-lend": "./dist/build-lend.js",
+    "./lending-positions": "./dist/lending-positions.js",
     "./wormhole-vaa": "./dist/wormhole/vaa.js",
     "./build-redeem": "./dist/wormhole/build-redeem.js",
     "./client": "./dist/client.js",
@@ -24,6 +25,9 @@
     "./sui-gas-payment": "./dist/sui-gas-payment.js",
     "./build-swap": "./dist/build-swap.js",
     "./build-limit-order": "./dist/deepbook/build-limit-order.js",
+    "./balance-manager": "./dist/deepbook/balance-manager.js",
+    "./order-management": "./dist/deepbook/order-management.js",
+    "./account-orders": "./dist/deepbook/account-orders.js",
     "./sign": "./dist/sign.js",
     "./suins-resolver": "./dist/suins-resolver.js"
   },

@@ -18,7 +18,7 @@
  */
 
 import { POPULAR_TOKENS } from "@dewlock/sui/popular-tokens";
-import { COIN_TYPES } from "../allowlist";
+import { COIN_TYPES, DEEPBOOK_POOLS } from "../allowlist";
 
 export type IntentAmount =
   | { kind: "all" }
@@ -34,6 +34,11 @@ const SWAP_SOURCE_IDS = new Set<string>(["cetus", "aggregator", "aftermath"]);
 export type Intent =
   | { action: "swap"; coinInType: string; coinOutType: string; amount: IntentAmount; swappable: boolean; swapSource?: SwapSourceId }
   | { action: "swap_form" } // bare "swap" — missing args, render the form
+  // DeepBook limit order. "limit_order_form" = bare/partial intent → render the order
+  // form; "limit_order" = a complete order (from the form's deterministic marker) →
+  // build directly via prepareTrade.
+  | { action: "limit_order_form"; poolKey?: string; side?: "BUY" | "SELL" }
+  | { action: "limit_order"; poolKey: string; side: "BUY" | "SELL"; limitPrice: number; limitQuantity: number; expireTimestampMs: number }
   | { action: "send"; coinType: string; amount: IntentAmount }
   // Lend fully parses amount/coin/protocol so a complete command builds directly
   // and the UI only ever asks for what is genuinely missing (no re-ask loop).
@@ -53,6 +58,13 @@ export type Intent =
 // mis-map a ticker. Stripped from the displayed bubble client-side. Format:
 //   [[swap:in=<coinType>|out=<coinType>|src=<source>]]
 const SWAP_BIND_RE = /\[\[swap:in=([^|\]]+)\|out=([^|\]]+)(?:\|src=([^\]]+))?\]\]/i;
+
+// Limit-order binding: the limit-order form emits the EXACT pool key + side + price +
+// quantity + expiry as a machine marker so the order is built deterministically (the
+// LLM never re-parses a pair/number). Stripped from the displayed bubble client-side.
+// Format: [[limit:pool=<KEY>|side=<BUY|SELL>|price=<n>|qty=<n>|exp=<unixMs>]]
+const LIMIT_BIND_RE =
+  /\[\[limit:pool=([^|\]]+)\|side=([^|\]]+)\|price=([^|\]]+)\|qty=([^|\]]+)\|exp=([^\]]+)\]\]/i;
 
 // Symbol → verified coin type (whitelist only).
 const SYMBOL_TO_TYPE = new Map<string, { coinType: string; swappable: boolean }>(
@@ -149,7 +161,40 @@ export function parseIntent(text: string): Intent | null {
     }
   }
 
+  // Limit-order deterministic binding: honor the EXACT pool/side/price/qty/expiry the
+  // form chose, validated against the pool allowlist. Strongest guarantee the order is
+  // never mis-parsed — it bypasses pair/number re-parsing entirely.
+  const lim = LIMIT_BIND_RE.exec(raw);
+  if (lim) {
+    const poolKey = lim[1].trim().toUpperCase();
+    const side = lim[2].trim().toUpperCase();
+    const limitPrice = Number(lim[3]);
+    const limitQuantity = Number(lim[4]);
+    const expireTimestampMs = Number(lim[5]);
+    if (
+      DEEPBOOK_POOLS[poolKey] &&
+      (side === "BUY" || side === "SELL") &&
+      Number.isFinite(limitPrice) && limitPrice > 0 &&
+      Number.isFinite(limitQuantity) && limitQuantity > 0 &&
+      Number.isInteger(expireTimestampMs) && expireTimestampMs > 0
+    ) {
+      return { action: "limit_order", poolKey, side, limitPrice, limitQuantity, expireTimestampMs };
+    }
+  }
+
   const lower = raw.toLowerCase();
+
+  // Bare/partial "place limit order" → render the order form (pair + side + price +
+  // quantity + expiry). A side hint ("limit buy" / "limit sell") pre-selects the toggle;
+  // the full order is built later from the form's deterministic marker (handled above).
+  if (/\blimit\s+order\b/.test(lower) || /\blimit\s+(buy|sell)\b/.test(lower)) {
+    const side = /\blimit\s+buy\b|\bbuy\b/.test(lower)
+      ? "BUY"
+      : /\blimit\s+sell\b|\bsell\b/.test(lower)
+        ? "SELL"
+        : undefined;
+    return { action: "limit_order_form", side };
+  }
 
   // Read-only single-word / clear intents first.
   if (/^(portfolio|balances?|my (portfolio|balances?|holdings))\b/.test(lower)) return { action: "portfolio" };

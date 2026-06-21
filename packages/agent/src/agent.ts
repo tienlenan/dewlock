@@ -18,10 +18,12 @@ import {
 } from "./copilot-persona";
 import { prepareTrade } from "./tools/prepare-trade";
 import { getPortfolio } from "./tools/get-portfolio";
+import { getDefiPositions } from "./tools/get-defi-positions";
 import { listProtocols } from "./tools/list-protocols";
 import { getSwapOptions } from "./tools/get-swap-options";
 import { getLendOptions } from "./tools/get-lend-options";
 import { getSwapForm } from "./tools/get-swap-form";
+import { getLimitOrderForm } from "./tools/get-limit-order-form";
 import { getReceiveInfo } from "./tools/get-receive-info";
 import { getUserStats } from "./tools/get-user-stats";
 import { getProtocolMetrics } from "./tools/get-protocol-metrics";
@@ -46,11 +48,13 @@ export const copilot = new Agent({
   model,
   tools: {
     getPortfolio,
+    getDefiPositions,
     prepareTrade,
     listProtocols,
     getSwapOptions,
     getLendOptions,
     getSwapForm,
+    getLimitOrderForm,
     getReceiveInfo,
     getUserStats,
     getProtocolMetrics,

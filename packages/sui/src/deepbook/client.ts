@@ -47,10 +47,22 @@ export interface DeepBookSdkModule {
  * Throws with a descriptive message if the package is unavailable
  * (fail-closed contract: any build error blocks the order).
  */
+/**
+ * ESM/CJS interop unwrap: under the Next/Turbopack server runtime the @mysten/deepbook-v3
+ * CJS build lands its exports under `.default` instead of hoisting them as named exports,
+ * so a bare `mod.DeepBookClient` is undefined ("not a constructor"). Return whichever
+ * namespace actually carries DeepBookClient — top-level (ESM) or `.default` (CJS interop).
+ * Pure + exported for unit testing.
+ */
+export function resolveDeepBookNamespace(mod: unknown): DeepBookSdkModule {
+  const ns = mod as { DeepBookClient?: unknown; default?: unknown };
+  return (ns.DeepBookClient ? ns : (ns.default ?? ns)) as unknown as DeepBookSdkModule;
+}
+
 export async function importDeepBookSdk(): Promise<DeepBookSdkModule> {
   try {
     const mod = await import("@mysten/deepbook-v3");
-    return mod as unknown as DeepBookSdkModule;
+    return resolveDeepBookNamespace(mod);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to load DeepBook SDK: ${msg}`);

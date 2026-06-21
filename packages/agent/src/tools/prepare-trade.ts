@@ -19,9 +19,17 @@ import { buildAftermathSwap } from "@dewlock/sui/build-aftermath-swap";
 // build-limit-order imports DeepBook SDK — use subpath for the same isolation rationale
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
+// DeepBook order-lifecycle builders + BM resolver (DeepBook SDK lazy-imported inside).
+import {
+  buildCreateBalanceManager,
+  buildDepositIntoBalanceManager,
+  getExistingBalanceManagers,
+} from "@dewlock/sui/balance-manager";
+import { buildCancelOrder, buildWithdrawSettled } from "@dewlock/sui/order-management";
+import { deepbookCoinKeyForType } from "@dewlock/sui/account-orders";
 import { InsufficientGasCoverageError } from "@dewlock/sui/sui-gas-payment";
 import { guardianCheck, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
-import { COIN_TYPES } from "../allowlist";
+import { COIN_TYPES, COIN_DECIMALS } from "../allowlist";
 import type { TradeProposal, ActionType, SwapSource, LendingProtocol } from "../guardian";
 
 // Actions this tool can accept. Type-checked subset of the canonical ActionType
@@ -31,11 +39,19 @@ const TOOL_ACTION_TYPES = [
   "transfer",
   "swap",
   "limit_order",
+  // DeepBook order lifecycle (onboarding + cancel + withdraw settled).
+  "bm_create",
+  "bm_deposit",
+  "cancel_order",
+  "withdraw_settled",
   "lend_deposit",
   "lend_repay",
   "lend_borrow",
   "lend_withdraw",
 ] as const satisfies readonly ActionType[];
+
+/** Actions that operate on the wallet's BalanceManager (require server-side BM resolution). */
+const BM_ACTION_TYPES = new Set<ActionType>(["limit_order", "bm_deposit", "cancel_order", "withdraw_settled"]);
 
 /**
  * Pick the best swap source by independent quote (max output). Falls back to
@@ -152,6 +168,13 @@ export const prepareTrade = createTool({
       .optional()
       .describe("Order expiry as unix millisecond timestamp. Required for limit orders."),
 
+    // --- Order-lifecycle field (actionType==="cancel_order") ---
+    orderId: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex order id")
+      .optional()
+      .describe("Resting DeepBook order id to cancel (for cancel_order)."),
+
     // --- Lending fields (actionType==="lend_*") ---
     lendingProtocol: z
       .enum(LENDING_PROTOCOLS)
@@ -266,6 +289,7 @@ export const prepareTrade = createTool({
       limitPrice,
       limitQuantity,
       expireTimestampMs,
+      orderId,
       lendingProtocol,
       obligationId,
       actionLabel,
@@ -275,6 +299,70 @@ export const prepareTrade = createTool({
 
     const amountInNative = BigInt(amountStr);
     const suiClient = getSuiMainnetClient();
+
+    // --- Server-authoritative BalanceManager resolution (ownership boundary) ---
+    // For every action that touches a BM, the SERVER resolves the sender's BM and
+    // validates any client-supplied id against it (never trusts the client value).
+    // An RPC error is NOT "no BM" (that would mint a duplicate) → block + ask to retry.
+    let resolvedBmId = balanceManagerId;
+    if (BM_ACTION_TYPES.has(actionType)) {
+      const resolution = await getExistingBalanceManagers(suiClient, walletAddress);
+      if (resolution.status === "rpc_error") {
+        return {
+          ok: false as const,
+          reasons: ["Couldn't verify your DeepBook trading account right now (network issue). Please retry."],
+          gates: ["bm_resolve_error"],
+        };
+      }
+      if (resolution.ids.length > 1) {
+        return {
+          ok: false as const,
+          reasons: ["Multiple BalanceManagers found for this wallet — unexpected. Refusing for safety."],
+          gates: ["bm_ambiguous"],
+        };
+      }
+      const serverBmId = resolution.ids[0];
+      if (!serverBmId) {
+        // Not provisioned → the UI renders the onboarding card on this gate.
+        return {
+          ok: false as const,
+          reasons: [
+            "You don't have a DeepBook trading account (BalanceManager) yet. " +
+              "Set one up (create + fund) to place and manage orders.",
+          ],
+          gates: ["onboarding_required"],
+        };
+      }
+      if (balanceManagerId && balanceManagerId.toLowerCase() !== serverBmId.toLowerCase()) {
+        return {
+          ok: false as const,
+          reasons: ["The provided BalanceManager id doesn't match your wallet's account. Refusing (fail-closed)."],
+          gates: ["bm_ownership"],
+        };
+      }
+      resolvedBmId = serverBmId;
+    }
+
+    // bm_create is idempotent: one BalanceManager per wallet. Refuse a second create
+    // (a direct call when one already exists) — a duplicate wastes gas and splits funds
+    // across two BMs. RPC error → block (can't verify), never silently create.
+    if (actionType === "bm_create") {
+      const resolution = await getExistingBalanceManagers(suiClient, walletAddress);
+      if (resolution.status === "rpc_error") {
+        return {
+          ok: false as const,
+          reasons: ["Couldn't verify your DeepBook trading account right now (network issue). Please retry."],
+          gates: ["bm_resolve_error"],
+        };
+      }
+      if (resolution.ids.length >= 1) {
+        return {
+          ok: false as const,
+          reasons: ["You already have a DeepBook trading account — no need to create another. Fund it or place an order."],
+          gates: ["bm_exists"],
+        };
+      }
+    }
 
     // Build the unsigned PTB
     let txBytes: string;
@@ -308,8 +396,10 @@ export const prepareTrade = createTool({
         if (!poolKey) {
           return { ok: false as const, reasons: ["poolKey is required for limit orders"], gates: ["input_validation"] };
         }
-        if (!balanceManagerId) {
-          return { ok: false as const, reasons: ["balanceManagerId is required for limit orders"], gates: ["input_validation"] };
+        // resolvedBmId is server-authoritative (set above); a missing BM already returned
+        // an "onboarding_required" block, so reaching here means it's present + owned.
+        if (!resolvedBmId) {
+          return { ok: false as const, reasons: ["No DeepBook trading account resolved for this wallet."], gates: ["onboarding_required"] };
         }
         if (!side) {
           return { ok: false as const, reasons: ["side (BUY|SELL) is required for limit orders"], gates: ["input_validation"] };
@@ -326,7 +416,7 @@ export const prepareTrade = createTool({
         const orderResult = await buildLimitOrder(suiClient, {
           senderAddress: walletAddress,
           poolKey: poolKey as "DEEP_USDC" | "SUI_USDC" | "DEEP_SUI",
-          balanceManagerId,
+          balanceManagerId: resolvedBmId,
           side,
           price: limitPrice,
           quantity: limitQuantity,
@@ -338,6 +428,70 @@ export const prepareTrade = createTool({
         limitOrderBaseCoinType = orderResult.baseCoinType;
         limitOrderQuoteCoinType = orderResult.quoteCoinType;
         limitOrderNotionalQuote = orderResult.notionalQuote;
+      } else if (actionType === "bm_create") {
+        // Onboarding step 1: create + share a BalanceManager (no value beyond gas).
+        const createResult = await buildCreateBalanceManager(suiClient, walletAddress);
+        txBytes = createResult.txBytes;
+      } else if (actionType === "bm_deposit") {
+        // Onboarding step 2: fund the resolved BM. resolvedBmId is server-authoritative.
+        if (!resolvedBmId) {
+          return { ok: false as const, reasons: ["No DeepBook trading account resolved for this wallet."], gates: ["onboarding_required"] };
+        }
+        const coinKey = deepbookCoinKeyForType(coinTypeIn);
+        if (!coinKey) {
+          return { ok: false as const, reasons: [`Coin ${coinTypeIn} is not a DeepBook-supported deposit coin.`], gates: ["input_validation"] };
+        }
+        const decimals = COIN_DECIMALS[coinTypeIn] ?? 9;
+        const humanAmount = Number(amountInNative) / 10 ** decimals;
+        if (!(humanAmount > 0)) {
+          return { ok: false as const, reasons: ["Deposit amount must be positive."], gates: ["input_validation"] };
+        }
+        const depositResult = await buildDepositIntoBalanceManager(
+          suiClient,
+          walletAddress,
+          resolvedBmId,
+          coinKey,
+          humanAmount,
+        );
+        txBytes = depositResult.txBytes;
+      } else if (actionType === "cancel_order") {
+        if (!poolKey) {
+          return { ok: false as const, reasons: ["poolKey is required to cancel an order"], gates: ["input_validation"] };
+        }
+        if (!orderId) {
+          return { ok: false as const, reasons: ["orderId is required to cancel an order"], gates: ["input_validation"] };
+        }
+        if (!resolvedBmId) {
+          return { ok: false as const, reasons: ["No DeepBook trading account resolved for this wallet."], gates: ["onboarding_required"] };
+        }
+        const cancelResult = await buildCancelOrder(suiClient, {
+          senderAddress: walletAddress,
+          poolKey,
+          balanceManagerId: resolvedBmId,
+          orderId,
+        });
+        txBytes = cancelResult.txBytes;
+      } else if (actionType === "withdraw_settled") {
+        if (!resolvedBmId) {
+          return { ok: false as const, reasons: ["No DeepBook trading account resolved for this wallet."], gates: ["onboarding_required"] };
+        }
+        const coinKey = deepbookCoinKeyForType(coinTypeIn);
+        if (!coinKey) {
+          return { ok: false as const, reasons: [`Coin ${coinTypeIn} is not a DeepBook-supported settled coin.`], gates: ["input_validation"] };
+        }
+        const decimals = COIN_DECIMALS[coinTypeIn] ?? 9;
+        const humanAmount = Number(amountInNative) / 10 ** decimals;
+        if (!(humanAmount > 0)) {
+          return { ok: false as const, reasons: ["Withdraw amount must be positive."], gates: ["input_validation"] };
+        }
+        // Recipient is hard-pinned to the sender inside the builder — never a parameter.
+        const withdrawResult = await buildWithdrawSettled(suiClient, {
+          senderAddress: walletAddress,
+          balanceManagerId: resolvedBmId,
+          coinKey,
+          humanAmount,
+        });
+        txBytes = withdrawResult.txBytes;
       } else if (actionType === "lend_borrow" || actionType === "lend_withdraw") {
         // Health-reducing verbs are gated off — surface immediately, build nothing.
         return {
@@ -441,13 +595,16 @@ export const prepareTrade = createTool({
       maxPriceImpactBps: process.env.MAX_PRICE_IMPACT_BPS
         ? Number(process.env.MAX_PRICE_IMPACT_BPS)
         : undefined,
-      // Limit-order fields
+      // Limit-order + order-lifecycle fields. balanceManagerId is the SERVER-RESOLVED
+      // id (resolvedBmId), not the raw client value, so every BM gate re-validates
+      // against the wallet's actual account.
       poolKey,
-      balanceManagerId,
+      balanceManagerId: resolvedBmId,
       side,
       limitPrice,
       limitQuantity,
       expireTimestampMs,
+      orderId,
       bookParams: limitOrderBookParams,
       midPrice: limitOrderMidPrice,
       // Lending
@@ -468,8 +625,21 @@ export const prepareTrade = createTool({
       return { ok: false as const, reasons: guardianResult.reasons, gates: guardianResult.gates };
     }
 
-    // Update daily spend tracker on pass (approximate — real spend happens at sign time)
-    addDailySpend(walletAddress, guardianResult.preview.estimatedUsdValue);
+    // Update daily spend tracker on pass (approximate — real spend happens at sign time).
+    // Only genuine external-value-leaving actions count toward the daily cap. Onboarding
+    // (bm_create), funding one's own trading account (bm_deposit), canceling an order, and
+    // withdrawing one's own settled funds (an INFLOW) are not "spend" — counting them would
+    // mis-bound the daily cap and let an unauthenticated prepare pollute it more easily.
+    const SPEND_TRACKED_ACTIONS = new Set<ActionType>([
+      "transfer",
+      "swap",
+      "limit_order",
+      "lend_deposit",
+      "lend_repay",
+    ]);
+    if (SPEND_TRACKED_ACTIONS.has(actionType)) {
+      addDailySpend(walletAddress, guardianResult.preview.estimatedUsdValue);
+    }
 
     // Serialize bigints to strings for JSON transport
     return {

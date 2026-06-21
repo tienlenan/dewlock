@@ -66,7 +66,8 @@ async function fetchLiveAftermathQuote(
   let estimatedAmountOut: bigint;
   let routeSpotPrice: number | undefined;
   try {
-    const af = new mod.Aftermath("MAINNET");
+    // aftermath-ts-sdk 2.x made the constructor private — use the async static factory.
+    const af = await mod.Aftermath.create({ network: "MAINNET" });
     const router = af.Router();
     const route = await router.getCompleteTradeRouteGivenAmountIn({
       coinInType: coinTypeIn,

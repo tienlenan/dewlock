@@ -58,9 +58,9 @@ export async function buildCreateBalanceManager(
   const tx = new Transaction();
   tx.setSender(senderAddress);
   // createAndShareBalanceManager builds the ::balance_manager::new +
-  // 0x2::transfer::public_share_object calls (both allowlisted).
-  (client as { balanceManager: { createAndShareBalanceManager: () => (tx: Transaction) => void } })
-    .balanceManager.createAndShareBalanceManager()(tx);
+  // 0x2::transfer::public_share_object calls (both allowlisted). Called through the
+  // real typed client so a method-name drift is a compile error, not a silent failure.
+  client.balanceManager.createAndShareBalanceManager()(tx);
 
   const txBytes = await tx.build({ client: suiClient as unknown as ClientWithCoreApi });
   return {
@@ -94,27 +94,36 @@ export async function buildDepositIntoBalanceManager(
 
   const tx = new Transaction();
   tx.setSender(senderAddress);
-  (client as {
-    balanceManager: {
-      depositIntoManager: (key: string, coinKey: string, amount: number) => (tx: Transaction) => void;
-    };
-  }).balanceManager.depositIntoManager(BALANCE_MANAGER_KEY, coinKey, humanAmount)(tx);
+  client.balanceManager.depositIntoManager(BALANCE_MANAGER_KEY, coinKey, humanAmount)(tx);
 
   const txBytes = await tx.build({ client: suiClient as unknown as ClientWithCoreApi });
   return { txBytes: Buffer.from(txBytes).toString("base64") };
 }
 
 /**
+ * Result of resolving a wallet's BalanceManagers.
+ *  - "ok":        the read succeeded; `ids` is authoritative (possibly empty = not provisioned).
+ *  - "rpc_error": the read FAILED; `ids` is empty but UNRELIABLE — the caller must
+ *                 BLOCK (never offer onboarding), or a transient fullnode blip would
+ *                 make a provisioned user mint a SECOND BalanceManager and orphan funds.
+ */
+export type BalanceManagerResolution =
+  | { status: "ok"; ids: string[] }
+  | { status: "rpc_error"; ids: [] };
+
+/**
  * Look up existing BalanceManager object ids for a wallet.
- * Used to detect whether onboarding is needed before placing an order.
+ * Used to detect whether onboarding is needed before placing an order, and to
+ * validate any client-supplied BM id against the sender's actual set (ownership).
  *
- * Returns an empty array when none exist or on RPC error (fail-closed: caller
- * should treat empty result as "not yet provisioned").
+ * CRITICAL: an RPC error is reported as `rpc_error` — NOT as an empty list. The two
+ * are indistinguishable in the raw SDK call but mean opposite things ("can't tell"
+ * vs "definitely none"); conflating them mints duplicate BalanceManagers.
  */
 export async function getExistingBalanceManagers(
   suiClient: SuiClient,
   senderAddress: string,
-): Promise<string[]> {
+): Promise<BalanceManagerResolution> {
   try {
     const PLACEHOLDER_BM = "0x" + "0".repeat(64);
     const { client } = await createDeepBookClient({
@@ -122,10 +131,12 @@ export async function getExistingBalanceManagers(
       senderAddress,
       balanceManagerId: PLACEHOLDER_BM,
     });
-    const ids = await (client as { getBalanceManagerIds: (owner: string) => Promise<string[]> })
-      .getBalanceManagerIds(senderAddress);
-    return ids ?? [];
-  } catch {
-    return []; // fail-closed: treat RPC error as "no BM found"
+    const ids = await client.getBalanceManagerIds(senderAddress);
+    return { status: "ok", ids: ids ?? [] };
+  } catch (err) {
+    // Observability for a fail-closed path: surface WHY resolution failed (RPC down,
+    // SDK load error, …) so a "couldn't verify your account" block can be traced in prod.
+    console.warn("[bm-resolve] getExistingBalanceManagers failed:", err instanceof Error ? err.message : String(err));
+    return { status: "rpc_error", ids: [] };
   }
 }

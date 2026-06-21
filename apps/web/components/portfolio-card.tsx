@@ -514,23 +514,6 @@ export function PortfolioCard({
         )}
       </div>
 
-      {/* ── DeFi positions placeholder ── */}
-      {/* Lending SDK reads (NAVI/Suilend) are blocked by @mysten/sui 2.18
-          incompatibility. No fabricated numbers — honest pending state. */}
-      <div
-        style={{
-          padding: "10px 16px",
-          borderTop: "1px solid var(--border)",
-          background: "var(--bg-sub)",
-        }}
-      >
-        <span
-          className="split-mono"
-          style={{ fontSize: 9.5, letterSpacing: "0.08em", color: "var(--fg-faint)" }}
-        >
-          Lending positions · coming soon
-        </span>
-      </div>
     </div>
   );
 }

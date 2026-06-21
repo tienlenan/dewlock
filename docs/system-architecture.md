@@ -23,7 +23,7 @@ Every value move runs through `prepareTrade` → `guardianCheck(proposal, suiCli
 6. **Server caps** — per-tx + per-day USD caps (`TX_USD_CAP`/`DAILY_USD_CAP`; server-authoritative, mainnet-small in prod). Invalid cap config → block everything.
 7. **SuiNS lookalike** — homoglyph-normalized edit-distance vs verified contacts (catches `888-l.sui`-style spoofs).
 8. **Min-out re-derive** (swaps only) — independently recompute min-output from on-chain decimals + the SAME route source; runs for EVERY swap (not gated on poolId). Anti sandwich / manipulated min-out — the #1 real-money risk.
-9. **Orderbook / Lending** — `limit_order`: POST_ONLY / self-match / expiry / BalanceManager-ceiling. `lend_*`: health-improving only (deposit/repay; borrow/withdraw gated off).
+9. **Orderbook / Lending** — DeepBook: `bm_create` (new BalanceManager), `bm_deposit` (fund it), `limit_order` (POST_ONLY / self-match / expiry / BalanceManager-ceiling), `cancel_order` (resting order), `withdraw_settled` (partial withdrawal, recipient pinned to sender, amount ceilinged by server-recomputed settled balance). Lending: `lend_*` health-improving only (deposit/repay; borrow/withdraw gated off).
 10. **Dry-run + WYSIWYS digest** — dry-run the EXACT PTB bytes (`dryRunTransactionBlock`); fail-closed on any error; compute `approvedDigest = sha256(txBytes)` that binds preview ⇄ signature.
 11. **Authoritative value gate** — re-value from the dry-run's ACTUAL net balance deltas (what truly leaves the wallet), re-check caps on that figure, and block when outflow > 1.5× the declared value (`outflow_mismatch`). Catches a PTB that moves more than it declares.
 

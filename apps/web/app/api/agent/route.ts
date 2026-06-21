@@ -51,10 +51,12 @@ async function buildAgent(walletAddress?: string) {
   };
   const { prepareTrade } = require("@dewlock/agent/tools/prepare-trade") as { prepareTrade: AnyTool };
   const { getPortfolio } = require("@dewlock/agent/tools/get-portfolio") as { getPortfolio: AnyTool };
+  const { getDefiPositions } = require("@dewlock/agent/tools/get-defi-positions") as { getDefiPositions: AnyTool };
   const { listProtocols } = require("@dewlock/agent/tools/list-protocols") as { listProtocols: AnyTool };
   const { getSwapOptions } = require("@dewlock/agent/tools/get-swap-options") as { getSwapOptions: AnyTool };
   const { getLendOptions } = require("@dewlock/agent/tools/get-lend-options") as { getLendOptions: AnyTool };
   const { getSwapForm } = require("@dewlock/agent/tools/get-swap-form") as { getSwapForm: AnyTool };
+  const { getLimitOrderForm } = require("@dewlock/agent/tools/get-limit-order-form") as { getLimitOrderForm: AnyTool };
   const { getReceiveInfo } = require("@dewlock/agent/tools/get-receive-info") as { getReceiveInfo: AnyTool };
   const { getProtocolMetrics } = require("@dewlock/agent/tools/get-protocol-metrics") as { getProtocolMetrics: AnyTool };
   const { getStablecoinYields } = require("@dewlock/agent/tools/get-stablecoin-yields") as { getStablecoinYields: AnyTool };
@@ -67,9 +69,42 @@ async function buildAgent(walletAddress?: string) {
 
   const gateway = createGateway({ apiKey });
 
+  // Resolve the wallet's DeepBook BalanceManager once per request (UX layer: lets the
+  // LLM supply balanceManagerId and know whether onboarding is needed). prepareTrade
+  // RE-RESOLVES server-side authoritatively, so this is fail-soft — a read error just
+  // omits the hint and prepareTrade still does the right thing.
+  let bmContext = "";
+  if (walletAddress) {
+    try {
+      /* eslint-disable @typescript-eslint/no-require-imports */
+      const { getSuiMainnetClient } = require("@dewlock/sui") as {
+        getSuiMainnetClient: () => unknown;
+      };
+      const { getExistingBalanceManagers } = require("@dewlock/sui/balance-manager") as {
+        getExistingBalanceManagers: (
+          client: unknown,
+          address: string,
+        ) => Promise<{ status: "ok" | "rpc_error"; ids: string[] }>;
+      };
+      /* eslint-enable @typescript-eslint/no-require-imports */
+      const res = await getExistingBalanceManagers(getSuiMainnetClient(), walletAddress);
+      if (res.status === "ok" && res.ids.length === 1) {
+        bmContext =
+          `\nDeepBook BalanceManager id: ${res.ids[0]} ` +
+          "(use as balanceManagerId for limit_order / cancel_order / withdraw_settled).";
+      } else if (res.status === "ok" && res.ids.length === 0) {
+        bmContext =
+          "\nThis wallet has no DeepBook trading account (BalanceManager) yet — placing an order " +
+          "will prompt a one-time onboarding (create + fund).";
+      }
+    } catch {
+      /* fail-soft: prepareTrade re-resolves the BM authoritatively */
+    }
+  }
+
   // Inject walletAddress into system context so tools can receive it from the agent
   const walletContext = walletAddress
-    ? `\n\n## Current session\nWallet address: ${walletAddress}\nUse this address for getPortfolio and as the walletAddress argument for prepareTrade.`
+    ? `\n\n## Current session\nWallet address: ${walletAddress}\nUse this address for getPortfolio and as the walletAddress argument for prepareTrade.${bmContext}`
     : "";
 
   return new Agent({
@@ -77,7 +112,7 @@ async function buildAgent(walletAddress?: string) {
     name: "Dewlock Sui DeFi Copilot",
     instructions: `${COPILOT_PERSONA}\n${TOOL_USE_RULES}\n${SECURITY_RULES}${walletContext}`,
     model: gateway(process.env.AGENT_MODEL ?? "google/gemini-2.5-flash"),
-    tools: { getPortfolio, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getReceiveInfo, getProtocolMetrics, getStablecoinYields, getTopTvl, getTrendingTokens, getUserStats, requestActionForm, requestContactPicker },
+    tools: { getPortfolio, getDefiPositions, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getLimitOrderForm, getReceiveInfo, getProtocolMetrics, getStablecoinYields, getTopTvl, getTrendingTokens, getUserStats, requestActionForm, requestContactPicker },
   });
 }
 

@@ -30,6 +30,7 @@ import type { ApiResponse as ProtocolsData } from "@/components/protocols/protoc
 import type { SwapOptionsData } from "@/components/chat/swap-options-card";
 import type { LendOptionsData } from "@/components/chat/lend-options-card";
 import type { SwapFormData } from "@/components/chat/swap-form-card";
+import type { LimitOrderFormData } from "@/components/chat/limit-order-form-card";
 import type { ActionFormData } from "@/components/chat/action-form-card";
 import type { ContactPickerData } from "@/components/chat/contact-picker-card";
 import type { ReceiveCardData } from "@/components/receive-card";
@@ -157,6 +158,9 @@ export function toolResultToCard(toolName: string, result: unknown): ToolCard | 
   if (toolName === "getSwapForm" && hasKeys(result, ["coins"])) {
     return { type: "swap-form", swapForm: result as unknown as SwapFormData };
   }
+  if (toolName === "getLimitOrderForm" && hasKeys(result, ["pools"])) {
+    return { type: "limit-order-form", limitOrderForm: result as unknown as LimitOrderFormData };
+  }
   if (toolName === "requestActionForm" && hasKeys(result, ["formAction", "needs"])) {
     return { type: "action-form", form: result as unknown as ActionFormData };
   }
@@ -188,6 +192,14 @@ export function toolResultToCard(toolName: string, result: unknown): ToolCard | 
   if (toolName === "getTrendingTokens") {
     return { type: "ecosystem-tokens" };
   }
+  if (
+    toolName === "getDefiPositions" &&
+    hasKeys(result, ["walletAddress", "deepbook", "lending"])
+  ) {
+    // Safe: hasKeys guard validates the required top-level shape at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { type: "defi-positions", positions: result as any };
+  }
   return null;
 }
 
@@ -206,12 +218,15 @@ function nextId() {
   return `msg-${++idSeq}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// The swap-form card appends a deterministic token-binding marker to its command
-// ([[swap:in=…|out=…|src=…]]); the server reads it, the user shouldn't see it. Strip it (and any
-// trailing space) from the displayed bubble. Format kept in sync with parse-intent SWAP_BIND_RE.
+// The form cards append a deterministic binding marker to their command — the server
+// reads it, the user shouldn't see it. Strip it (and trailing space) from the displayed
+// bubble. Formats kept in sync with parse-intent SWAP_BIND_RE / LIMIT_BIND_RE.
+//   swap-form:  [[swap:in=…|out=…|src=…]]
+//   limit-form: [[limit:pool=…|side=…|price=…|qty=…|exp=…]]
 const SWAP_BIND_MARKER = /\s*\[\[swap:in=[^|\]]+\|out=[^|\]]+(?:\|src=[^\]]+)?\]\]/i;
-function stripSwapBindMarker(text: string): string {
-  return text.replace(SWAP_BIND_MARKER, "").trim();
+const LIMIT_BIND_MARKER = /\s*\[\[limit:pool=[^|\]]+\|side=[^|\]]+\|price=[^|\]]+\|qty=[^|\]]+\|exp=[^\]]+\]\]/i;
+function stripBindMarkers(text: string): string {
+  return text.replace(SWAP_BIND_MARKER, "").replace(LIMIT_BIND_MARKER, "").trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -279,10 +294,10 @@ export function useCopilotChat(
     async (text: string) => {
       if (isStreaming) return;
 
-      // The swap-form card appends a deterministic token-binding marker
-      // ([[swap:in=…|out=…|src=…]]). Show a clean bubble, but send the FULL text (with marker)
-      // to the agent so the server-side intent parser binds the exact coin types.
-      const displayText = stripSwapBindMarker(text);
+      // The form cards append a deterministic binding marker (swap or limit). Show a
+      // clean bubble, but send the FULL text (with marker) to the agent so the
+      // server-side intent parser binds the exact coin types / order params.
+      const displayText = stripBindMarkers(text);
 
       const userMsg: ChatMessage = {
         id: nextId(),

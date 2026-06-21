@@ -62,6 +62,14 @@ export const ACTION_TYPES = [
   "swap",
   "add_liquidity",
   "limit_order",
+  // DeepBook order lifecycle. BalanceManager onboarding (create + fund) and the
+  // order-management verbs (cancel a resting order, withdraw a settled balance).
+  // Each is gated by its OWN action-shape set — never the limit_order set, which
+  // bundles place_limit_order and would let a deposit/withdraw smuggle an order in.
+  "bm_create",
+  "bm_deposit",
+  "cancel_order",
+  "withdraw_settled",
   // Lending. deposit/repay are health-IMPROVING (enabled); borrow/withdraw are
   // health-REDUCING and stay gated OFF until a guarded post-tx health follow-up.
   "lend_deposit",
@@ -82,6 +90,9 @@ export type LendingProtocol = (typeof LENDING_PROTOCOLS)[number];
 export const SWAP_SOURCES = ["cetus", "aggregator", "aftermath"] as const;
 export type SwapSource = (typeof SWAP_SOURCES)[number];
 import { dryRunTransaction, DryRunFailedError, type DryRunResult } from "@dewlock/sui";
+// Settled-balance reader for the withdraw_settled amount ceiling (lazy DeepBook SDK
+// inside — importing the module evaluates no SDK). Subpath keeps it off non-order paths.
+import { readSettledBalance } from "@dewlock/sui/account-orders";
 // quotes-source imports Cetus SDK — use subpath to keep it isolated from the root bundle
 import { fetchSwapQuote } from "@dewlock/sui/quotes-source";
 import type { SwapQuote } from "@dewlock/sui/quotes-source";
@@ -139,6 +150,16 @@ export interface TradeProposal {
   balanceManagerId?: string;
   /** Order side. */
   side?: "BUY" | "SELL";
+
+  // --- Order-lifecycle fields (cancel_order / withdraw_settled / bm_deposit) ---
+  /** Resting order id to cancel (0x-hex), for cancel_order. */
+  orderId?: string;
+  /**
+   * Settled balance available to withdraw, RE-DERIVED on-chain by the Guardian
+   * (NOT supplied by the caller) and used as the withdraw_settled amount ceiling.
+   * Human-readable units. Undefined until the gate reads it.
+   */
+  settledBalanceHuman?: number;
   /** Human-readable limit price in quote currency. */
   limitPrice?: number;
   /** Human-readable quantity in base currency. */
@@ -463,6 +484,19 @@ export async function guardianCheck(
     }
   }
 
+  // --- Order-lifecycle gates (cancel_order / withdraw_settled) ---
+  // cancel_order: a resting order id must be present + well-formed (the on-chain
+  // owner-proof + the upstream server-authoritative BM resolution bound ownership;
+  // a cancel of a foreign/gone order aborts in the dry-run gate below).
+  // withdraw_settled: recipient is hard-pinned to the sender, and the amount is
+  // ceilinged by an independently re-derived settled balance (fail-closed).
+  if (proposal.actionType === "cancel_order" || proposal.actionType === "withdraw_settled") {
+    const olResult = await checkOrderLifecycleConstraints(proposal, suiClient);
+    for (const err of olResult.errors) {
+      block(err.gate, err.reason);
+    }
+  }
+
   // --- Gate 5 + Gate 3: Dry-run (fail-closed) + WYSIWYS digest ---
   // Even if earlier gates failed, we still need the digest for WYSIWYS.
   // But if other gates already blocked, we skip the RPC call (saves latency).
@@ -703,6 +737,34 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
         `${DEEPBOOK_PACKAGE}::balance_manager::new`,
         `${DEEPBOOK_PACKAGE}::balance_manager::deposit`,
       ]);
+    case "bm_create":
+      // Onboarding step 1: create + share a BalanceManager. ONLY these two calls —
+      // no deposit/order may ride along (those are separate gated actions).
+      return new Set([
+        `${DEEPBOOK_PACKAGE}::balance_manager::new`,
+        `${NATIVE_PACKAGE}::transfer::public_share_object`,
+      ]);
+    case "bm_deposit":
+      // Onboarding step 2: fund the BM. ONLY deposit — never the limit_order set,
+      // which bundles place_limit_order (a deposit must not smuggle an order in).
+      return new Set([`${DEEPBOOK_PACKAGE}::balance_manager::deposit`]);
+    case "cancel_order":
+      // Cancel one resting order. The SDK emits an owner trade-proof immediately
+      // before the cancel, so the proof calls are part of the legitimate shape — but
+      // NOT place_limit_order/deposit/withdraw (no order or value-mover may ride along).
+      return new Set([
+        `${DEEPBOOK_PACKAGE}::pool::cancel_order`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_owner`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_trader`,
+      ]);
+    case "withdraw_settled":
+      // Withdraw a settled balance to the SENDER. The SDK emits balance_manager::withdraw
+      // (partial) or balance_manager::withdraw_all (full); the recipient transfer is a
+      // TransferObjects command (not a MoveCall) pinned to the sender in the builder.
+      return new Set([
+        `${DEEPBOOK_PACKAGE}::balance_manager::withdraw`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::withdraw_all`,
+      ]);
     case "lend_deposit":
       // Health-improving deposits only — NAVI entry_deposit / Suilend mint+deposit.
       // NAVI's SDK also emits pool::refresh_stake (refreshes reward accounting before
@@ -838,6 +900,108 @@ export function checkLendingConstraints(proposal: TradeProposal): GateResult {
     return { ok: false, reason: gate.reason ?? `Lending protocol "${lendingProtocol}" is not active.` };
   }
   return { ok: true, reason: "" };
+}
+
+// ---------------------------------------------------------------------------
+// Order-lifecycle gate — cancel a resting order / withdraw a settled balance
+// ---------------------------------------------------------------------------
+
+/**
+ * Gate the two DeepBook order-management verbs. All checks are fail-closed.
+ *
+ * cancel_order: a well-formed resting order id + a whitelisted pool must be present.
+ *   The cancel touches no value (settled funds return to the BM); BM ownership is
+ *   enforced at the server boundary (prepareTrade re-resolves the sender's BMs) and
+ *   again by the on-chain owner-proof — a cancel of a foreign/already-gone order
+ *   aborts in the dry-run gate.
+ *
+ * withdraw_settled: the recipient is hard-pinned to the sender (no third-party
+ *   outflow), and the requested amount is ceilinged by an INDEPENDENTLY re-derived
+ *   settled balance (read on-chain here, never cached, never caller-supplied). A
+ *   read failure BLOCKS — an unverifiable ceiling is not a pass.
+ */
+export async function checkOrderLifecycleConstraints(
+  proposal: TradeProposal,
+  suiClient: SuiClient,
+): Promise<OrderbookConstraintsResult> {
+  const errors: OrderbookGateError[] = [];
+
+  // Both verbs operate on a specific BalanceManager (server-resolved upstream).
+  if (!proposal.balanceManagerId || !/^0x[0-9a-fA-F]{64}$/.test(proposal.balanceManagerId)) {
+    errors.push({
+      gate: "ol_balance_manager",
+      reason: "A valid BalanceManager id is required for this action — none resolved. Blocking (fail-closed).",
+    });
+    return { errors };
+  }
+
+  if (proposal.actionType === "cancel_order") {
+    if (!proposal.orderId || !/^0x[0-9a-fA-F]+$/.test(proposal.orderId)) {
+      errors.push({
+        gate: "ol_order_id",
+        reason: `cancel_order requires a 0x-hex orderId — got "${proposal.orderId ?? "(missing)"}". Blocking.`,
+      });
+    }
+    if (!proposal.poolKey || !(proposal.poolKey in DEEPBOOK_POOLS)) {
+      errors.push({
+        gate: "ol_pool_whitelist",
+        reason:
+          `cancel_order poolKey "${proposal.poolKey ?? "(missing)"}" is not whitelisted. ` +
+          `Allowed pools: ${Object.keys(DEEPBOOK_POOLS).join(", ")}.`,
+      });
+    }
+    return { errors };
+  }
+
+  // --- withdraw_settled ---
+  // 1. Recipient pinned to sender (the builder hard-pins it; reject any drift here too).
+  if (
+    proposal.recipientAddress &&
+    proposal.recipientAddress.toLowerCase() !== proposal.walletAddress.toLowerCase()
+  ) {
+    errors.push({
+      gate: "ol_recipient",
+      reason:
+        `withdraw_settled may only return funds to the sender. Recipient "${proposal.recipientAddress}" ` +
+        "differs from the wallet — refusing third-party outflow.",
+    });
+  }
+
+  // 2. Re-derive the settled balance on-chain (fail-closed: any read error BLOCKS).
+  let settled: number;
+  try {
+    settled = await readSettledBalance(
+      suiClient,
+      proposal.walletAddress,
+      proposal.balanceManagerId,
+      proposal.coinTypeIn,
+    );
+  } catch (err) {
+    errors.push({
+      gate: "ol_settled_read",
+      reason:
+        "Could not verify the settled balance available to withdraw (on-chain read failed). " +
+        `Blocking (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return { errors };
+  }
+
+  // 3. Requested amount must not exceed the settled balance.
+  const decimals =
+    COIN_DECIMALS[normalizeCoinType(proposal.coinTypeIn)] ?? COIN_DECIMALS[proposal.coinTypeIn] ?? 9;
+  const requestedHuman = Number(proposal.amountInNative) / 10 ** decimals;
+  // Epsilon guards float representation of the SDK's human-scaled balance.
+  const EPSILON = 1e-9;
+  if (requestedHuman > settled + EPSILON) {
+    errors.push({
+      gate: "ol_withdraw_ceiling",
+      reason:
+        `Withdraw of ${requestedHuman} exceeds the settled balance ${settled} available in the ` +
+        "BalanceManager for this coin. Reduce the amount.",
+    });
+  }
+
+  return { errors };
 }
 
 // ---------------------------------------------------------------------------

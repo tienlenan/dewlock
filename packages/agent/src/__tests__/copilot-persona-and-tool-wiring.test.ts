@@ -20,6 +20,7 @@ import { listProtocols } from "../tools/list-protocols";
 import { getSwapOptions } from "../tools/get-swap-options";
 import { getLendOptions } from "../tools/get-lend-options";
 import { getSwapForm } from "../tools/get-swap-form";
+import { getLimitOrderForm } from "../tools/get-limit-order-form";
 import { getReceiveInfo } from "../tools/get-receive-info";
 import { getUserStats } from "../tools/get-user-stats";
 import { getProtocolMetrics } from "../tools/get-protocol-metrics";
@@ -35,6 +36,7 @@ const ROUTED_TOOLS: Record<string, unknown> = {
   getSwapOptions,
   getLendOptions,
   getSwapForm,
+  getLimitOrderForm,
   getReceiveInfo,
   getUserStats,
   getProtocolMetrics,

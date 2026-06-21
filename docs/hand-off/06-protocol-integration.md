@@ -9,10 +9,25 @@ Network reality, SDK packages, and gotchas. Verify exact versions at `npm instal
 | Swap / Add LP / Create pool | ✅ | ✅ (self-seed) | partial | `@cetusprotocol/cetus-sui-clmm-sdk` |
 | Transfer | ✅ | ✅ | ✅ | `@mysten/sui` Transaction |
 | SuiNS resolve | ✅ | ✅ | ✅ | SuiNS SDK |
+| Orderbook (DeepBook v3) | ✅ | ✅ | ❌ | `@mysten/deepbook-v3` |
 | Lending (NAVI/Scallop) | ✅ | ❌ mainnet-locked | ❌ | scallop/navi SDK |
 | Confidential transfers | ❌ (~late 2026) | ❌ (~late 2026) | ✅ public beta (unaudited) | Sui OSS repo |
 
 **Decision recap:** core = mainnet small; confidential = devnet; testnet only for dev/CI integration tests (self-seeded Cetus pool).
+
+## DeepBook v3 (orderbook) — mainnet + testnet
+
+- Package: `@mysten/deepbook-v3` (1.4.1+).
+- Mainnet + testnet live; devnet not supported by SDK.
+- **Order lifecycle:** create BalanceManager → deposit funds → place POST_ONLY order → cancel order → withdraw settled balance.
+  - `deepBook.createBalanceManager()` → `balance_manager::new` MoveCall.
+  - `balanceManager.depositToManager()` → `balance_manager::deposit` (transfer from wallet).
+  - `deepBook.placeOrder()` → `pool::place_limit_order` (POST_ONLY, self-match guard, expiry).
+  - `deepBook.cancelOrder()` → `pool::cancel_order` (settled funds return to BM).
+  - `balanceManager.withdrawFromManager()` / `withdrawAllFromManager()` → `balance_manager::withdraw` + TransferObjects (amount must not exceed settled balance).
+- **Readers:** `deepBook.getOrderNormalized()` (per-order isBid + normalized_price), `balanceManager.checkManagerBalance()` ({coinType, balance}), `deepBook.getPoolOrderbook()` (full book).
+- **Guardian gates:** each order-lifecycle action has its own shape template; `limit_order` is POST_ONLY / self-match / expiry gated; `cancel_order` requires a valid resting order id; `withdraw_settled` pins recipient to sender and validates amount via independent server-side balance read (fail-closed on RPC error).
+- **BalanceManager onboarding:** two-step card in portfolio UI (create → deposit); subsequent orders/withdrawals use inline buttons (no form, direct Guardian → sign).
 
 ## Cetus (swap + LP) — primary
 

@@ -72,9 +72,16 @@ export const PROTOCOLS: ProtocolEntry[] = [
       `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_trader`,
       `${DEEPBOOK_PACKAGE}::balance_manager::new`,
       `${DEEPBOOK_PACKAGE}::balance_manager::deposit`,
+      // Settled-balance withdrawal back to the owner. The SDK emits `withdraw` for a
+      // partial amount and `withdraw_all` for the full balance — both are needed; the
+      // recipient is a TransferObjects command pinned to the sender (Guardian re-asserts).
+      `${DEEPBOOK_PACKAGE}::balance_manager::withdraw`,
+      `${DEEPBOOK_PACKAGE}::balance_manager::withdraw_all`,
     ],
     coinTypes: [DEEP, SUI, USDC],
-    guardianNotes: "On-chain CLOB; limit orders restricted to POST_ONLY by the orderbook gates.",
+    guardianNotes:
+      "On-chain CLOB; limit orders restricted to POST_ONLY by the orderbook gates. " +
+      "Full order lifecycle: onboard (new+deposit), place, cancel, withdraw settled (recipient=owner).",
   },
 
   // -------------------------------------------------------------------------

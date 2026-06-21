@@ -3,8 +3,9 @@
 /**
  * asset-logos — shared brand marks for the swap + lending chat cards.
  *
- *  - CoinLogo: the token's real logo (from popular-tokens `logoUrl`) with a tinted
- *    monogram fallback when there's no image or it 404s.
+ *  - CoinLogo: the token's real logo via a multi-source candidate chain
+ *    (local self-hosted asset → curated CDN → CoinGecko host swap), falling back to a
+ *    tinted monogram only when EVERY source fails. See coin-icon-source.ts.
  *  - ProtocolLogo: designed inline-SVG marks for lending protocols (navi / suilend)
  *    — crisp brand glyphs, not raw letters. Extend `PROTOCOL_MARKS` for new protocols.
  *
@@ -12,6 +13,7 @@
  */
 
 import { useState } from "react";
+import { resolveCoinIconCandidates } from "./coin-icon-source";
 
 // ── Coin visuals ────────────────────────────────────────────────────────────
 // Tints used for the monogram fallback (and a soft ring) per known symbol.
@@ -41,20 +43,27 @@ export function CoinLogo({
   logoUrl?: string | null;
   size?: number;
 }) {
-  const [broken, setBroken] = useState(false);
+  const candidates = resolveCoinIconCandidates(symbol, logoUrl);
+  const sig = candidates.join("|");
+  // Track which candidate we're on AND the signature it belongs to, so reusing this
+  // component for a DIFFERENT coin (React reconciles by position; e.g. the swap form's
+  // token select) resets the chain during render — no stale index, no effect flash.
+  const [walk, setWalk] = useState<{ sig: string; idx: number }>({ sig, idx: 0 });
+  const idx = walk.sig === sig ? walk.idx : 0;
   const tint = tintFor(symbol);
-  const showImg = logoUrl && !broken;
+  const src = candidates[idx];
 
-  if (showImg) {
+  if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={logoUrl}
+        src={src}
         alt={symbol}
         width={size}
         height={size}
         loading="lazy"
-        onError={() => setBroken(true)}
+        // Advance to the next source on error; when exhausted, the monogram renders.
+        onError={() => setWalk({ sig, idx: idx + 1 })}
         style={{ width: size, height: size, borderRadius: "50%", display: "block", objectFit: "cover", background: "var(--bg-sub)" }}
       />
     );
@@ -133,9 +142,10 @@ const PROTOCOL_MARKS: Record<string, () => React.JSX.Element> = {
 // .protocol-logo-soft`, so it's theme-scoped (inline styles can't be).
 const PROTOCOL_SOFT = new Set<string>(["cetus", "cetus-aggregator", "suilend"]);
 
-// Brand image asset per protocol (explicit extension — not all are .svg). Real logos:
-// cetus / suilend / navi; the rest use designed placeholder marks in /public/logos until
-// an official asset is dropped in at the same path (no code change needed).
+// Brand image asset per protocol (explicit extension — not all are .svg). Keyed by the
+// registry protocol id so the protocol list / cards resolve every entry to a real logo
+// (DeFiLlama-sourced .webp for those without a bespoke local mark). Unknown id → the
+// inline-SVG mark or a monogram tile fallback in ProtocolLogo.
 const PROTOCOL_IMG_SRC: Record<string, string> = {
   cetus: "/logos/cetus.svg",
   "cetus-aggregator": "/logos/cetus.svg", // Cetus's aggregator — same brand mark
@@ -143,7 +153,17 @@ const PROTOCOL_IMG_SRC: Record<string, string> = {
   suilend: "/logos/suilend.svg",
   navi: "/logos/navi.png",
   aftermath: "/logos/aftermath.svg",
+  "aftermath-perp": "/logos/aftermath.svg", // Aftermath's perps venue — same brand mark
   wormhole: "/logos/wormhole.svg",
+  "7k": "/logos/7k.webp",
+  turbos: "/logos/turbos.webp",
+  scallop: "/logos/scallop.webp",
+  momentum: "/logos/momentum.webp",
+  flowx: "/logos/flowx.webp",
+  haedal: "/logos/haedal.webp",
+  bluefin: "/logos/bluefin.webp",
+  volo: "/logos/volo.webp",
+  nemo: "/logos/nemo.webp",
 };
 
 export function ProtocolLogo({ id, size = 34 }: { id: string; size?: number }) {
