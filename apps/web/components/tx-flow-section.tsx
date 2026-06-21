@@ -130,7 +130,7 @@ function MapView({ preview, walletAddress }: { preview: FlowPreviewInput; wallet
       <div
         style={{
           position: "relative",
-          height: 200,
+          height: 290,
           borderRadius: 8,
           border: "1px solid var(--border)",
           background: "var(--bg-sub)",

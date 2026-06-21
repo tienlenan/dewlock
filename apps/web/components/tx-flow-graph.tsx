@@ -34,7 +34,8 @@ import { deriveFlowRows, short0x, type FlowPreviewInput, type FlowRow } from "./
 
 const OUT = "var(--destructive)";
 const IN = "var(--success)";
-const ROW_H = 96;
+const COL_W = 230; // horizontal gap between sibling nodes at the same level
+const LEVEL_H = 132; // vertical gap between levels (sources → you → destinations)
 
 type NodeKind = "you" | "recipient" | "protocol" | "counterparty";
 interface NodeMeta { kind: NodeKind; label: string; sub?: string; primary?: boolean }
@@ -69,7 +70,7 @@ function FlowNode({ data }: NodeProps) {
         boxShadow: "var(--shadow-sm)",
       }}
     >
-      <Handle type="target" position={Position.Left} style={handleStyle} />
+      <Handle type="target" position={Position.Top} style={handleStyle} />
       <span
         style={{
           flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -90,7 +91,7 @@ function FlowNode({ data }: NodeProps) {
           </div>
         )}
       </div>
-      <Handle type="source" position={Position.Right} style={handleStyle} />
+      <Handle type="source" position={Position.Bottom} style={handleStyle} />
     </div>
   );
 }
@@ -130,20 +131,22 @@ function buildGraph(
 ): { nodes: Node[]; edges: Edge[] } {
   const outs = rows.filter((r) => r.direction === "out");
   const ins = rows.filter((r) => r.direction === "in");
-  const midY = ((Math.max(outs.length, ins.length, 1) - 1) * ROW_H) / 2;
+  // Vertical river: sources (inflows) on top → You in the middle → destinations
+  // (outflows) at the bottom. Every edge flows downward, so they never cross or overlap.
+  const rowX = (count: number, i: number) => (i - (count - 1) / 2) * COL_W; // centred around 0
 
   const youSub = walletAddress ? (suins[walletAddress.toLowerCase()] ?? short0x(walletAddress)) : undefined;
   const node = (id: string, x: number, y: number, data: NodeMeta): Node => ({ id, type: "flow", position: { x, y }, data: data as unknown as Record<string, unknown> });
 
   const nodes: Node[] = [
-    node("you", 200, midY, { kind: "you", label: "You", sub: youSub, primary: true }),
-    ...outs.map((r, i) => node(`out-${i}`, 440, i * ROW_H, counterpartyMeta(r, preview, suins))),
-    ...ins.map((r, i) => node(`in-${i}`, 0, i * ROW_H, counterpartyMeta(r, preview, suins))),
+    ...ins.map((r, i) => node(`in-${i}`, rowX(ins.length, i), 0, counterpartyMeta(r, preview, suins))),
+    node("you", 0, LEVEL_H, { kind: "you", label: "You", sub: youSub, primary: true }),
+    ...outs.map((r, i) => node(`out-${i}`, rowX(outs.length, i), 2 * LEVEL_H, counterpartyMeta(r, preview, suins))),
   ];
 
   const edges: Edge[] = [
-    ...outs.map((r, i) => ({ id: `eo-${i}`, source: "you", target: `out-${i}`, label: `−${r.amountFormatted} ${r.ticker}`, ...edgeProps(OUT) })),
     ...ins.map((r, i) => ({ id: `ei-${i}`, source: `in-${i}`, target: "you", label: `+${r.amountFormatted} ${r.ticker}`, ...edgeProps(IN) })),
+    ...outs.map((r, i) => ({ id: `eo-${i}`, source: "you", target: `out-${i}`, label: `−${r.amountFormatted} ${r.ticker}`, ...edgeProps(OUT) })),
   ];
 
   return { nodes, edges };
