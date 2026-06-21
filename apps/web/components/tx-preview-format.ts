@@ -174,3 +174,38 @@ export function groupObjectsTouched(objects: ObjectTouchedDisplay[]): GroupedObj
 export function thirdPartyTransfers(objects: ObjectTouchedDisplay[]): ObjectTouchedDisplay[] {
   return objects.filter((o) => o.ownerKind === "third-party");
 }
+
+// ---------------------------------------------------------------------------
+// Contract grouping — collapse an N-step route into one protocol entry.
+// ---------------------------------------------------------------------------
+
+/** One protocol the PTB invokes, with the individual Move calls it made. */
+export interface ContractGroup {
+  protocolName: string;
+  category: string;
+  allowlistKind: AllowlistKind;
+  /** Every package::module::function this protocol contributed, in first-seen order. */
+  targets: string[];
+}
+
+const KIND_RANK: Record<AllowlistKind, number> = { pinned: 2, "signature-matched": 1, none: 0 };
+
+/**
+ * Group raw contract calls by protocol so a multi-step aggregator route (begin_router_tx,
+ * initiate_path, swap_*, redeem, end_router_tx, …) shows as ONE "Aftermath Router" entry
+ * with its calls listed — not N redundant rows. The group's allowlistKind is the WEAKEST
+ * of its calls, so a ✓ chip can never over-claim for a protocol that also has unpinned hops.
+ */
+export function groupContractsByProtocol(contracts: ContractCallDisplay[]): ContractGroup[] {
+  const map = new Map<string, ContractGroup>();
+  for (const c of contracts) {
+    const g = map.get(c.protocolName);
+    if (g) {
+      g.targets.push(c.target);
+      if (KIND_RANK[c.allowlistKind] < KIND_RANK[g.allowlistKind]) g.allowlistKind = c.allowlistKind;
+    } else {
+      map.set(c.protocolName, { protocolName: c.protocolName, category: c.category, allowlistKind: c.allowlistKind, targets: [c.target] });
+    }
+  }
+  return [...map.values()];
+}

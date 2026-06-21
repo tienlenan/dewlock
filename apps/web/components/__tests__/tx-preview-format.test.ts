@@ -8,6 +8,7 @@ import {
   resolveOwnerLabel,
   deriveFlowRows,
   groupObjectsTouched,
+  groupContractsByProtocol,
   thirdPartyTransfers,
   formatNative,
   type ContractCallDisplay,
@@ -125,5 +126,38 @@ describe("groupObjectsTouched / thirdPartyTransfers", () => {
   it("empty input → all-empty buckets", () => {
     const g = groupObjectsTouched([]);
     expect(Object.values(g).every((b) => b.length === 0)).toBe(true);
+  });
+});
+
+describe("groupContractsByProtocol", () => {
+  const call = (target: string, protocolName: string, allowlistKind: "pinned" | "signature-matched" | "none"): ContractCallDisplay => ({
+    target, protocolName, category: "aggregator", status: "active", allowlistKind,
+  });
+
+  it("collapses a multi-step route into ONE protocol entry with all its calls", () => {
+    const groups = groupContractsByProtocol([
+      call("0xrtr::router::begin_router_tx_r1_w1", "Aftermath Router (route)", "signature-matched"),
+      call("0xrtr::router::swap_b_to_a_w1", "Aftermath Router (route)", "signature-matched"),
+      call("0xrtr::router::end_router_tx_r1_w1", "Aftermath Router (route)", "signature-matched"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].protocolName).toBe("Aftermath Router (route)");
+    expect(groups[0].targets).toHaveLength(3);
+  });
+
+  it("keeps distinct protocols separate", () => {
+    const groups = groupContractsByProtocol([
+      call("0xc::pool::swap", "Cetus", "pinned"),
+      call("0xd::pool::place_limit_order", "DeepBook V3", "pinned"),
+    ]);
+    expect(groups.map((g) => g.protocolName)).toEqual(["Cetus", "DeepBook V3"]);
+  });
+
+  it("downgrades the group to the WEAKEST allowlistKind (no over-claimed ✓)", () => {
+    const groups = groupContractsByProtocol([
+      call("0xa::cetus::confirm", "Cetus Aggregator (route)", "pinned"),
+      call("0xb::cetus::swap", "Cetus Aggregator (route)", "signature-matched"),
+    ]);
+    expect(groups[0].allowlistKind).toBe("signature-matched");
   });
 });

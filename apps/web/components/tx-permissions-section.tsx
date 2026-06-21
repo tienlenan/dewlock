@@ -13,9 +13,11 @@
 import React, { useState } from "react";
 import {
   groupObjectsTouched,
+  groupContractsByProtocol,
   shortCoinType,
   short0x,
   type ContractCallDisplay,
+  type ContractGroup,
   type ObjectTouchedDisplay,
 } from "./tx-preview-format";
 
@@ -39,14 +41,26 @@ function chip(color: string): React.CSSProperties {
   };
 }
 
-function ContractRow({ c }: { c: ContractCallDisplay }) {
-  const pinned = c.allowlistKind === "pinned";
+/** package::module::function → module::function (the package is long + repeated per call). */
+function shortTarget(t: string): string {
+  return t.split("::").slice(-2).join("::");
+}
+
+/**
+ * One protocol the PTB calls. A multi-step route (e.g. an Aftermath swap with begin_router_tx
+ * → initiate_path → swap_* → redeem → end_router_tx) is ONE row here — its individual calls
+ * collapse behind a "N calls · show" toggle, so the list matches the Asset Flow's granularity.
+ */
+function ContractGroupRow({ g }: { g: ContractGroup }) {
+  const [open, setOpen] = useState(false);
+  const pinned = g.allowlistKind === "pinned";
+  const n = g.targets.length;
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 2,
+        gap: 3,
         padding: "7px 9px",
         borderRadius: 8,
         background: "var(--bg-sub)",
@@ -55,16 +69,30 @@ function ContractRow({ c }: { c: ContractCallDisplay }) {
     >
       <div className="flex items-center justify-between gap-2">
         <span style={{ fontSize: "12.5px", fontWeight: 600 }}>
-          {c.protocolName}{" "}
-          <span style={{ fontSize: "10px", color: "var(--fg-faint)", fontWeight: 400 }}>· {c.category}</span>
+          {g.protocolName}{" "}
+          <span style={{ fontSize: "10px", color: "var(--fg-faint)", fontWeight: 400 }}>· {g.category}</span>
         </span>
         <span className="split-mono" style={chip(pinned ? "var(--success)" : "var(--fg-muted)")}>
           {pinned ? "✓ allowlisted" : "route hop · not pinned"}
         </span>
       </div>
-      <code className="mono" style={{ fontSize: "9.5px", color: "var(--fg-faint)", wordBreak: "break-all" }}>
-        {c.target}
-      </code>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="split-mono"
+        style={{ alignSelf: "flex-start", fontSize: "9.5px", color: "var(--fg-muted)", background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+      >
+        {n} call{n !== 1 ? "s" : ""} · {open ? "hide" : "show"}
+      </button>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {g.targets.map((t, i) => (
+            <code key={i} className="mono" style={{ fontSize: "9.5px", color: "var(--fg-faint)", wordBreak: "break-all" }}>
+              {shortTarget(t)}
+            </code>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -111,6 +139,7 @@ export function TxPermissionsSection({
   objectsTouchedTotal?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const contractGroups = groupContractsByProtocol(contractsCalled);
   const grouped = groupObjectsTouched(objectsTouched);
   const order: ObjectTouchedDisplay["changeType"][] = ["transferred", "created", "mutated", "deleted", "wrapped"];
   const moreCount = Math.max(0, objectsTouchedTotal - objectsTouched.length);
@@ -129,7 +158,7 @@ export function TxPermissionsSection({
           className="split-mono"
           style={{ fontSize: "10.5px", letterSpacing: "0.08em", color: "var(--fg-muted)", textTransform: "uppercase" }}
         >
-          Permissions &amp; contracts ({contractsCalled.length} contract{contractsCalled.length !== 1 ? "s" : ""} ·{" "}
+          Permissions &amp; contracts ({contractGroups.length} protocol{contractGroups.length !== 1 ? "s" : ""} ·{" "}
           {objectsTouchedTotal} object{objectsTouchedTotal !== 1 ? "s" : ""})
         </span>
         <span style={{ fontSize: "12px", color: "var(--fg-faint)" }}>{open ? "▾" : "▸"}</span>
@@ -142,8 +171,8 @@ export function TxPermissionsSection({
               <p style={{ fontSize: "12px", color: "var(--fg-muted)", margin: 0 }}>Native transfer · no external contracts.</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {contractsCalled.map((c, i) => (
-                  <ContractRow key={i} c={c} />
+                {contractGroups.map((g, i) => (
+                  <ContractGroupRow key={i} g={g} />
                 ))}
               </div>
             )}
