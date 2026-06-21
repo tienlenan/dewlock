@@ -30,19 +30,16 @@ export function resolveBalanceManagerForAction(
       gates: ["bm_resolve_error"],
     };
   }
-  if (resolution.ids.length > 1) {
-    return {
-      ok: false,
-      reasons: ["Multiple BalanceManagers found for this wallet — unexpected. Refusing for safety."],
-      gates: ["bm_ambiguous"],
-    };
-  }
-  const serverBmId = resolution.ids[0]; // undefined when none OR just-created-not-yet-indexed
+  // resolution.ids is OLDEST-first; ids[0] is the canonical account. A wallet may hold
+  // more than one BM (accidental pre-fix duplicate); we do NOT hard-block on that — we
+  // pick the canonical one, and a client-carried id can disambiguate explicitly.
+  const ids = resolution.ids;
 
   if (clientBmId) {
-    // Client carried an id. Block only a clear mismatch with an indexed server BM;
-    // otherwise trust it (covers the post-onboarding indexing-lag window).
-    if (serverBmId && serverBmId.toLowerCase() !== clientBmId.toLowerCase()) {
+    // Client carried an id. If the wallet has known BMs and this isn't one of them, it's
+    // a clear mismatch (fail-closed). If none are indexed yet (just-created lag), trust it.
+    const lc = clientBmId.toLowerCase();
+    if (ids.length > 0 && !ids.some((id) => id.toLowerCase() === lc)) {
       return {
         ok: false,
         reasons: ["The provided BalanceManager id doesn't match your wallet's account. Refusing (fail-closed)."],
@@ -52,8 +49,8 @@ export function resolveBalanceManagerForAction(
     return { ok: true, bmId: clientBmId };
   }
 
-  // No client id → must auto-resolve from the indexed set.
-  if (!serverBmId) {
+  // No client id → auto-resolve. None → onboarding; otherwise the canonical (oldest) BM.
+  if (ids.length === 0) {
     return {
       ok: false,
       reasons: [
@@ -63,5 +60,5 @@ export function resolveBalanceManagerForAction(
       gates: ["onboarding_required"],
     };
   }
-  return { ok: true, bmId: serverBmId };
+  return { ok: true, bmId: ids[0] };
 }

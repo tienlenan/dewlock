@@ -88,7 +88,9 @@ async function buildAgent(walletAddress?: string) {
       };
       /* eslint-enable @typescript-eslint/no-require-imports */
       const res = await getExistingBalanceManagers(getSuiMainnetClient(), walletAddress);
-      if (res.status === "ok" && res.ids.length === 1) {
+      if (res.status === "ok" && res.ids.length >= 1) {
+        // ids are oldest-first; ids[0] is the canonical account (extra ids are accidental
+        // duplicates). Inject it so the LLM supplies it for order/cancel/withdraw.
         bmContext =
           `\nDeepBook BalanceManager id: ${res.ids[0]} ` +
           "(use as balanceManagerId for limit_order / cancel_order / withdraw_settled).";

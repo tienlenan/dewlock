@@ -49,9 +49,19 @@ describe("resolveBalanceManagerForAction", () => {
     if (!r.ok) expect(r.gates).toContain("bm_resolve_error");
   });
 
-  it("blocks when more than one BM is found (ambiguous)", () => {
-    const r = resolveBalanceManagerForAction(ok([BM, OTHER]), undefined);
+  it("picks the canonical (oldest, ids[0]) BM when the wallet has duplicates and no client id", () => {
+    // ids are oldest-first; BM is the canonical account, OTHER an accidental later dup.
+    expect(resolveBalanceManagerForAction(ok([BM, OTHER]), undefined)).toEqual({ ok: true, bmId: BM });
+  });
+
+  it("lets a client-carried id disambiguate among multiple BMs", () => {
+    expect(resolveBalanceManagerForAction(ok([BM, OTHER]), OTHER)).toEqual({ ok: true, bmId: OTHER });
+  });
+
+  it("blocks a client id that is not among the wallet's BMs", () => {
+    const foreign = "0x" + "1".repeat(64);
+    const r = resolveBalanceManagerForAction(ok([BM, OTHER]), foreign);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.gates).toContain("bm_ambiguous");
+    if (!r.ok) expect(r.gates).toContain("bm_ownership");
   });
 });

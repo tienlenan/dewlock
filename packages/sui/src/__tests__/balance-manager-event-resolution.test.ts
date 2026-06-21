@@ -63,4 +63,24 @@ describe("getExistingBalanceManagers — event-based resolution", () => {
     const client = { queryEvents: vi.fn().mockRejectedValue(new Error("rpc down")) } as never;
     expect(await getExistingBalanceManagers(client, SENDER)).toEqual({ status: "rpc_error", ids: [] });
   });
+
+  it("orders FUNDED-first when the wallet has duplicates (never strand a deposited balance)", async () => {
+    // The real bug: OLDER BM empty, NEWER BM holds the funds. ids[0] must be the funded one.
+    const OLD = "0x" + "a".repeat(64); // created first, empty
+    const NEW = "0x" + "b".repeat(64); // created later, funded
+    const queryEvents = vi.fn().mockResolvedValueOnce({
+      hasNextPage: false,
+      nextCursor: null,
+      data: [
+        { type: EVENT_TYPE, parsedJson: { balance_manager_id: NEW, owner: SENDER }, timestampMs: "2000" },
+        { type: EVENT_TYPE, parsedJson: { balance_manager_id: OLD, owner: SENDER }, timestampMs: "1000" },
+      ],
+    });
+    // getObject reports balances-bag size: OLD empty (0), NEW funded (1).
+    const getObject = vi.fn(async ({ id }: { id: string }) => ({
+      data: { content: { fields: { balances: { fields: { size: id === NEW ? "1" : "0" } } } } },
+    }));
+    const r = await getExistingBalanceManagers({ queryEvents, getObject } as never, SENDER);
+    expect(r).toEqual({ status: "ok", ids: [NEW, OLD] }); // funded (NEW) first
+  });
 });

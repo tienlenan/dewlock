@@ -128,6 +128,11 @@ export type BalanceManagerResolution =
  * CRITICAL: an RPC error is reported as `rpc_error` — NOT an empty list. The two mean
  * opposite things ("can't tell" vs "definitely none"); conflating them mints duplicates.
  *
+ * ORDERING: ids are returned FUNDED-first, then oldest. When a wallet has more than one
+ * BM (an accidental pre-idempotency duplicate), callers pick ids[0] — and that MUST be
+ * the account that actually holds funds, never an empty older BM (which would strand a
+ * deposited balance). Funding is checked via the BM's balances-bag size.
+ *
  * Bound: scans the sender's most-recent events (paginated, capped). A BM created long
  * ago behind hundreds of newer events may not be found; the onboarding flow then
  * carries the id client-side for the active session (see resolve-balance-manager).
@@ -136,13 +141,27 @@ const BALANCE_MANAGER_EVENT_SUFFIX = "::balance_manager::BalanceManagerEvent";
 const BM_EVENT_SCAN_MAX_PAGES = 10;
 const BM_EVENT_PAGE_SIZE = 50;
 
+/** Does this BalanceManager hold any coin balance? (balances Bag size > 0). Fail-soft → false. */
+async function balanceManagerHasFunds(suiClient: SuiClient, bmId: string): Promise<boolean> {
+  try {
+    const obj = await suiClient.getObject({ id: bmId, options: { showContent: true } });
+    const content = obj.data?.content as
+      | { fields?: { balances?: { fields?: { size?: string | number } } } }
+      | undefined;
+    return Number(content?.fields?.balances?.fields?.size ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function getExistingBalanceManagers(
   suiClient: SuiClient,
   senderAddress: string,
 ): Promise<BalanceManagerResolution> {
   try {
     const owner = senderAddress.toLowerCase();
-    const ids = new Set<string>();
+    // id → earliest creation timestamp (for an oldest-first tiebreak under equal funding).
+    const createdAt = new Map<string, number>();
     let cursor: Awaited<ReturnType<SuiClient["queryEvents"]>>["nextCursor"] = null;
 
     for (let page = 0; page < BM_EVENT_SCAN_MAX_PAGES; page++) {
@@ -156,13 +175,25 @@ export async function getExistingBalanceManagers(
         if (!ev.type.endsWith(BALANCE_MANAGER_EVENT_SUFFIX)) continue;
         const pj = ev.parsedJson as { balance_manager_id?: string; owner?: string } | undefined;
         if (pj?.balance_manager_id && pj.owner?.toLowerCase() === owner) {
-          ids.add(pj.balance_manager_id);
+          const ts = Number(ev.timestampMs ?? 0);
+          const prev = createdAt.get(pj.balance_manager_id);
+          if (prev === undefined || ts < prev) createdAt.set(pj.balance_manager_id, ts);
         }
       }
       if (!res.hasNextPage || !res.nextCursor) break;
       cursor = res.nextCursor;
     }
-    return { status: "ok", ids: [...ids] };
+
+    const oldestFirst = [...createdAt.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
+    if (oldestFirst.length <= 1) return { status: "ok", ids: oldestFirst };
+
+    // Multiple BMs → order FUNDED-first so callers never strand a deposited balance behind
+    // an empty BM. Stable sort keeps oldest-first within the funded and unfunded groups.
+    const withFunding = await Promise.all(
+      oldestFirst.map(async (id) => ({ id, funded: await balanceManagerHasFunds(suiClient, id) })),
+    );
+    const ids = withFunding.sort((a, b) => Number(b.funded) - Number(a.funded)).map((x) => x.id);
+    return { status: "ok", ids };
   } catch (err) {
     // Observability for a fail-closed path: surface WHY resolution failed (RPC down,
     // event query error, …) so a "couldn't verify your account" block can be traced in prod.
