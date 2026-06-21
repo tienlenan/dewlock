@@ -355,6 +355,9 @@ export default function AppPage() {
   // the user signs), which an isStreaming-edge trigger would miss.
   useEffect(() => {
     if (chat.isStreaming || chat.messages.length === 0) return;
+    // Never persist a thread that belongs to a DIFFERENT wallet (the switch window before the
+    // reset lands) — that would write wallet A's content under wallet B's namespace.
+    if (chat.threadWallet && chat.threadWallet !== account?.address) return;
     const t = setTimeout(() => void convos.saveCurrent(chat.messages), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -368,10 +371,19 @@ export default function AppPage() {
   latestMessagesRef.current = chat.messages;
   const convosRef = useRef(convos);
   convosRef.current = convos;
+  // Owner-wallet of the thread + the live wallet — so the flush (which reads refs, not props)
+  // can apply the same cross-wallet guard as the debounced save above.
+  const threadWalletRef = useRef(chat.threadWallet);
+  threadWalletRef.current = chat.threadWallet;
+  const liveWalletRef = useRef(account?.address);
+  liveWalletRef.current = account?.address;
   useEffect(() => {
     const flush = () => {
       const msgs = latestMessagesRef.current;
-      if (msgs.length > 0) void convosRef.current.saveCurrent(msgs);
+      const owner = threadWalletRef.current;
+      if (msgs.length > 0 && (!owner || owner === liveWalletRef.current)) {
+        void convosRef.current.saveCurrent(msgs);
+      }
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") flush();

@@ -242,6 +242,10 @@ export function useCopilotChat(
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // The wallet the current thread BELONGS to (set when populated by a send / load, cleared on
+  // reset). Autosave compares this to the live wallet so wallet A's thread is never persisted
+  // under wallet B during a switch (the server keys saves by signer, not by content owner).
+  const [threadWallet, setThreadWallet] = useState<string | null>(null);
   const currentAssistantId = useRef<string | null>(null);
   const contactsRef = useRef(contacts);
   contactsRef.current = contacts;
@@ -343,6 +347,7 @@ export function useCopilotChat(
       ];
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setThreadWallet(walletAddress); // this thread now belongs to the sending wallet
       setIsStreaming(true);
 
       // Owner of this stream + an abort handle: if the wallet switches mid-stream we abort
@@ -448,15 +453,17 @@ export function useCopilotChat(
     [isStreaming, messages, walletAddress, appendText, appendCard],
   );
 
-  /** Replace the whole thread (rehydrate a saved conversation). */
+  /** Replace the whole thread (rehydrate a saved conversation) — owned by the live wallet. */
   const loadMessages = useCallback((msgs: ChatMessage[]) => {
     setMessages(msgs);
+    setThreadWallet(currentWalletRef.current);
   }, []);
 
-  /** Clear the thread (start a new conversation). */
+  /** Clear the thread (start a new conversation / wallet switch). */
   const reset = useCallback(() => {
     setMessages([]);
+    setThreadWallet(null);
   }, []);
 
-  return { messages, isStreaming, sendMessage, onReplaceCard, loadMessages, reset };
+  return { messages, isStreaming, threadWallet, sendMessage, onReplaceCard, loadMessages, reset };
 }
