@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-06-22 — Gas-agnostic signing, pre-sign tx flow, wallet-switch isolation
+
+### Changed
+- **WYSIWYS signing now gas-agnostic.** Guardian dry-runs full bytes for effects but hashes + returns ONLY the TransactionKind (no gas coin, no sender). Client reconstructs via `Transaction.fromKind()` so wallet fills gas + sender at sign time (fresh on-chain version). Fixes stale-gas "object unavailable for consumption" on single-SUI-coin wallets. WYSIWYS preserved by re-deriving kind digest from wallet-built bytes and asserting equality. Determinism tested (`gas-agnostic-kind-digest.test.ts`).
+
+### Added
+- **Object-ownership classification in dry-run preview.** Dry-run now distinguishes: `you` (sender), `recipient` (user-designated recipient — neutral), `third-party` (unexpected outflow — red ⚠). Pre-sign UI surfaces ONLY real third-party as alarm; intentional transfers to their designated recipient are neutral (not flagged).
+- **Wallet-switch state isolation.** On genuine switch (A→B / A→logout→B): conversations cleared + SessionKey reset; contacts cleared synchronously (prevent stale address book); agent stream aborted via AbortController + per-line owner guard (no cross-wallet bleed); autosave wallet-stamped (skip if owner ≠ live wallet). Server keys writes by SIGNER; client wallet-stamp enforces ownership at the source.
+- **Pre-sign transaction-flow UI features:** React Flow asset-flow map (portal to body), richer nodes (token icons + address sub-lines), contracts grouped by protocol, tx-digest chevron toggle, readable sign-error messages, reloaded conversations show "re-build" affordance (bytes not persisted, command re-runs for fresh preview).
+
+### Fixed
+- **`remember()` bounded + fail-soft.** Was `rememberAndWait` (30-43s block) causing serverless contacts/receipt-pointer writes to timeout. Now bounded (~12s) + fail-soft: dispatch write, stop awaiting after bound, never throw (late rejection caught + logged). Walrus blob authoritative; memwal pointer best-effort.
+
+### Notes
+- Tests: 708/708 pass; typecheck clean. Live verified: gas-agnostic signings, cross-wallet conversation isolation, memwal write success on fresh wallets.
+
 ## 2026-06-21 — DeepBook full order lifecycle + actionable DeFi positions
 
 ### Added

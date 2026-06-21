@@ -24,7 +24,7 @@
 7. **SuiNS lookalike** — homoglyph-normalized edit-distance vs verified contacts.
 8. **Min-out re-derive** (swaps) — recompute min-output from on-chain decimals + the SAME route source; runs for every swap.
 9. **Orderbook / Lending** — limit_order: POST_ONLY/self-match/expiry/BalanceManager-ceiling; lend_*: health-improving only.
-10. **Dry-run + WYSIWYS digest** — dry-run the EXACT bytes (fail-closed); `approvedDigest = sha256(txBytes)` binds preview ⇄ signature.
+10. **Dry-run + WYSIWYS digest** — dry-run the EXACT full bytes for effects verification (fail-closed); `approvedDigest = sha256(kindBytes)` over the **TransactionKind only** binds preview ⇄ signature. Client reconstructs full tx via `Transaction.fromKind()` with fresh gas coin + sender at sign time; WYSIWYS verified by re-deriving kind digest from wallet-built bytes.
 11. **Authoritative value gate** — re-value from the dry-run's ACTUAL net balance deltas, re-check caps, block when outflow > 1.5× declared (`outflow_mismatch`).
 
 Note: the small-cap intent below ("≤ $5/tx") is enforced via the `TX_USD_CAP`/`DAILY_USD_CAP` env (set mainnet-small in prod); the code defaults are higher and are overridden per deploy.
@@ -38,6 +38,13 @@ DeFi data is attacker-controllable: pool names, token symbols/metadata, even rec
 - Token identity resolved by **coin type (0x…::module::TYPE)**, never by display symbol (symbols are spoofable; many fake "USDC").
 - No tool can read+spend in one hop without the human confirm gate between.
 - Strip/escape any instruction-like content from memory before injecting into the system prompt; memory is data, not commands.
+
+## Object-ownership classification in preview
+
+The dry-run classifies each outgoing object's destination. The pre-sign preview shows:
+- **`you` / `recipient`** (neutral, expected flow) — assets staying in the user's account or moving to the address they explicitly designated (e.g. the swap-output recipient, a contact they chose to send to).
+- **`third-party`** (red ⚠) — assets moving to an address the user never designated. The genuine alarm for reroutes, malicious pools, or protocol bugs that divert user funds to attacker/unknown address. Reserve the red alert for THIS case only.
+- **`shared` / `object`** — protocol-scoped (pool positions, etc.). Display-only classification; the authoritative gate is the net-outflow check (gate 11, revalue from dry-run deltas).
 
 ## Name-resolution / address-spoofing guard
 

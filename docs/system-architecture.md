@@ -24,12 +24,21 @@ Every value move runs through `prepareTrade` → `guardianCheck(proposal, suiCli
 7. **SuiNS lookalike** — homoglyph-normalized edit-distance vs verified contacts (catches `888-l.sui`-style spoofs).
 8. **Min-out re-derive** (swaps only) — independently recompute min-output from on-chain decimals + the SAME route source; runs for EVERY swap (not gated on poolId). Anti sandwich / manipulated min-out — the #1 real-money risk.
 9. **Orderbook / Lending** — DeepBook: `bm_create` (new BalanceManager), `bm_deposit` (fund it), `limit_order` (POST_ONLY / self-match / expiry / BalanceManager-ceiling), `cancel_order` (resting order), `withdraw_settled` (partial withdrawal, recipient pinned to sender, amount ceilinged by server-recomputed settled balance). Lending: `lend_*` health-improving only (deposit/repay; borrow/withdraw gated off).
-10. **Dry-run + WYSIWYS digest** — dry-run the EXACT PTB bytes (`dryRunTransactionBlock`); fail-closed on any error; compute `approvedDigest = sha256(txBytes)` that binds preview ⇄ signature.
+10. **Dry-run + WYSIWYS digest** — dry-run the EXACT PTB bytes including gas for effects verification; compute `approvedDigest = sha256(kindBytes)` over the **TransactionKind only** (programmable inputs + commands; no gas coin, no sender). Guardian returns the kind bytes for the client to sign. Client reconstructs the full tx via `Transaction.fromKind()` and wallet fills gas coin + sender at sign time (fresh on-chain version). WYSIWYS verified by re-deriving the kind digest from wallet-built bytes and asserting equality to `approvedDigest` before execute. Gas/sender excluded from the digest by design — wallet signature verifies signer identity; the kind is what the user consents to. This fixes stale-gas "object … unavailable for consumption" on single-SUI-coin wallets.
 11. **Authoritative value gate** — re-value from the dry-run's ACTUAL net balance deltas (what truly leaves the wallet), re-check caps on that figure, and block when outflow > 1.5× the declared value (`outflow_mismatch`). Catches a PTB that moves more than it declares.
 
 Pass → `{ ok:true, txBytes, approvedDigest, preview }`; `preview` (balance deltas + gas + USD value) renders before the confirm button. **Defense-in-depth:** the "moves more than declared" risk is caught independently at gates 1 (allowlist), 2 (shape), and 11 (actual-outflow).
 
 - **Swap gate is signature-based** for aggregator routes: the Cetus aggregator emits per-route, upgradeable integration packages that can't be statically pinned, so swap-route calls are matched by `module::function` (`router::*`, `cetus::swap`, `deepbookv3::swap`) — package-agnostic — bounded by the provider constraint (CETUS+DEEPBOOK) + value gates. `0x2::coin::destroy_zero` (full-balance cleanup) is allowlisted as a zero-value framework call.
+
+## Object-ownership classification
+The dry-run classifies each outgoing object's destination as:
+- **`you`** — assets remaining in the sender's wallet (no-op safety check).
+- **`recipient`** — the address the user explicitly designated for this action (e.g., send to a contact, swap-output receiver). Neutral "→ recipient" signal; expected flow.
+- **`third-party`** — an address the user never designated (the genuine alarm). E.g., a malicious swap reroute to an attacker's address, a compromised pool that diverts funds. Red ⚠ alert.
+- **`shared`** or **`object`** — protocol-scoped (pool positions, etc.).
+
+The pre-sign permissions UI surfaces only real third-party transfers as the red alarm; an intentional transfer to its designated recipient is marked neutral (not flagged as suspicious). (Files: `dry-run-object-changes.ts` `classifyOwner`, `dry-run.ts`, `tx-assurance-header.tsx`/`tx-permissions-section.tsx`.)
 
 ## Intent → action forms — `@dewlock/agent/intent`
 A deterministic `parseIntent` + `buildIntentDirective` front-runs the LLM. Self-contained commands ("swap 5 SUI to USDC", "send 2 SUI to 0x…") route straight to `prepareTrade`. Missing args ("sell SUI", "send USDC", "lending") route to the **`requestActionForm`** tool → an interactive form card; its submit composes the canonical command and re-enters the pipeline (Guardian still gates). Counter-asset defaults: USDC→SUI, else→USDC.
@@ -51,14 +60,31 @@ A plain sequential runner (`runPostActionEffectsStreaming`, NOT a Mastra workflo
 4. **anchor** → optional on-chain HEAD (operational key only).
 `POST /api/receipt/stream` runs this and streams `steps`→per-step→`done` (SSE) to a progress dialog.
 
+## Wallet-switch state isolation
+On a genuine wallet switch (A→B or A→logout→B) no wallet's data may surface under another wallet's namespace. Implementation details:
+- **Conversations** — hard-reset in-memory state + SessionKey + title encryption key + conversation write-auth all cleared on `isWalletSwitch` detection.
+- **Contacts** — friend book cleared *synchronously* before refetch to prevent a stale address book from being fed to the agent (e.g., "send to <name>" resolving an old contact from wallet A).
+- **Agent stream** — aborted via an AbortController; per-line owner guard prevents wallet A's streamed response from appending into wallet B's chat thread.
+- **Autosave guard** — each thread carries a wallet-STAMPED owner; autosave (1.5s debounce + visibilitychange/unmount flush) skips if thread owner ≠ live wallet. The server keys writes by SIGNER (the wallet), never by content-owner, so client-side wallet-stamp is the enforcement point.
+(Files: `use-conversations.ts` + `wallet-switch.ts`, `use-contacts.ts`, `use-copilot-chat.ts`, `app/page.tsx`.)
+
 ## Memory stack (memwal + Walrus)
 memwal = `@mysten-incubation/memwal` (relayer; eventually-consistent ~30s; NO delete/enumerate API). Categories: `action log:` (XP), `wallet-profile:` (durable profile pointer), `risk cap:` (committed cap, seeded from env), `contacts-book:` (friend-book blob pointer), `token map:` (seeded resolution cache). **Conversations are NOT here** — the index moved to Upstash Redis (see Conversation persistence); memwal is scoped to genuine semantic memory only. Walrus blobs hold receipts, profiles, passports, and the friend book (each publish creates an on-chain Blob object).
+- **`remember()` bounded + fail-soft** — `remember()` no longer blocks unbounded: it was `rememberAndWait` (30-43s indexing block) which on serverless contacts-book / pointer write surfaced as "save" errors (especially fresh wallet's first write). Now bounded (~12s timeout) + fail-soft: dispatches the write, stops awaiting after timeout, never throws (late rejection caught + logged). Walrus blob stays authoritative; memwal pointer is best-effort. (The receipt log path already uses `rememberBulk` — this extends bounded+fail-soft to `remember()`.)
 - **Memory page** (`/app` → Memory): lists global + user categories with signature-gated clear. Clearable: **conversations** (Redis `DEL`; exact count + samples sourced from Redis, titles shown as `🔒` since encrypted) and **contacts** (book overwritten/tombstoned, count from the book). memwal counts are approximate (recall is semantic); append-only ones (action log) are permanent + shown honestly.
 
 ## Passport — `@dewlock/agent/memory/passport` + `apps/web/lib/passport`
 Per-user identity: level, XP, title, earned badges, action counts, member-since (NOT cap/risk — kept private; NOT volume — structurally $0). Built **live** from the action log (display authority = `/api/user-stats` / `/api/passport`); persisted as a public Walrus blob + memwal pointer + optional on-chain HEAD **out-of-band** (background, diff-gated on level/badge change — never in the awaited receipt request). Surfaced as the Passport card atop My Dashboard with blob + Sui-object proof links + share.
 
 **user-stats Redis cache** (`apps/web/lib/user-stats/stats-cache.ts` + `lib/redis-client.ts`): `/api/user-stats` is fronted by a per-wallet Upstash Redis read-through cache (`userstats:<wallet>`, 60s TTL). A hit returns instantly and **identically to every surface** — the dashboard `LevelCard`/`BadgeGrid` and the copilot `ProfileChatCard` read the same cached value, so level/badges can't disagree between them (the old live-memwal reads were eventually-consistent → mismatched). The cache is a **mirror of the receipt-derived value** (on-chain receipt log = source of truth), never written with client values. Re-sync on action: the dashboard's post-tx re-polls call `?fresh=1`, which re-derives from the authoritative source and overwrites the cache. Fail-soft: no Redis → derive live as before. **Known slowness:** the Memory page still recalls memwal live (~5-15s, occasionally empty under rate-limit), so its counts can lag — caching it is a future improvement.
+
+## Pre-sign transaction-flow UI features
+- **React Flow asset-flow map** — visual diagram of where each coin/asset moves; portaled to body (app-level overlay).
+- **Richer flow nodes** — token icons + SuiNS/address sub-lines for senders/recipients.
+- **Contracts grouped by protocol** — permissions list organizes Move calls by protocol (Cetus, Aftermath, NAVI, etc.) for clarity.
+- **TX-digest chevron toggle** — collapse/expand transaction hash display (replaces hard-to-read underline).
+- **Readable sign-error messages** — wrapped error cards with plain-English explanations.
+- **Reloaded conversations re-build affordance** — when a conversation is reloaded, signable bytes are never persisted (only the command), so the flow re-runs for a fresh preview; the card shows a "re-build" affordance to let the user verify the new preview before signing.
 
 ## Key gotchas
 - `serverExternalPackages` CJS/ESM interop → named exports nest under `.default` (aggregator `Env`, SuinsClient). Use native RPC / normalized loaders.
