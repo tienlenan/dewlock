@@ -51,13 +51,35 @@ interface RecallItemLike {
   snippet?: string;
 }
 
-/** Write one memory entry and wait for indexing. No-op when memwal is not configured. */
+/**
+ * Max time we BLOCK a caller (e.g. a serverless route) waiting for memwal to confirm
+ * indexing. rememberAndWait can block 30-43s on a busy/cold relayer — well past a 60s
+ * function budget once other work is added — which surfaced as a "save to memwal" error
+ * (esp. the first write on a fresh wallet namespace). We submit the write and wait only
+ * up to this bound, then return and let indexing finish in the background.
+ */
+const REMEMBER_WAIT_MS = 12_000;
+
+/**
+ * Write one memory entry. Best-effort + fail-soft + bounded: never blocks the caller past
+ * REMEMBER_WAIT_MS and never throws on a slow/failed relayer (memwal is the MUTABLE,
+ * best-effort layer — durability lives in the Walrus blob + Sui pointer). No-op when memwal
+ * is not configured. The submit is dispatched immediately; we stop AWAITING after the bound,
+ * but the underlying promise keeps running so indexing still completes server-side.
+ */
 export async function remember(
   namespace: string,
   text: string,
 ): Promise<void> {
   if (!isMemoryEnabled() || !text.trim()) return;
-  await clientFor(namespace).rememberAndWait(text);
+  // .catch on the underlying write so a late rejection (after we stop waiting) is handled,
+  // never an unhandled rejection; log so a real relayer outage is still visible in logs.
+  const write = clientFor(namespace)
+    .rememberAndWait(text)
+    .catch((err: unknown) => {
+      console.warn("[memwal] remember failed (fail-soft):", err instanceof Error ? err.message : String(err));
+    });
+  await Promise.race([write, new Promise<void>((resolve) => setTimeout(resolve, REMEMBER_WAIT_MS))]);
 }
 
 /**
