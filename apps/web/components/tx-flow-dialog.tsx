@@ -11,16 +11,18 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { TxFlowGraph } from "./tx-flow-graph";
-import type { FlowRow } from "./tx-preview-format";
+import type { FlowPreviewInput } from "./tx-preview-format";
 
 export function TxFlowDialog({
   open,
   onClose,
-  rows,
+  preview,
+  walletAddress,
 }: {
   open: boolean;
   onClose: () => void;
-  rows: FlowRow[];
+  preview: FlowPreviewInput;
+  walletAddress?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -86,7 +88,7 @@ export function TxFlowDialog({
           </button>
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>
-          <TxFlowGraph rows={rows} interactive />
+          <TxFlowGraph preview={preview} walletAddress={walletAddress} interactive />
         </div>
       </div>
     </div>,

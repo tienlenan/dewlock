@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * TxFlowGraph — the asset flow as a React Flow node graph.
+ * TxFlowGraph — the asset flow as a React Flow node graph with rich, themed nodes.
  *
  * Layout: "You" sits in the centre; OUTflows fan to the right (you → counterparty),
  * INflows arrive from the left (counterparty → you). Every edge connects a distinct
- * node pair, so there are never two overlapping edges between the same boxes — it stays
- * clean for a swap (pay-leg right, receive-leg left) and a transfer (single right edge).
+ * node pair, so two edges never overlap.
  *
- * `interactive` gates pan/zoom/drag: false for the compact in-card preview, true inside
- * the "view full" dialog where there's room to explore.
+ * Nodes are custom (FlowNode): an icon per kind (wallet / recipient / protocol), a bold
+ * label, and a sub-line showing the SuiNS name or short 0x when we have it. `interactive`
+ * gates pan/zoom/drag — off for the in-card preview, on inside the "view full" dialog.
  */
 
 import { useMemo, type CSSProperties } from "react";
@@ -18,34 +18,99 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  Handle,
   Position,
   MarkerType,
   useNodesState,
   useEdgesState,
   type Node,
   type Edge,
+  type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { FlowRow } from "./tx-preview-format";
+import { Wallet, UserRound, ArrowLeftRight, CircleHelp } from "lucide-react";
+import { useSuinsNames } from "@/lib/use-suins-names";
+import { deriveFlowRows, short0x, type FlowPreviewInput, type FlowRow } from "./tx-preview-format";
 
 const OUT = "var(--destructive)";
 const IN = "var(--success)";
-const ROW_H = 92;
+const ROW_H = 96;
 
-function nodeStyle(primary: boolean): CSSProperties {
-  return {
-    background: primary ? "var(--accent-soft)" : "var(--bg-elev)",
-    color: primary ? "var(--accent-ink)" : "var(--fg)",
-    border: `1px solid ${primary ? "var(--accent)" : "var(--border)"}`,
-    borderRadius: 10,
-    padding: "8px 12px",
-    fontSize: 12,
-    fontWeight: 600,
-    width: "auto",
-  };
+type NodeKind = "you" | "recipient" | "protocol" | "counterparty";
+interface NodeMeta { kind: NodeKind; label: string; sub?: string; primary?: boolean }
+
+const ICONS: Record<NodeKind, typeof Wallet> = {
+  you: Wallet,
+  recipient: UserRound,
+  protocol: ArrowLeftRight,
+  counterparty: CircleHelp,
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  dex: "DEX", aggregator: "Aggregator route", lending: "Lending",
+  lst: "Liquid staking", perps: "Perps", bridge: "Bridge", yield: "Yield",
+};
+
+// ---- custom node ----------------------------------------------------------
+
+const handleStyle: CSSProperties = { width: 7, height: 7, background: "var(--border)", border: "none" };
+
+function FlowNode({ data }: NodeProps) {
+  const d = data as unknown as NodeMeta;
+  const Icon = ICONS[d.kind];
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: 9,
+        minWidth: 132, maxWidth: 188,
+        padding: "8px 12px", borderRadius: 12,
+        background: d.primary ? "var(--accent-soft)" : "var(--bg-elev)",
+        border: `1px solid ${d.primary ? "var(--accent)" : "var(--border)"}`,
+        boxShadow: "var(--shadow-sm)",
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={handleStyle} />
+      <span
+        style={{
+          flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 26, height: 26, borderRadius: 8,
+          background: d.primary ? "var(--accent)" : "var(--bg-sub)",
+          color: d.primary ? "#fff" : "var(--fg-muted)",
+        }}
+      >
+        <Icon size={14} aria-hidden />
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: d.primary ? "var(--accent-ink)" : "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {d.label}
+        </div>
+        {d.sub && (
+          <div className="mono" style={{ fontSize: 9.5, color: "var(--fg-faint)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {d.sub}
+          </div>
+        )}
+      </div>
+      <Handle type="source" position={Position.Right} style={handleStyle} />
+    </div>
+  );
 }
 
-function edgeLabelProps(color: string) {
+const nodeTypes = { flow: FlowNode };
+
+// ---- graph builder --------------------------------------------------------
+
+function counterpartyMeta(row: FlowRow, preview: FlowPreviewInput, suins: Record<string, string>): NodeMeta {
+  const cp = row.counterparty;
+  if (preview.recipientAddress && cp === "Recipient") {
+    const a = preview.recipientAddress;
+    return { kind: "recipient", label: "Recipient", sub: suins[a.toLowerCase()] ?? short0x(a) };
+  }
+  const contract = preview.contractsCalled?.find((c) => c.protocolName === cp);
+  if (contract) return { kind: "protocol", label: cp, sub: CATEGORY_LABEL[contract.category] ?? contract.category };
+  return { kind: "counterparty", label: cp, sub: row.sub };
+}
+
+function edgeProps(color: string) {
   return {
     animated: true,
     markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
@@ -57,58 +122,52 @@ function edgeLabelProps(color: string) {
   };
 }
 
-function buildGraph(rows: FlowRow[]): { nodes: Node[]; edges: Edge[] } {
+function buildGraph(
+  rows: FlowRow[],
+  preview: FlowPreviewInput,
+  walletAddress: string | undefined,
+  suins: Record<string, string>,
+): { nodes: Node[]; edges: Edge[] } {
   const outs = rows.filter((r) => r.direction === "out");
   const ins = rows.filter((r) => r.direction === "in");
   const midY = ((Math.max(outs.length, ins.length, 1) - 1) * ROW_H) / 2;
 
+  const youSub = walletAddress ? (suins[walletAddress.toLowerCase()] ?? short0x(walletAddress)) : undefined;
+  const node = (id: string, x: number, y: number, data: NodeMeta): Node => ({ id, type: "flow", position: { x, y }, data: data as unknown as Record<string, unknown> });
+
   const nodes: Node[] = [
-    {
-      id: "you",
-      position: { x: 170, y: midY },
-      data: { label: "You" },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      style: nodeStyle(true),
-    },
-    ...outs.map((r, i) => ({
-      id: `out-${i}`,
-      position: { x: 360, y: i * ROW_H },
-      data: { label: r.counterparty },
-      targetPosition: Position.Left,
-      style: nodeStyle(false),
-    })),
-    ...ins.map((r, i) => ({
-      id: `in-${i}`,
-      position: { x: 0, y: i * ROW_H },
-      data: { label: r.counterparty },
-      sourcePosition: Position.Right,
-      style: nodeStyle(false),
-    })),
+    node("you", 200, midY, { kind: "you", label: "You", sub: youSub, primary: true }),
+    ...outs.map((r, i) => node(`out-${i}`, 440, i * ROW_H, counterpartyMeta(r, preview, suins))),
+    ...ins.map((r, i) => node(`in-${i}`, 0, i * ROW_H, counterpartyMeta(r, preview, suins))),
   ];
 
   const edges: Edge[] = [
-    ...outs.map((r, i) => ({
-      id: `eo-${i}`,
-      source: "you",
-      target: `out-${i}`,
-      label: `−${r.amountFormatted} ${r.ticker}`,
-      ...edgeLabelProps(OUT),
-    })),
-    ...ins.map((r, i) => ({
-      id: `ei-${i}`,
-      source: `in-${i}`,
-      target: "you",
-      label: `+${r.amountFormatted} ${r.ticker}`,
-      ...edgeLabelProps(IN),
-    })),
+    ...outs.map((r, i) => ({ id: `eo-${i}`, source: "you", target: `out-${i}`, label: `−${r.amountFormatted} ${r.ticker}`, ...edgeProps(OUT) })),
+    ...ins.map((r, i) => ({ id: `ei-${i}`, source: `in-${i}`, target: "you", label: `+${r.amountFormatted} ${r.ticker}`, ...edgeProps(IN) })),
   ];
 
   return { nodes, edges };
 }
 
-export function TxFlowGraph({ rows, interactive = false }: { rows: FlowRow[]; interactive?: boolean }) {
-  const initial = useMemo(() => buildGraph(rows), [rows]);
+// ---- component ------------------------------------------------------------
+
+export function TxFlowGraph({
+  preview,
+  walletAddress,
+  interactive = false,
+}: {
+  preview: FlowPreviewInput;
+  walletAddress?: string;
+  interactive?: boolean;
+}) {
+  const rows = useMemo(() => deriveFlowRows(preview, walletAddress), [preview, walletAddress]);
+  const addrs = useMemo(
+    () => [walletAddress, preview.recipientAddress].filter((a): a is string => !!a),
+    [walletAddress, preview.recipientAddress],
+  );
+  const suins = useSuinsNames(addrs);
+
+  const initial = useMemo(() => buildGraph(rows, preview, walletAddress, suins), [rows, preview, walletAddress, suins]);
   const [nodes, , onNodesChange] = useNodesState(initial.nodes);
   const [edges, , onEdgesChange] = useEdgesState(initial.edges);
 
@@ -116,6 +175,7 @@ export function TxFlowGraph({ rows, interactive = false }: { rows: FlowRow[]; in
     <ReactFlow
       nodes={nodes}
       edges={edges}
+      nodeTypes={nodeTypes}
       onNodesChange={interactive ? onNodesChange : undefined}
       onEdgesChange={interactive ? onEdgesChange : undefined}
       fitView

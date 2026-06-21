@@ -44,7 +44,7 @@ export function TxFlowSection({
         </p>
         <Switcher view={view} onChange={setView} />
       </div>
-      {view === "rows" ? <RowsView rows={rows} /> : <MapView rows={rows} />}
+      {view === "rows" ? <RowsView rows={rows} /> : <MapView preview={preview} walletAddress={walletAddress} />}
     </div>
   );
 }
@@ -123,7 +123,7 @@ function RowsView({ rows }: { rows: FlowRow[] }) {
 
 // Map: the asset flow as an interactive React Flow graph. The compact in-card preview
 // is static (no pan/zoom); "View full" opens a tall, explorable dialog with room to read.
-function MapView({ rows }: { rows: FlowRow[] }) {
+function MapView({ preview, walletAddress }: { preview: FlowPreviewInput; walletAddress?: string }) {
   const [full, setFull] = useState(false);
   return (
     <>
@@ -137,7 +137,7 @@ function MapView({ rows }: { rows: FlowRow[] }) {
           overflow: "hidden",
         }}
       >
-        <TxFlowGraph rows={rows} />
+        <TxFlowGraph preview={preview} walletAddress={walletAddress} />
         <button
           type="button"
           onClick={() => setFull(true)}
@@ -164,7 +164,7 @@ function MapView({ rows }: { rows: FlowRow[] }) {
           <Maximize2 size={11} aria-hidden /> View full
         </button>
       </div>
-      <TxFlowDialog open={full} onClose={() => setFull(false)} rows={rows} />
+      <TxFlowDialog open={full} onClose={() => setFull(false)} preview={preview} walletAddress={walletAddress} />
     </>
   );
 }
