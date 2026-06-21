@@ -48,6 +48,23 @@ export interface SettledBalanceRow {
 }
 
 /**
+ * Retry a read on a transient RPC rate-limit (429), with short backoff. These reads are
+ * devInspect/simulate calls; a positions view fires several at once and public/keyed RPCs
+ * throttle bursts. Non-429 errors rethrow immediately. Returns the value or rethrows.
+ */
+async function withRpcRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt >= retries || !/429|rate.?limit|too many requests/i.test(msg)) throw err;
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1))); // 400ms, then 800ms
+    }
+  }
+}
+
+/**
  * Read the settled (withdrawable) balance for one coin in the BalanceManager.
  * THROWS on any error — the caller (Guardian withdraw ceiling) must fail closed.
  * Returns a human-readable amount (the SDK scales internally).
@@ -63,9 +80,11 @@ export async function readSettledBalance(
     throw new Error(`Unsupported coin type for DeepBook settled-balance read: ${coinType}`);
   }
   const { client } = await createDeepBookClient({ suiClient, senderAddress, balanceManagerId });
-  const result = await (client as {
-    checkManagerBalance: (managerKey: string, coinKey: string) => Promise<{ coinType: string; balance: number }>;
-  }).checkManagerBalance(BALANCE_MANAGER_KEY, coinKey);
+  const result = await withRpcRetry(() =>
+    (client as {
+      checkManagerBalance: (managerKey: string, coinKey: string) => Promise<{ coinType: string; balance: number }>;
+    }).checkManagerBalance(BALANCE_MANAGER_KEY, coinKey),
+  );
   return result.balance;
 }
 
@@ -101,12 +120,12 @@ export async function getOpenOrders(
   for (const poolKey of poolKeys) {
     let orderIds: string[];
     try {
-      orderIds = await db.accountOpenOrders(poolKey, BALANCE_MANAGER_KEY);
+      orderIds = await withRpcRetry(() => db.accountOpenOrders(poolKey, BALANCE_MANAGER_KEY));
     } catch {
       continue; // one pool's read failing must not blank the others
     }
     const settled = await Promise.allSettled(
-      orderIds.map((id) => db.getOrderNormalized(poolKey, id).then((o) => ({ id, o }))),
+      orderIds.map((id) => withRpcRetry(() => db.getOrderNormalized(poolKey, id)).then((o) => ({ id, o }))),
     );
     for (const r of settled) {
       if (r.status !== "fulfilled" || !r.value.o) continue;
@@ -149,16 +168,15 @@ export async function getSettledBalances(
     { coinType: COIN_TYPES.SUI, coinKey: "SUI" },
     { coinType: COIN_TYPES.USDC, coinKey: "USDC" },
   ];
-  const settled = await Promise.allSettled(
-    coins.map((c) =>
-      db.checkManagerBalance(BALANCE_MANAGER_KEY, c.coinKey).then((b) => ({ ...c, balance: b.balance })),
-    ),
-  );
+  // Sequential (not concurrent) + retry-on-429: a burst of simultaneous devInspect calls
+  // is what trips RPC rate limits and blanks balances. One failing coin drops only its row.
   const rows: SettledBalanceRow[] = [];
-  for (const r of settled) {
-    if (r.status !== "fulfilled") continue;
-    if (r.value.balance > 0) {
-      rows.push({ coinType: r.value.coinType, coinKey: r.value.coinKey, balance: r.value.balance });
+  for (const c of coins) {
+    try {
+      const b = await withRpcRetry(() => db.checkManagerBalance(BALANCE_MANAGER_KEY, c.coinKey));
+      if (b.balance > 0) rows.push({ coinType: c.coinType, coinKey: c.coinKey, balance: b.balance });
+    } catch {
+      // skip this coin (read failed even after retry); never blank the whole list
     }
   }
   return rows;

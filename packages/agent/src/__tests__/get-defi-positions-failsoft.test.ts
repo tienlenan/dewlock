@@ -52,45 +52,55 @@ describe("getDefiPositions — fail-soft", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("returns all sections when every read succeeds", async () => {
-    const r = (await run()) as unknown as {
-      deepbook: { balanceManagerId: string; openOrders: unknown[]; settledBalances: unknown[] };
-      lending: { navi: { supplied: unknown[]; healthFactor: number | null }; suilend: { supplied: null; manageUrl: string } };
-    };
-    expect(r.deepbook.balanceManagerId).toBe(BM_ID);
-    expect(r.deepbook.openOrders).toHaveLength(1);
-    expect(r.deepbook.settledBalances).toHaveLength(1);
+  type Positions = {
+    deepbook: { balanceManagers: Array<{ balanceManagerId: string; openOrders: unknown[]; settledBalances: unknown[] }> };
+    lending: { navi: { supplied: unknown[]; healthFactor: number | null }; suilend: { supplied: null; manageUrl: string } };
+    demoFixture: boolean;
+  };
+
+  it("returns one entry per BM with its orders + balances", async () => {
+    const r = (await run()) as unknown as Positions;
+    expect(r.deepbook.balanceManagers).toHaveLength(1);
+    expect(r.deepbook.balanceManagers[0].balanceManagerId).toBe(BM_ID);
+    expect(r.deepbook.balanceManagers[0].openOrders).toHaveLength(1);
+    expect(r.deepbook.balanceManagers[0].settledBalances).toHaveLength(1);
     expect(r.lending.navi.supplied).toHaveLength(1);
     expect(r.lending.suilend.supplied).toBeNull();
     expect(r.lending.suilend.manageUrl).toContain("suilend");
   });
 
-  it("degrades only the open-orders section when its read rejects", async () => {
+  it("degrades only the open-orders of a BM when its read rejects", async () => {
     mOrders.mockRejectedValueOnce(new Error("devInspect throttled"));
-    const r = (await run()) as { deepbook: { openOrders: unknown[]; settledBalances: unknown[] }; lending: { navi: { supplied: unknown[] } } };
-    expect(r.deepbook.openOrders).toEqual([]); // degraded
-    expect(r.deepbook.settledBalances).toHaveLength(1); // intact
+    const r = (await run()) as unknown as Positions;
+    expect(r.deepbook.balanceManagers[0].openOrders).toEqual([]); // degraded
+    expect(r.deepbook.balanceManagers[0].settledBalances).toHaveLength(1); // intact
     expect(r.lending.navi.supplied).toHaveLength(1); // intact
   });
 
   it("degrades only the NAVI section when its read rejects", async () => {
     mNavi.mockRejectedValueOnce(new Error("navi down"));
-    const r = (await run()) as { deepbook: { openOrders: unknown[] }; lending: { navi: { supplied: unknown[]; healthFactor: number | null } } };
+    const r = (await run()) as unknown as Positions;
     expect(r.lending.navi).toEqual({ supplied: [], healthFactor: null }); // degraded
-    expect(r.deepbook.openOrders).toHaveLength(1); // intact
+    expect(r.deepbook.balanceManagers[0].openOrders).toHaveLength(1); // intact
   });
 
-  it("never throws and omits the DeepBook section when no BM is resolved", async () => {
+  it("lists every BM the wallet owns (multi-account)", async () => {
+    const BM2 = "0x" + "c".repeat(64);
+    mResolve.mockResolvedValueOnce({ status: "ok", ids: [BM_ID, BM2] });
+    const r = (await run()) as unknown as Positions;
+    expect(r.deepbook.balanceManagers.map((b) => b.balanceManagerId)).toEqual([BM_ID, BM2]);
+  });
+
+  it("never throws and returns no BMs when none are resolved", async () => {
     mResolve.mockResolvedValueOnce({ status: "ok", ids: [] });
-    const r = (await run()) as { deepbook: { balanceManagerId: string | null; openOrders: unknown[] } };
-    expect(r.deepbook.balanceManagerId).toBeNull();
-    expect(r.deepbook.openOrders).toEqual([]);
+    const r = (await run()) as unknown as Positions;
+    expect(r.deepbook.balanceManagers).toEqual([]);
   });
 
   it("fixture mode returns deterministic canned positions", async () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "fixture");
-    const r = (await run()) as { demoFixture: boolean; deepbook: { openOrders: unknown[] } };
+    const r = (await run()) as unknown as Positions;
     expect(r.demoFixture).toBe(true);
-    expect(r.deepbook.openOrders.length).toBeGreaterThan(0);
+    expect(r.deepbook.balanceManagers[0].openOrders.length).toBeGreaterThan(0);
   });
 });

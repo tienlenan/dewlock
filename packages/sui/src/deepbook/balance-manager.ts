@@ -138,7 +138,10 @@ export type BalanceManagerResolution =
  * carries the id client-side for the active session (see resolve-balance-manager).
  */
 const BALANCE_MANAGER_EVENT_SUFFIX = "::balance_manager::BalanceManagerEvent";
-const BM_EVENT_SCAN_MAX_PAGES = 10;
+// Keep the scan small: recently-created BMs land in the first descending page, and this
+// runs on hot paths (every order/cancel/withdraw + the positions view). Too many pages
+// multiplies RPC load and trips rate limits (429). 3×50 = 150 most-recent events.
+const BM_EVENT_SCAN_MAX_PAGES = 3;
 const BM_EVENT_PAGE_SIZE = 50;
 
 /** Does this BalanceManager hold any coin balance? (balances Bag size > 0). Fail-soft → false. */

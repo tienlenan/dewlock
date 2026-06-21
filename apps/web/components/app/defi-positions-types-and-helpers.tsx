@@ -44,12 +44,16 @@ export interface NaviSupplied {
   valueUsd: number;
 }
 
+export interface BalanceManager {
+  balanceManagerId: string;
+  openOrders: OpenOrder[];
+  settledBalances: SettledBalance[];
+}
+
 export interface DefiPositionsData {
   walletAddress: string;
   deepbook: {
-    balanceManagerId: string | null;
-    openOrders: OpenOrder[];
-    settledBalances: SettledBalance[];
+    balanceManagers: BalanceManager[];
   };
   lending: {
     navi: { supplied: NaviSupplied[]; healthFactor: number | null };

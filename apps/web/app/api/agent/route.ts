@@ -69,44 +69,13 @@ async function buildAgent(walletAddress?: string) {
 
   const gateway = createGateway({ apiKey });
 
-  // Resolve the wallet's DeepBook BalanceManager once per request (UX layer: lets the
-  // LLM supply balanceManagerId and know whether onboarding is needed). prepareTrade
-  // RE-RESOLVES server-side authoritatively, so this is fail-soft — a read error just
-  // omits the hint and prepareTrade still does the right thing.
-  let bmContext = "";
-  if (walletAddress) {
-    try {
-      /* eslint-disable @typescript-eslint/no-require-imports */
-      const { getSuiMainnetClient } = require("@dewlock/sui") as {
-        getSuiMainnetClient: () => unknown;
-      };
-      const { getExistingBalanceManagers } = require("@dewlock/sui/balance-manager") as {
-        getExistingBalanceManagers: (
-          client: unknown,
-          address: string,
-        ) => Promise<{ status: "ok" | "rpc_error"; ids: string[] }>;
-      };
-      /* eslint-enable @typescript-eslint/no-require-imports */
-      const res = await getExistingBalanceManagers(getSuiMainnetClient(), walletAddress);
-      if (res.status === "ok" && res.ids.length >= 1) {
-        // ids are oldest-first; ids[0] is the canonical account (extra ids are accidental
-        // duplicates). Inject it so the LLM supplies it for order/cancel/withdraw.
-        bmContext =
-          `\nDeepBook BalanceManager id: ${res.ids[0]} ` +
-          "(use as balanceManagerId for limit_order / cancel_order / withdraw_settled).";
-      } else if (res.status === "ok" && res.ids.length === 0) {
-        bmContext =
-          "\nThis wallet has no DeepBook trading account (BalanceManager) yet — placing an order " +
-          "will prompt a one-time onboarding (create + fund).";
-      }
-    } catch {
-      /* fail-soft: prepareTrade re-resolves the BM authoritatively */
-    }
-  }
-
-  // Inject walletAddress into system context so tools can receive it from the agent
+  // Inject walletAddress into system context so tools can receive it from the agent.
+  // NOTE: we deliberately do NOT resolve the DeepBook BalanceManager here. prepareTrade
+  // resolves it server-side authoritatively (no balanceManagerId needed from the LLM),
+  // and getDefiPositions surfaces it for the UI — resolving here too would double the
+  // (paginated, RPC-heavy) event scan per turn and trip rate limits (429).
   const walletContext = walletAddress
-    ? `\n\n## Current session\nWallet address: ${walletAddress}\nUse this address for getPortfolio and as the walletAddress argument for prepareTrade.${bmContext}`
+    ? `\n\n## Current session\nWallet address: ${walletAddress}\nUse this address for getPortfolio and as the walletAddress argument for prepareTrade. Do NOT ask the user for a balanceManagerId — the server resolves it.`
     : "";
 
   return new Agent({

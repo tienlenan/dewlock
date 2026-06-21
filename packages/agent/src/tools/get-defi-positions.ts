@@ -38,20 +38,26 @@ export const getDefiPositions = createTool({
   outputSchema: z.object({
     walletAddress: z.string(),
     deepbook: z.object({
-      balanceManagerId: z.string().nullable(),
-      openOrders: z.array(
+      // ALL BalanceManagers the wallet owns (funded-first). Usually one; a wallet may
+      // carry an accidental extra. Each is independently actionable (Withdraw/Cancel).
+      balanceManagers: z.array(
         z.object({
-          orderId: z.string(),
-          poolKey: z.string(),
-          side: z.enum(["BUY", "SELL"]),
-          price: z.number(),
-          quantity: z.number(),
-          filledPct: z.number(),
-          expireTimestampMs: z.number(),
+          balanceManagerId: z.string(),
+          openOrders: z.array(
+            z.object({
+              orderId: z.string(),
+              poolKey: z.string(),
+              side: z.enum(["BUY", "SELL"]),
+              price: z.number(),
+              quantity: z.number(),
+              filledPct: z.number(),
+              expireTimestampMs: z.number(),
+            }),
+          ),
+          settledBalances: z.array(
+            z.object({ coinType: z.string(), coinKey: z.string(), balance: z.number() }),
+          ),
         }),
-      ),
-      settledBalances: z.array(
-        z.object({ coinType: z.string(), coinKey: z.string(), balance: z.number() }),
       ),
     }),
     lending: z.object({
@@ -82,35 +88,47 @@ export const getDefiPositions = createTool({
 
     const suiClient = getSuiMainnetClient();
 
-    // Resolve the BM id (single + ok only). RPC error or none → no DeepBook section,
-    // never a thrown error (read-only tool).
-    let balanceManagerId: string | null = null;
+    // Resolve ALL the wallet's BalanceManagers (funded-first). Read-only tool: any error
+    // degrades to an empty list, never throws.
+    let bmIds: string[] = [];
     try {
       const res = await getExistingBalanceManagers(suiClient, walletAddress);
-      if (res.status === "ok" && res.ids.length === 1) balanceManagerId = res.ids[0];
+      if (res.status === "ok") bmIds = res.ids;
     } catch {
-      balanceManagerId = null;
+      bmIds = [];
     }
 
-    // Each section reads independently; a rejection degrades only that section.
-    const [ordersRes, settledRes, naviRes] = await Promise.allSettled([
-      balanceManagerId
-        ? getOpenOrders(suiClient, walletAddress, balanceManagerId, WHITELISTED_POOL_KEYS)
-        : Promise.resolve([]),
-      balanceManagerId
-        ? getSettledBalances(suiClient, walletAddress, balanceManagerId)
-        : Promise.resolve([]),
-      readNaviLending(walletAddress),
-    ]);
+    // NAVI runs in parallel; per-BM DeepBook reads run SEQUENTIALLY to avoid a burst of
+    // concurrent devInspect calls (3 pools + 3 coins per BM) that trips RPC rate limits
+    // (429) and blanks balances. Each read is allSettled so one failure degrades only its
+    // own section, never the rest.
+    const naviPromise = readNaviLending(walletAddress).catch(() => ({
+      supplied: [] as never[],
+      healthFactor: null,
+    }));
 
-    const openOrders = ordersRes.status === "fulfilled" ? ordersRes.value : [];
-    const settledBalances = settledRes.status === "fulfilled" ? settledRes.value : [];
-    const navi =
-      naviRes.status === "fulfilled" ? naviRes.value : { supplied: [], healthFactor: null };
+    const balanceManagers: Array<{
+      balanceManagerId: string;
+      openOrders: Awaited<ReturnType<typeof getOpenOrders>>;
+      settledBalances: Awaited<ReturnType<typeof getSettledBalances>>;
+    }> = [];
+    for (const bmId of bmIds) {
+      const [ordersRes, settledRes] = await Promise.allSettled([
+        getOpenOrders(suiClient, walletAddress, bmId, WHITELISTED_POOL_KEYS),
+        getSettledBalances(suiClient, walletAddress, bmId),
+      ]);
+      balanceManagers.push({
+        balanceManagerId: bmId,
+        openOrders: ordersRes.status === "fulfilled" ? ordersRes.value : [],
+        settledBalances: settledRes.status === "fulfilled" ? settledRes.value : [],
+      });
+    }
+
+    const navi = await naviPromise;
 
     return {
       walletAddress,
-      deepbook: { balanceManagerId, openOrders, settledBalances },
+      deepbook: { balanceManagers },
       lending: {
         navi,
         suilend: { supplied: null, manageUrl: SUILEND_MANAGE_URL },
@@ -128,19 +146,29 @@ function buildFixturePositions(walletAddress: string) {
   return {
     walletAddress,
     deepbook: {
-      balanceManagerId: "0x" + "ab".repeat(32),
-      openOrders: [
+      balanceManagers: [
         {
-          orderId: "0x" + "11".repeat(16),
-          poolKey: "SUI_USDC",
-          side: "BUY" as const,
-          price: 2.8,
-          quantity: 10,
-          filledPct: 0,
-          expireTimestampMs: 4102444800000, // 2100-01-01, far future
+          balanceManagerId: "0x" + "ab".repeat(32),
+          openOrders: [
+            {
+              orderId: "0x" + "11".repeat(16),
+              poolKey: "SUI_USDC",
+              side: "BUY" as const,
+              price: 2.8,
+              quantity: 10,
+              filledPct: 0,
+              expireTimestampMs: 4102444800000, // 2100-01-01, far future
+            },
+          ],
+          settledBalances: [{ coinType: "USDC", coinKey: "USDC", balance: 12.5 }],
+        },
+        {
+          // A second (empty) BM — demonstrates the multi-account list + per-BM actions.
+          balanceManagerId: "0x" + "cd".repeat(32),
+          openOrders: [],
+          settledBalances: [],
         },
       ],
-      settledBalances: [{ coinType: "USDC", coinKey: "USDC", balance: 12.5 }],
     },
     lending: {
       navi: {

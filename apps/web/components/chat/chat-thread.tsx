@@ -223,13 +223,14 @@ function DefiPositionsCardWithActions({
   const [preparing, setPreparing] = useState(false);
 
   // Context needed to optimistic-hide after signing
+  // Keys are scoped per-BM: `${balanceManagerId}:${orderId}` and `${balanceManagerId}:${coinKey}`
   const pendingActionRef = useRef<
-    | { kind: "order"; orderId: string }
-    | { kind: "coin"; coinKey: string }
+    | { kind: "order"; scopedKey: string }
+    | { kind: "coin"; scopedKey: string }
     | null
   >(null);
 
-  // ── Derive visible sets ──────────────────────────────────────────────────
+  // ── Derive visible sets (keys scoped per-BM: `${bmId}:${orderId}` etc.) ──
 
   const hiddenOrderIds = new Set(
     [...hiddenOrders.entries()]
@@ -280,7 +281,9 @@ function DefiPositionsCardWithActions({
 
   const handleCancel = useCallback(
     (orderId: string, poolKey: string, balanceManagerId: string, coinTypeIn: string) => {
-      pendingActionRef.current = { kind: "order", orderId };
+      // Scope the hide key per-BM so cancelling an order in one account
+      // doesn't hide the same orderId in another account.
+      pendingActionRef.current = { kind: "order", scopedKey: `${balanceManagerId}:${orderId}` };
       void prepareAndPreview({
         actionType: "cancel_order",
         poolKey,
@@ -296,9 +299,18 @@ function DefiPositionsCardWithActions({
 
   const handleWithdraw = useCallback(
     (coinType: string, _coinSymbol: string, humanAmount: string, balanceManagerId: string) => {
-      // Find coinKey for this coinType to optimistic-hide the row
-      const bal = positions.deepbook.settledBalances.find((b) => b.coinType === coinType);
-      if (bal) pendingActionRef.current = { kind: "coin", coinKey: bal.coinKey };
+      // Find coinKey for this coinType in the specific BM to optimistic-hide the row.
+      // Scoped per-BM so hiding a coin in one account doesn't affect another.
+      const bm = positions.deepbook.balanceManagers.find(
+        (b) => b.balanceManagerId === balanceManagerId,
+      );
+      const bal = bm?.settledBalances.find((b) => b.coinType === coinType);
+      if (bal) {
+        pendingActionRef.current = {
+          kind: "coin",
+          scopedKey: `${balanceManagerId}:${bal.coinKey}`,
+        };
+      }
 
       // Convert human amount → native units
       const DECIMALS: Record<string, number> = {
@@ -319,7 +331,7 @@ function DefiPositionsCardWithActions({
         argProvenance: { amount: "user_turn" },
       });
     },
-    [positions.deepbook.settledBalances, prepareAndPreview],
+    [positions.deepbook.balanceManagers, prepareAndPreview],
   );
 
   // ── Inline sign success → optimistic hide ─────────────────────────────────
@@ -327,10 +339,10 @@ function DefiPositionsCardWithActions({
   const handleSignSuccess = useCallback(() => {
     const action = pendingActionRef.current;
     if (action?.kind === "order") {
-      setHiddenOrders((prev) => new Map(prev).set(action.orderId, { hiddenAt: Date.now() }));
+      setHiddenOrders((prev) => new Map(prev).set(action.scopedKey, { hiddenAt: Date.now() }));
     }
     if (action?.kind === "coin") {
-      setHiddenCoins((prev) => new Map(prev).set(action.coinKey, { hiddenAt: Date.now() }));
+      setHiddenCoins((prev) => new Map(prev).set(action.scopedKey, { hiddenAt: Date.now() }));
     }
     pendingActionRef.current = null;
     setInlineTx(null);

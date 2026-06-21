@@ -22,6 +22,7 @@ import React from "react";
 import { CoinLogo } from "@/components/chat/asset-logos";
 import {
   type DefiPositionsData,
+  type BalanceManager,
   type OpenOrder,
   type SettledBalance,
   SectionLabel,
@@ -38,7 +39,9 @@ export type { DefiPositionsData } from "@/components/app/defi-positions-types-an
 
 export interface DefiPositionsSectionProps {
   data: DefiPositionsData;
+  /** Scoped per-BM: keys are `${balanceManagerId}:${orderId}` */
   hiddenOrderIds?: ReadonlySet<string>;
+  /** Scoped per-BM: keys are `${balanceManagerId}:${coinKey}` */
   hiddenCoinKeys?: ReadonlySet<string>;
   onCancel: (orderId: string, poolKey: string, balanceManagerId: string, coinTypeIn: string) => void;
   onWithdraw: (coinType: string, coinSymbol: string, humanAmount: string, balanceManagerId: string) => void;
@@ -97,6 +100,109 @@ function NaviBlock({ navi }: { navi: DefiPositionsData["lending"]["navi"] }) {
   );
 }
 
+// ── BalanceManagerBlock — one sub-section per BM ─────────────────────────────
+
+function BalanceManagerBlock({
+  bm,
+  index,
+  total,
+  hiddenOrderIds,
+  hiddenCoinKeys,
+  onCancel,
+  onWithdraw,
+}: {
+  bm: BalanceManager;
+  index: number;
+  total: number;
+  hiddenOrderIds: ReadonlySet<string>;
+  hiddenCoinKeys: ReadonlySet<string>;
+  onCancel: (orderId: string, poolKey: string, balanceManagerId: string, coinTypeIn: string) => void;
+  onWithdraw: (coinType: string, coinSymbol: string, humanAmount: string, balanceManagerId: string) => void;
+}) {
+  const bmId = bm.balanceManagerId;
+  // Scoped per-BM: hide keys are `${bmId}:${orderId}` and `${bmId}:${coinKey}`
+  const visibleOrders: OpenOrder[] = bm.openOrders.filter(
+    (o) => !hiddenOrderIds.has(`${bmId}:${o.orderId}`),
+  );
+  const visibleBalances: SettledBalance[] = bm.settledBalances.filter(
+    (b) => !hiddenCoinKeys.has(`${bmId}:${b.coinKey}`),
+  );
+  const isEmpty = visibleOrders.length === 0 && visibleBalances.length === 0;
+
+  // Shortened BM address label: 0xab...1c
+  const shortBmId =
+    bmId.length > 10
+      ? `${bmId.slice(0, 6)}…${bmId.slice(-4)}`
+      : bmId;
+
+  return (
+    <div>
+      {/* Account label — only shown when multiple BMs exist */}
+      {total > 1 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 8,
+          }}
+        >
+          <span
+            className="split-mono"
+            style={{ fontSize: 10, letterSpacing: "0.08em", color: "var(--fg-muted)" }}
+          >
+            Account {index + 1}
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 10, color: "var(--fg-faint)" }}
+          >
+            {shortBmId}
+          </span>
+        </div>
+      )}
+
+      {isEmpty ? (
+        <div
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: "10px 12px",
+            fontSize: 12,
+            color: "var(--fg-faint)",
+            fontStyle: "italic",
+          }}
+        >
+          No open orders or settled balances
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {visibleOrders.length > 0 && (
+            <div>
+              <SectionLabel>Open Orders</SectionLabel>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+                {visibleOrders.map((order) => (
+                  <OpenOrderRow key={order.orderId} order={order} bmId={bmId} onCancel={onCancel} />
+                ))}
+              </div>
+            </div>
+          )}
+          {visibleBalances.length > 0 && (
+            <div>
+              <SectionLabel>Settled Balances</SectionLabel>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+                {visibleBalances.map((bal) => (
+                  <SettledBalanceRow key={bal.coinKey} bal={bal} bmId={bmId} onWithdraw={onWithdraw} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function DefiPositionsSection({
@@ -107,16 +213,10 @@ export function DefiPositionsSection({
   onWithdraw,
 }: DefiPositionsSectionProps) {
   const { deepbook, lending, demoFixture } = data;
-  const bmId = deepbook.balanceManagerId ?? "";
+  const balanceManagers = deepbook.balanceManagers ?? [];
 
-  const visibleOrders: OpenOrder[] = deepbook.openOrders.filter(
-    (o) => !hiddenOrderIds.has(o.orderId),
-  );
-  const visibleBalances: SettledBalance[] = deepbook.settledBalances.filter(
-    (b) => !hiddenCoinKeys.has(b.coinKey),
-  );
   const naviSupplied = lending.navi.supplied ?? [];
-  const hasDeepbook = visibleOrders.length > 0 || visibleBalances.length > 0;
+  const hasDeepbook = balanceManagers.length > 0;
   const hasNavi = naviSupplied.length > 0;
   const hasSuilend = !!lending.suilend.manageUrl;
   const hasAny = hasDeepbook || hasNavi || hasSuilend;
@@ -168,30 +268,22 @@ export function DefiPositionsSection({
           <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}>No open positions.</p>
         )}
 
-        {/* DeepBook — open orders + settled balances under one branded header */}
+        {/* DeepBook — one sub-section per BalanceManager */}
         {hasDeepbook && (
           <ProtocolBlock id="deepbook" name="DeepBook">
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {visibleOrders.length > 0 && (
-                <div>
-                  <SectionLabel>Open Orders</SectionLabel>
-                  <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-                    {visibleOrders.map((order) => (
-                      <OpenOrderRow key={order.orderId} order={order} bmId={bmId} onCancel={onCancel} />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {visibleBalances.length > 0 && (
-                <div>
-                  <SectionLabel>Settled Balances</SectionLabel>
-                  <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-                    {visibleBalances.map((bal) => (
-                      <SettledBalanceRow key={bal.coinKey} bal={bal} bmId={bmId} onWithdraw={onWithdraw} />
-                    ))}
-                  </div>
-                </div>
-              )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {balanceManagers.map((bm, idx) => (
+                <BalanceManagerBlock
+                  key={bm.balanceManagerId}
+                  bm={bm}
+                  index={idx}
+                  total={balanceManagers.length}
+                  hiddenOrderIds={hiddenOrderIds}
+                  hiddenCoinKeys={hiddenCoinKeys}
+                  onCancel={onCancel}
+                  onWithdraw={onWithdraw}
+                />
+              ))}
             </div>
           </ProtocolBlock>
         )}
