@@ -8,6 +8,7 @@
  */
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { TxFlowGraph } from "./tx-flow-graph";
 import type { FlowRow } from "./tx-preview-format";
@@ -28,9 +29,12 @@ export function TxFlowDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  // Portal to <body> so the fixed-position overlay is APP-LEVEL. Rendered inline, an
+  // ancestor transform/filter on the tx-preview card would make `position: fixed`
+  // resolve against the card instead of the viewport — darkening only the message.
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -85,6 +89,7 @@ export function TxFlowDialog({
           <TxFlowGraph rows={rows} interactive />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
