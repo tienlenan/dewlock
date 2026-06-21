@@ -23,6 +23,18 @@ describe("buildIntentDirective — form routing for missing args", () => {
     expect(d).not.toContain("Ask concisely");
   });
 
+  it("'portfolio' → calls BOTH getPortfolio and getDefiPositions (BM accounts visible)", async () => {
+    const d = (await buildIntentDirective("portfolio", WALLET)) ?? "";
+    expect(d).toContain("getPortfolio");
+    expect(d).toContain("getDefiPositions");
+  });
+
+  it("'my positions' → portfolio intent that also calls getDefiPositions (BM source)", async () => {
+    const d = (await buildIntentDirective("my positions", WALLET)) ?? "";
+    expect(d).toContain("getPortfolio");
+    expect(d).toContain("getDefiPositions");
+  });
+
   it("'send USDC' (no amount/recipient) → requestActionForm send needs amount+recipient", async () => {
     const d = (await buildIntentDirective("send USDC", WALLET)) ?? "";
     expect(d).toContain("requestActionForm");

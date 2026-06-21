@@ -32,7 +32,10 @@ export type SwapSourceId = "cetus" | "aggregator" | "aftermath";
 const SWAP_SOURCE_IDS = new Set<string>(["cetus", "aggregator", "aftermath"]);
 
 export type Intent =
-  | { action: "swap"; coinInType: string; coinOutType: string; amount: IntentAmount; swappable: boolean; swapSource?: SwapSourceId }
+  | { action: "swap"; coinInType: string; coinOutType: string; amount: IntentAmount; swappable: boolean; swapSource?: SwapSourceId; slippageBps?: number }
+  // Swap whose destination is a raw 0x coin type NOT on the verified allowlist — routed
+  // through the Guardian's coin_allowlist gate (blocked before any build), never built.
+  | { action: "swap_unverified"; coinInType: string; coinOutRaw: string; amount: IntentAmount }
   | { action: "swap_form" } // bare "swap" — missing args, render the form
   // DeepBook limit order. "limit_order_form" = bare/partial intent → render the order
   // form; "limit_order" = a complete order (from the form's deterministic marker) →
@@ -74,6 +77,33 @@ const SYMBOL_TO_TYPE = new Map<string, { coinType: string; swappable: boolean }>
 /** Counter-asset default: selling USDC → SUI; selling anything else → USDC. */
 function defaultDestination(coinInType: string): string {
   return coinInType === COIN_TYPES.USDC ? COIN_TYPES.SUI : COIN_TYPES.USDC;
+}
+
+/** Verified, allowlisted coin types — a raw destination type outside this set is "unverified". */
+const ALLOWLISTED_COIN_TYPES = new Set<string>(Object.values(COIN_TYPES));
+
+// A swap destination given as a raw fully-qualified 0x coin type (e.g. "0xabc::scam::SCAM"),
+// which the symbol-only swapRe cannot match. Captured here so an unverified destination reaches
+// the Guardian's coin_allowlist gate deterministically instead of a prose refusal.
+const SWAP_RAW_OUT_RE =
+  /^(?:swap|sell|dump|convert)\s+(all|max|everything|\d+(?:\.\d+)?)\s+([a-z0-9]+)\s+(?:to|for|into)\s+(0x[0-9a-fA-F]+::[a-zA-Z0-9_]+::[a-zA-Z0-9_]+)$/i;
+
+// Optional slippage clause in a swap command: "with 30% slippage", "at 25% slippage",
+// "30% slippage", or "slippage 2%". Returns bps (percent × 100) and the text minus the clause.
+const SLIPPAGE_RE =
+  /(?:\b(?:with|at|max(?:imum)?)\s+)?(\d+(?:\.\d+)?)\s*%\s*slippage\b|\bslippage\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*%?/i;
+
+function extractSlippageBps(text: string): { bps?: number; stripped: string } {
+  const m = SLIPPAGE_RE.exec(text);
+  if (!m) return { stripped: text };
+  const pct = parseFloat(m[1] ?? m[2]);
+  if (isNaN(pct) || pct < 0) return { stripped: text };
+  const stripped = text
+    .replace(SLIPPAGE_RE, "")
+    .replace(/\s+(?:with|at)\s*$/i, "") // drop a dangling connector left by "with slippage 2%"
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return { bps: Math.round(pct * 100), stripped };
 }
 
 // Contextual replies the parser must NOT act on (defer to the LLM with history).
@@ -197,7 +227,7 @@ export function parseIntent(text: string): Intent | null {
   }
 
   // Read-only single-word / clear intents first.
-  if (/^(portfolio|balances?|my (portfolio|balances?|holdings))\b/.test(lower)) return { action: "portfolio" };
+  if (/^(portfolio|balances?|positions?|my (portfolio|balances?|holdings|positions?))\b/.test(lower)) return { action: "portfolio" };
   if (/^(protocols?|supported protocols?|which (dex|protocols?))\b/.test(lower)) return { action: "protocols" };
   if (/^(stats?|my stats?|level|badges?|rewards?|progress|xp)\b/.test(lower)) return { action: "stats" };
   if (/^(receive|my address|deposit address|how (do i|to) receive)\b/.test(lower)) return { action: "receive" };
@@ -217,11 +247,31 @@ export function parseIntent(text: string): Intent | null {
   // Don't act on contextual follow-ups — defer to the LLM (which has history).
   if (CONTEXTUAL.test(lower)) return null;
 
-  // swap / sell: <verb> [all|max|<amount>] <tokenA> [to|for|into <tokenB>] [via <source>]
+  // swap to a raw 0x coin type — matched BEFORE the symbol-only swapRe. An unverified
+  // destination (not on the allowlist) routes to the Guardian's coin_allowlist gate; an
+  // allowlisted raw type is treated as a normal swap to that type.
+  const rawOut = SWAP_RAW_OUT_RE.exec(raw);
+  if (rawOut) {
+    const inTok = resolveSymbol(rawOut[2]);
+    if (inTok) {
+      const outRaw = rawOut[3];
+      const amount = parseAmount(rawOut[1]);
+      if (!ALLOWLISTED_COIN_TYPES.has(outRaw)) {
+        return { action: "swap_unverified", coinInType: inTok.coinType, coinOutRaw: outRaw, amount };
+      }
+      if (outRaw !== inTok.coinType) {
+        return { action: "swap", coinInType: inTok.coinType, coinOutType: outRaw, amount, swappable: inTok.swappable };
+      }
+    }
+  }
+
+  // swap / sell: <verb> [all|max|<amount>] <tokenA> [to|for|into <tokenB>] [via <source>] [slippage clause]
   // The optional "via <source>" tail is what the swap-form card appends; without it the card's
-  // command failed to parse and fell back to the (mis-mappable) LLM path.
+  // command failed to parse and fell back to the (mis-mappable) LLM path. An optional slippage
+  // clause is extracted first so the symbol-pair regex still matches the remaining text.
   const swapRe = /^(swap|sell|dump|convert)\s+(?:(all|max|everything|\d+(?:\.\d+)?)\s+)?([a-z0-9]+)(?:\s+(?:to|for|into)\s+([a-z0-9]+))?(?:\s+via\s+([a-z]+))?$/i;
-  const m = swapRe.exec(raw);
+  const { bps: slippageBps, stripped: swapText } = extractSlippageBps(raw);
+  const m = swapRe.exec(swapText);
   if (m) {
     const [, , amtTok, symA, symB, viaSrc] = m;
     const inTok = resolveSymbol(symA);
@@ -243,6 +293,7 @@ export function parseIntent(text: string): Intent | null {
       amount: parseAmount(amtTok),
       swappable: inTok.swappable,
       swapSource: src && SWAP_SOURCE_IDS.has(src) ? (src as SwapSourceId) : undefined,
+      slippageBps,
     };
   }
 

@@ -109,6 +109,39 @@ describe("parseIntent — swap/sell defaults", () => {
   });
 });
 
+describe("parseIntent — slippage clause (high-slippage demo)", () => {
+  it("'swap 1 SUI to USDC with 30% slippage' → slippageBps 3000", () => {
+    expect(parseIntent("swap 1 SUI to USDC with 30% slippage")).toMatchObject({
+      action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC,
+      amount: { kind: "exact", human: "1" }, slippageBps: 3000,
+    });
+  });
+  it("trailing 'slippage 2%' form → slippageBps 200", () => {
+    expect(parseIntent("swap 5 SUI to USDC slippage 2%")).toMatchObject({
+      action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC, slippageBps: 200,
+    });
+  });
+  it("no slippage clause → slippageBps undefined", () => {
+    const r = parseIntent("swap 1 SUI to USDC");
+    expect(r?.action).toBe("swap");
+    expect((r as { slippageBps?: number }).slippageBps).toBeUndefined();
+  });
+});
+
+describe("parseIntent — unverified raw 0x destination (coin_allowlist demo)", () => {
+  const SCAM = "0xbadc0de000000000000000000000000000000000000000000000000000000bad::scam::SCAM";
+  it("'swap 1 SUI to <raw 0x scam type>' → swap_unverified", () => {
+    expect(parseIntent(`swap 1 SUI to ${SCAM}`)).toEqual({
+      action: "swap_unverified", coinInType: COIN_TYPES.SUI, coinOutRaw: SCAM,
+      amount: { kind: "exact", human: "1" },
+    });
+  });
+  it("an allowlisted raw 0x destination stays a normal swap (not flagged unverified)", () => {
+    const r = parseIntent(`swap 1 SUI to ${COIN_TYPES.USDC}`);
+    expect(r).toMatchObject({ action: "swap", coinOutType: COIN_TYPES.USDC });
+  });
+});
+
 describe("parseIntent — LLM fallback (null)", () => {
   it("contextual replies → null", () => {
     for (const t of ["yes", "do it", "the second one", "ok", "confirm"]) {

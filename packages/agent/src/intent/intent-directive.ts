@@ -86,7 +86,17 @@ export async function buildIntentDirective(
     `## Deterministic intent (high confidence)\nCall ONLY \`${tool}\`. Do not call any other tool.`;
 
   switch (intent.action) {
-    case "portfolio": return only("getPortfolio");
+    case "portfolio":
+      // A full portfolio = coin balances AND DeepBook trading accounts. getDefiPositions
+      // is the ONLY source of BalanceManager (BM) accounts — forcing getPortfolio alone
+      // (the old `only()` directive) hid every BM. Both are read-only, so calling both is
+      // allowed under the one-value-action rule.
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user wants their full portfolio — coin balances AND open DeFi positions.`,
+        `Call BOTH \`getPortfolio\` (coin balances) and \`getDefiPositions\` (DeepBook BalanceManager accounts — open orders + settled balances — plus NAVI lending). Call no other tool and do NOT ask in prose.`,
+        `getDefiPositions is the ONLY source of the user's DeepBook trading accounts (BMs); without it the BM accounts are invisible. Present both cards.`,
+      ].join("\n");
     case "protocols": return only("listProtocols");
     case "stats": return only("getUserStats");
     case "receive": return only("getReceiveInfo");
@@ -305,8 +315,35 @@ export async function buildIntentDirective(
         // Honor the venue the user picked in the swap card (the Guardian re-derives min-out from
         // the SAME source). Omitted → prepareTrade defaults to the aggregator best route.
         intent.swapSource ? `- swapSource: "${intent.swapSource}"` : ``,
+        // Pass an explicit slippage the user stated (bps). The Guardian blocks an over-wide
+        // tolerance (slippage_tolerance gate) — that block is intended, surface it.
+        intent.slippageBps !== undefined ? `- slippageBps: ${intent.slippageBps}` : ``,
         `- argProvenance: { "amount": "user_turn", "coinType": "user_turn" }`,
         `Then present the returned preview card. Do NOT call getPortfolio or any other tool.`,
+      ].filter(Boolean).join("\n");
+    }
+
+    case "swap_unverified": {
+      const inSym = TYPE_TO_SYMBOL.get(intent.coinInType) ?? "the token";
+      // Amount is immaterial — the coin_allowlist gate refuses BEFORE any build — but the
+      // schema requires a native integer, so resolve best-effort and fall back to "0".
+      const nativeAmount =
+        intent.amount.kind === "exact"
+          ? humanToNative(intent.amount.human, intent.coinInType)
+          : intent.amount.kind === "all" && walletAddress
+            ? await resolveNativeAmount(intent.amount, intent.coinInType, walletAddress)
+            : null;
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user wants to swap ${inSym} into a raw coin type that is NOT a recognised, verified token.`,
+        `Call \`prepareTrade\` with EXACTLY these arguments and no other tool:`,
+        `- actionType: "swap"`,
+        walletAddress ? `- walletAddress: "${walletAddress}"` : ``,
+        `- coinTypeIn: "${intent.coinInType}"`,
+        `- coinTypeOutRaw: "${intent.coinOutRaw}"   (the unverified destination — do NOT set coinTypeOut)`,
+        `- amountInNative: "${nativeAmount ?? "0"}"`,
+        `- argProvenance: { "amount": "user_turn", "coinType": "user_turn" }`,
+        `The Guardian will block this (coin_allowlist) — present the returned block card plainly. Do NOT substitute another token and do NOT call any other tool.`,
       ].filter(Boolean).join("\n");
     }
   }
