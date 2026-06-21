@@ -27,6 +27,7 @@ import {
 } from "@dewlock/sui/balance-manager";
 import { buildCancelOrder, buildWithdrawSettled } from "@dewlock/sui/order-management";
 import { deepbookCoinKeyForType } from "@dewlock/sui/account-orders";
+import { resolveBalanceManagerForAction } from "./resolve-balance-manager";
 import { InsufficientGasCoverageError } from "@dewlock/sui/sui-gas-payment";
 import { guardianCheck, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
 import { COIN_TYPES, COIN_DECIMALS } from "../allowlist";
@@ -300,47 +301,23 @@ export const prepareTrade = createTool({
     const amountInNative = BigInt(amountStr);
     const suiClient = getSuiMainnetClient();
 
-    // --- Server-authoritative BalanceManager resolution (ownership boundary) ---
-    // For every action that touches a BM, the SERVER resolves the sender's BM and
-    // validates any client-supplied id against it (never trusts the client value).
-    // An RPC error is NOT "no BM" (that would mint a duplicate) → block + ask to retry.
+    // --- BalanceManager resolution (server cross-check + client-carried id) ---
+    // The server resolves the sender's BM via getExistingBalanceManagers. BUT a freshly
+    // created BM is NOT yet indexed by the fullnode (shared-object lag of several seconds),
+    // so getBalanceManagerIds returns [] right after onboarding. The onboarding flow
+    // therefore CARRIES the new BM id client-side (create→deposit→first order). We honor a
+    // client-supplied id when the server hasn't indexed it yet, and block only on a clear
+    // mismatch (server sees a DIFFERENT single BM). The authoritative ownership guarantee
+    // is on-chain: cancel/withdraw/place require the BM owner-proof, so a foreign id fails
+    // the dry-run; deposit only ADDS funds and is WYSIWYS-signed. RPC error ≠ "no BM".
     let resolvedBmId = balanceManagerId;
     if (BM_ACTION_TYPES.has(actionType)) {
       const resolution = await getExistingBalanceManagers(suiClient, walletAddress);
-      if (resolution.status === "rpc_error") {
-        return {
-          ok: false as const,
-          reasons: ["Couldn't verify your DeepBook trading account right now (network issue). Please retry."],
-          gates: ["bm_resolve_error"],
-        };
+      const outcome = resolveBalanceManagerForAction(resolution, balanceManagerId);
+      if (!outcome.ok) {
+        return { ok: false as const, reasons: outcome.reasons, gates: outcome.gates };
       }
-      if (resolution.ids.length > 1) {
-        return {
-          ok: false as const,
-          reasons: ["Multiple BalanceManagers found for this wallet — unexpected. Refusing for safety."],
-          gates: ["bm_ambiguous"],
-        };
-      }
-      const serverBmId = resolution.ids[0];
-      if (!serverBmId) {
-        // Not provisioned → the UI renders the onboarding card on this gate.
-        return {
-          ok: false as const,
-          reasons: [
-            "You don't have a DeepBook trading account (BalanceManager) yet. " +
-              "Set one up (create + fund) to place and manage orders.",
-          ],
-          gates: ["onboarding_required"],
-        };
-      }
-      if (balanceManagerId && balanceManagerId.toLowerCase() !== serverBmId.toLowerCase()) {
-        return {
-          ok: false as const,
-          reasons: ["The provided BalanceManager id doesn't match your wallet's account. Refusing (fail-closed)."],
-          gates: ["bm_ownership"],
-        };
-      }
-      resolvedBmId = serverBmId;
+      resolvedBmId = outcome.bmId;
     }
 
     // bm_create is idempotent: one BalanceManager per wallet. Refuse a second create
