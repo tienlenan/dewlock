@@ -70,6 +70,8 @@ export const ACTION_TYPES = [
   "bm_deposit",
   "cancel_order",
   "withdraw_settled",
+  // Claim filled/owed settled balances from pools back into the BM (no wallet outflow).
+  "claim_settled",
   // Lending. deposit/repay are health-IMPROVING (enabled); borrow/withdraw are
   // health-REDUCING and stay gated OFF until a guarded post-tx health follow-up.
   "lend_deposit",
@@ -522,7 +524,11 @@ export async function guardianCheck(
   // a cancel of a foreign/gone order aborts in the dry-run gate below).
   // withdraw_settled: recipient is hard-pinned to the sender, and the amount is
   // ceilinged by an independently re-derived settled balance (fail-closed).
-  if (proposal.actionType === "cancel_order" || proposal.actionType === "withdraw_settled") {
+  if (
+    proposal.actionType === "cancel_order" ||
+    proposal.actionType === "withdraw_settled" ||
+    proposal.actionType === "claim_settled"
+  ) {
     const olResult = await checkOrderLifecycleConstraints(proposal, suiClient);
     for (const err of olResult.errors) {
       block(err.gate, err.reason);
@@ -797,6 +803,15 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
         `${DEEPBOOK_PACKAGE}::balance_manager::withdraw`,
         `${DEEPBOOK_PACKAGE}::balance_manager::withdraw_all`,
       ]);
+    case "claim_settled":
+      // Claim settled balances pool→BM. Each pool emits an owner trade-proof immediately
+      // before `pool::withdraw_settled_amounts`. No place_limit_order/deposit/withdraw may
+      // ride along (no order or wallet-bound value-mover smuggled in).
+      return new Set([
+        `${DEEPBOOK_PACKAGE}::pool::withdraw_settled_amounts`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_owner`,
+        `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_trader`,
+      ]);
     case "lend_deposit":
       // Health-improving deposits only — NAVI entry_deposit / Suilend mint+deposit.
       // NAVI's SDK also emits pool::refresh_stake (refreshes reward accounting before
@@ -964,6 +979,13 @@ export async function checkOrderLifecycleConstraints(
       gate: "ol_balance_manager",
       reason: "A valid BalanceManager id is required for this action — none resolved. Blocking (fail-closed).",
     });
+    return { errors };
+  }
+
+  // claim_settled moves owed funds pool→BM (no order id, no recipient, no wallet outflow).
+  // A valid BM (checked above) is the only precondition; the on-chain owner-proof + dry-run
+  // enforce ownership and that there is something to settle.
+  if (proposal.actionType === "claim_settled") {
     return { errors };
   }
 

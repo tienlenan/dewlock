@@ -209,6 +209,8 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         // DeepBook V3 — limit orders + BalanceManager bootstrap
         t.includes("::pool::place_limit_order") ||
         t.includes("::pool::cancel_order") ||
+        // Claim settled balances pool→BM.
+        t.includes("::pool::withdraw_settled_amounts") ||
         t.includes("::balance_manager::generate_proof_as_owner") ||
         t.includes("::balance_manager::generate_proof_as_trader") ||
         t.includes("::balance_manager::new") ||

@@ -334,6 +334,21 @@ function DefiPositionsCardWithActions({
     [positions.deepbook.balanceManagers, prepareAndPreview],
   );
 
+  // ── Claim settled handler ─────────────────────────────────────────────────
+  // Settle filled/owed balances pool→BM (no amount/coin — the server settles every pool
+  // that owes this BM). Funds then surface as Available and withdraw via the normal flow.
+
+  const handleClaim = useCallback(
+    (_coinType: string, _coinSymbol: string, balanceManagerId: string) => {
+      void prepareAndPreview({
+        actionType: "claim_settled",
+        balanceManagerId,
+        argProvenance: {},
+      });
+    },
+    [prepareAndPreview],
+  );
+
   // ── Inline sign success → optimistic hide ─────────────────────────────────
 
   const handleSignSuccess = useCallback(() => {
@@ -357,6 +372,7 @@ function DefiPositionsCardWithActions({
         hiddenCoinKeys={hiddenCoinKeys}
         onCancel={handleCancel}
         onWithdraw={handleWithdraw}
+        onClaim={handleClaim}
       />
 
       {/* Preparing spinner */}

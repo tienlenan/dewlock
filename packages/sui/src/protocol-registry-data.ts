@@ -77,6 +77,10 @@ export const PROTOCOLS: ProtocolEntry[] = [
       // recipient is a TransferObjects command pinned to the sender (Guardian re-asserts).
       `${DEEPBOOK_PACKAGE}::balance_manager::withdraw`,
       `${DEEPBOOK_PACKAGE}::balance_manager::withdraw_all`,
+      // Claim settled (filled/owed) balances from a pool back to the BM. The SDK emits an
+      // owner trade-proof immediately before; funds move pool→BM (no wallet outflow), then
+      // surface as Available and withdraw normally.
+      `${DEEPBOOK_PACKAGE}::pool::withdraw_settled_amounts`,
     ],
     coinTypes: [DEEP, SUI, USDC],
     guardianNotes:

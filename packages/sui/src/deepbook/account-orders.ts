@@ -184,3 +184,119 @@ export async function getSettledBalances(
 
 /** Whitelisted pool keys (for callers that iterate all pools). */
 export const WHITELISTED_POOL_KEYS = Object.keys(DEEPBOOK_POOLS);
+
+/** Whitelisted pool → {base, quote} coin types. DEEP is the fee coin in every pool. */
+const WHITELISTED_POOL_COINS: Record<string, { base: string; quote: string }> = {
+  DEEP_USDC: { base: COIN_TYPES.DEEP, quote: COIN_TYPES.USDC },
+  SUI_USDC: { base: COIN_TYPES.SUI, quote: COIN_TYPES.USDC },
+  DEEP_SUI: { base: COIN_TYPES.DEEP, quote: COIN_TYPES.SUI },
+};
+
+export interface PoolTiedBalanceRow {
+  coinType: string;
+  coinKey: string;
+  /** Funds locked in resting orders (lockedBalance), not withdrawable until cancel. */
+  locked: number;
+  /** Filled/owed funds settled in the pool account, claimable back to the BM. */
+  settled: number;
+}
+
+/**
+ * Read funds the BalanceManager has tied to whitelisted pools — locked in resting orders
+ * (`lockedBalance`) and settled-but-unclaimed from fills (`account().settled_balances`).
+ *
+ * WHY this exists: `checkManagerBalance` maps to Move `balance_manager::balance<T>()`, which
+ * counts ONLY coins physically in the BM's Bag. Placing an order moves funds OUT of the BM
+ * into the pool, so a BM with a resting order or a filled-not-claimed trade reads 0 there —
+ * making a genuinely funded account look empty. These two reads surface those funds.
+ *
+ * Amounts are aggregated per coin across all whitelisted pools (base/quote map to the pool's
+ * coins; `deep` is always the DEEP fee coin). Resilient: a single pool's failing read drops
+ * only its contribution, never the whole list.
+ */
+export async function getPoolTiedBalances(
+  suiClient: SuiClient,
+  senderAddress: string,
+  balanceManagerId: string,
+): Promise<PoolTiedBalanceRow[]> {
+  const { client } = await createDeepBookClient({ suiClient, senderAddress, balanceManagerId });
+  const db = client as {
+    account: (
+      poolKey: string,
+      managerKey: string,
+    ) => Promise<{ settled_balances: { base: number; quote: number; deep: number } }>;
+    lockedBalance: (
+      poolKey: string,
+      managerKey: string,
+    ) => Promise<{ base: number; quote: number; deep: number }>;
+  };
+
+  const acc = new Map<string, { locked: number; settled: number }>();
+  const add = (coinType: string, locked: number, settled: number) => {
+    if (locked <= 0 && settled <= 0) return;
+    const cur = acc.get(coinType) ?? { locked: 0, settled: 0 };
+    cur.locked += Math.max(0, locked);
+    cur.settled += Math.max(0, settled);
+    acc.set(coinType, cur);
+  };
+
+  // Sequential per pool (+ retry-on-429): a burst of devInspect calls trips RPC limits.
+  for (const [poolKey, coins] of Object.entries(WHITELISTED_POOL_COINS)) {
+    const [lockedRes, accountRes] = await Promise.allSettled([
+      withRpcRetry(() => db.lockedBalance(poolKey, BALANCE_MANAGER_KEY)),
+      withRpcRetry(() => db.account(poolKey, BALANCE_MANAGER_KEY)),
+    ]);
+    const locked = lockedRes.status === "fulfilled" ? lockedRes.value : { base: 0, quote: 0, deep: 0 };
+    const settled =
+      accountRes.status === "fulfilled"
+        ? accountRes.value.settled_balances
+        : { base: 0, quote: 0, deep: 0 };
+    add(coins.base, locked.base, settled.base);
+    add(coins.quote, locked.quote, settled.quote);
+    add(COIN_TYPES.DEEP, locked.deep, settled.deep);
+  }
+
+  const rows: PoolTiedBalanceRow[] = [];
+  for (const [coinType, v] of acc.entries()) {
+    rows.push({ coinType, coinKey: deepbookCoinKeyForType(coinType) ?? coinType, locked: v.locked, settled: v.settled });
+  }
+  return rows;
+}
+
+/**
+ * Whitelisted pool keys where the BM has a NON-ZERO settled balance (claimable). Used to
+ * scope the claim PTB to only those pools — never settling a pool with nothing owed (which
+ * would be a wasted, possibly-aborting call). Resilient: a failing pool read is skipped.
+ */
+export async function getPoolsWithSettledBalances(
+  suiClient: SuiClient,
+  senderAddress: string,
+  balanceManagerId: string,
+): Promise<string[]> {
+  const { client } = await createDeepBookClient({ suiClient, senderAddress, balanceManagerId });
+  const db = client as {
+    account: (
+      poolKey: string,
+      managerKey: string,
+    ) => Promise<{ settled_balances: { base: number; quote: number; deep: number } }>;
+  };
+  const pools: string[] = [];
+  const poolKeys = Object.keys(WHITELISTED_POOL_COINS);
+  let failures = 0;
+  for (const poolKey of poolKeys) {
+    try {
+      const acc = await withRpcRetry(() => db.account(poolKey, BALANCE_MANAGER_KEY));
+      const s = acc.settled_balances;
+      if ((s.base ?? 0) > 0 || (s.quote ?? 0) > 0 || (s.deep ?? 0) > 0) pools.push(poolKey);
+    } catch {
+      failures++; // this pool's read failed even after retry
+    }
+  }
+  // If EVERY pool read failed, an empty list is indeterminate, NOT "nothing settled" — the
+  // caller must not tell the user there is nothing to claim when we simply couldn't verify.
+  // Throw so the claim path surfaces a retry block (fail-closed) instead of a false negative.
+  if (failures === poolKeys.length) {
+    throw new Error("Could not read any DeepBook pool account (RPC) — settled balances indeterminate.");
+  }
+  return pools;
+}

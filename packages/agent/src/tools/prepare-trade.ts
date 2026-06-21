@@ -25,8 +25,8 @@ import {
   buildDepositIntoBalanceManager,
   getExistingBalanceManagers,
 } from "@dewlock/sui/balance-manager";
-import { buildCancelOrder, buildWithdrawSettled } from "@dewlock/sui/order-management";
-import { deepbookCoinKeyForType } from "@dewlock/sui/account-orders";
+import { buildCancelOrder, buildWithdrawSettled, buildClaimSettled } from "@dewlock/sui/order-management";
+import { deepbookCoinKeyForType, getPoolsWithSettledBalances } from "@dewlock/sui/account-orders";
 import { resolveBalanceManagerForAction } from "./resolve-balance-manager";
 import { InsufficientGasCoverageError } from "@dewlock/sui/sui-gas-payment";
 import { guardianCheck, checkCoinTypeOnChain, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
@@ -45,6 +45,7 @@ const TOOL_ACTION_TYPES = [
   "bm_deposit",
   "cancel_order",
   "withdraw_settled",
+  "claim_settled",
   "lend_deposit",
   "lend_repay",
   "lend_borrow",
@@ -52,7 +53,13 @@ const TOOL_ACTION_TYPES = [
 ] as const satisfies readonly ActionType[];
 
 /** Actions that operate on the wallet's BalanceManager (require server-side BM resolution). */
-const BM_ACTION_TYPES = new Set<ActionType>(["limit_order", "bm_deposit", "cancel_order", "withdraw_settled"]);
+const BM_ACTION_TYPES = new Set<ActionType>([
+  "limit_order",
+  "bm_deposit",
+  "cancel_order",
+  "withdraw_settled",
+  "claim_settled",
+]);
 
 /**
  * Pick the best swap source by independent quote (max output). Falls back to
@@ -509,6 +516,36 @@ export const prepareTrade = createTool({
           humanAmount,
         });
         txBytes = withdrawResult.txBytes;
+      } else if (actionType === "claim_settled") {
+        if (!resolvedBmId) {
+          return { ok: false as const, reasons: ["No DeepBook trading account resolved for this wallet."], gates: ["onboarding_required"] };
+        }
+        // Settle only the pools that actually owe this BM something — never settle an empty
+        // pool (a wasted call). A total read failure THROWS (indeterminate, not "empty"), so
+        // we surface a retry block rather than falsely claiming nothing is owed.
+        let poolsWithSettled: string[];
+        try {
+          poolsWithSettled = await getPoolsWithSettledBalances(suiClient, walletAddress, resolvedBmId);
+        } catch {
+          return {
+            ok: false as const,
+            reasons: ["Couldn't verify your settled balances right now (network issue). Please retry."],
+            gates: ["claim_read_error"],
+          };
+        }
+        if (poolsWithSettled.length === 0) {
+          return {
+            ok: false as const,
+            reasons: ["No settled balances to claim — nothing is owed to this trading account right now."],
+            gates: ["nothing_to_claim"],
+          };
+        }
+        const claimResult = await buildClaimSettled(suiClient, {
+          senderAddress: walletAddress,
+          balanceManagerId: resolvedBmId,
+          poolKeys: poolsWithSettled,
+        });
+        txBytes = claimResult.txBytes;
       } else if (actionType === "lend_borrow" || actionType === "lend_withdraw") {
         // Health-reducing verbs are gated off — surface immediately, build nothing.
         return {

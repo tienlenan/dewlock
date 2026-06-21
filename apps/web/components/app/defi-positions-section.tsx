@@ -18,18 +18,20 @@
  * defi-positions-types-and-helpers.tsx.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { CoinLogo } from "@/components/chat/asset-logos";
 import {
   type DefiPositionsData,
   type BalanceManager,
   type OpenOrder,
   type SettledBalance,
+  type PoolTiedBalance,
   SectionLabel,
   DataRow,
   ProtocolBlock,
   OpenOrderRow,
   SettledBalanceRow,
+  PoolTiedRow,
 } from "@/components/app/defi-positions-types-and-helpers";
 
 // Re-export data type so chat-thread can import it from one place.
@@ -45,6 +47,8 @@ export interface DefiPositionsSectionProps {
   hiddenCoinKeys?: ReadonlySet<string>;
   onCancel: (orderId: string, poolKey: string, balanceManagerId: string, coinTypeIn: string) => void;
   onWithdraw: (coinType: string, coinSymbol: string, humanAmount: string, balanceManagerId: string) => void;
+  /** Claim settled (filled/owed) balances pool→BM for this BalanceManager. */
+  onClaim?: (coinType: string, coinSymbol: string, balanceManagerId: string) => void;
 }
 
 // ── NAVI block ────────────────────────────────────────────────────────────────
@@ -110,6 +114,7 @@ function BalanceManagerBlock({
   hiddenCoinKeys,
   onCancel,
   onWithdraw,
+  onClaim,
 }: {
   bm: BalanceManager;
   index: number;
@@ -118,6 +123,7 @@ function BalanceManagerBlock({
   hiddenCoinKeys: ReadonlySet<string>;
   onCancel: (orderId: string, poolKey: string, balanceManagerId: string, coinTypeIn: string) => void;
   onWithdraw: (coinType: string, coinSymbol: string, humanAmount: string, balanceManagerId: string) => void;
+  onClaim?: (coinType: string, coinSymbol: string, balanceManagerId: string) => void;
 }) {
   const bmId = bm.balanceManagerId;
   // Scoped per-BM: hide keys are `${bmId}:${orderId}` and `${bmId}:${coinKey}`
@@ -127,7 +133,11 @@ function BalanceManagerBlock({
   const visibleBalances: SettledBalance[] = bm.settledBalances.filter(
     (b) => !hiddenCoinKeys.has(`${bmId}:${b.coinKey}`),
   );
-  const isEmpty = visibleOrders.length === 0 && visibleBalances.length === 0;
+  // Funds committed to pools (locked in orders / settled-from-fills). Not subject to the
+  // optimistic hide sets (those scope cancel/withdraw of the BM's own orders + free balance).
+  const poolTied: PoolTiedBalance[] = (bm.poolTied ?? []).filter((p) => p.locked > 0 || p.settled > 0);
+  const isEmpty =
+    visibleOrders.length === 0 && visibleBalances.length === 0 && poolTied.length === 0;
 
   // Shortened BM address label: 0xab...1c
   const shortBmId =
@@ -189,7 +199,7 @@ function BalanceManagerBlock({
           )}
           {visibleBalances.length > 0 && (
             <div>
-              <SectionLabel>Settled Balances</SectionLabel>
+              <SectionLabel>Available (withdrawable)</SectionLabel>
               <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
                 {visibleBalances.map((bal) => (
                   <SettledBalanceRow key={bal.coinKey} bal={bal} bmId={bmId} onWithdraw={onWithdraw} />
@@ -197,9 +207,34 @@ function BalanceManagerBlock({
               </div>
             </div>
           )}
+          {poolTied.length > 0 && (
+            <div>
+              <SectionLabel>In Orders / Claimable</SectionLabel>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+                {poolTied.map((row) => (
+                  <PoolTiedRow key={`pt:${row.coinKey}`} row={row} bmId={bmId} onClaim={onClaim} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// ── BM funding helper ─────────────────────────────────────────────────────────
+
+/**
+ * A BalanceManager is "funded" when it holds a settled balance OR carries any open
+ * order. Open-order-only accounts count as funded so the "funded only" filter never
+ * hides an account with live resting orders (its balance is locked in the order book).
+ */
+function isBmFunded(bm: BalanceManager): boolean {
+  return (
+    bm.openOrders.length > 0 ||
+    bm.settledBalances.some((b) => b.balance > 0) ||
+    (bm.poolTied ?? []).some((p) => p.locked > 0 || p.settled > 0)
   );
 }
 
@@ -211,9 +246,16 @@ export function DefiPositionsSection({
   hiddenCoinKeys = new Set(),
   onCancel,
   onWithdraw,
+  onClaim,
 }: DefiPositionsSectionProps) {
   const { deepbook, lending, demoFixture } = data;
   const balanceManagers = deepbook.balanceManagers ?? [];
+
+  // "Funded only" filter — opt-in toggle scoped to this card. Only offered when at
+  // least one empty BM exists (otherwise the filter would do nothing).
+  const [fundedOnly, setFundedOnly] = useState(false);
+  const emptyBmCount = balanceManagers.filter((bm) => !isBmFunded(bm)).length;
+  const visibleBms = fundedOnly ? balanceManagers.filter(isBmFunded) : balanceManagers;
 
   const naviSupplied = lending.navi.supplied ?? [];
   const hasDeepbook = balanceManagers.length > 0;
@@ -272,18 +314,58 @@ export function DefiPositionsSection({
         {hasDeepbook && (
           <ProtocolBlock id="deepbook" name="DeepBook">
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {balanceManagers.map((bm, idx) => (
-                <BalanceManagerBlock
-                  key={bm.balanceManagerId}
-                  bm={bm}
-                  index={idx}
-                  total={balanceManagers.length}
-                  hiddenOrderIds={hiddenOrderIds}
-                  hiddenCoinKeys={hiddenCoinKeys}
-                  onCancel={onCancel}
-                  onWithdraw={onWithdraw}
-                />
-              ))}
+              {/* Funded-only filter — only offered when there is an empty BM to hide */}
+              {emptyBmCount > 0 && (
+                <label
+                  title="Hide BalanceManagers with no settled balance and no open orders"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    cursor: "pointer",
+                    fontSize: 11,
+                    color: "var(--fg-muted)",
+                    alignSelf: "flex-start",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={fundedOnly}
+                    onChange={(e) => setFundedOnly(e.target.checked)}
+                    style={{ accentColor: "var(--accent)", width: 13, height: 13, cursor: "pointer" }}
+                  />
+                  Funded accounts only (balance &gt; 0)
+                </label>
+              )}
+
+              {visibleBms.length === 0 ? (
+                <div
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    fontSize: 12,
+                    color: "var(--fg-faint)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  No funded accounts
+                </div>
+              ) : (
+                visibleBms.map((bm, idx) => (
+                  <BalanceManagerBlock
+                    key={bm.balanceManagerId}
+                    bm={bm}
+                    index={idx}
+                    total={visibleBms.length}
+                    hiddenOrderIds={hiddenOrderIds}
+                    hiddenCoinKeys={hiddenCoinKeys}
+                    onCancel={onCancel}
+                    onWithdraw={onWithdraw}
+                    onClaim={onClaim}
+                  />
+                ))
+              )}
             </div>
           </ProtocolBlock>
         )}

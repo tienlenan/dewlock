@@ -37,6 +37,15 @@ export interface SettledBalance {
   balance: number; // human-readable
 }
 
+export interface PoolTiedBalance {
+  coinType: string;
+  coinKey: string;
+  /** Locked in resting orders (not withdrawable until cancel). */
+  locked: number;
+  /** Filled/owed, settled in the pool account — claimable back to the BM. */
+  settled: number;
+}
+
 export interface NaviSupplied {
   coinType: string;
   symbol: string;
@@ -48,6 +57,9 @@ export interface BalanceManager {
   balanceManagerId: string;
   openOrders: OpenOrder[];
   settledBalances: SettledBalance[];
+  /** Funds committed to pools (locked in orders / settled-from-fills). Optional for
+   * back-compat with older tool payloads that predate the pool-tied read. */
+  poolTied?: PoolTiedBalance[];
 }
 
 export interface DefiPositionsData {
@@ -288,6 +300,43 @@ export function SettledBalanceRow({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Pool-tied balance row (locked in orders / settled-claimable) ──────────────
+// Read-only: these funds live in the pool, not the BM. `locked` clears when the
+// order is cancelled; `settled` is claimed back to the BM (Claim action).
+
+export function PoolTiedRow({
+  row,
+  bmId,
+  onClaim,
+}: {
+  row: PoolTiedBalance;
+  bmId: string;
+  onClaim?: (coinType: string, coinSymbol: string, balanceManagerId: string) => void;
+}) {
+  const symbol = shortCoinType(row.coinType);
+  const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 6 });
+  const parts: string[] = [];
+  if (row.locked > 0) parts.push(`${fmt(row.locked)} in orders`);
+  if (row.settled > 0) parts.push(`${fmt(row.settled)} claimable`);
+
+  return (
+    <div style={{ borderTop: "1px solid var(--border)" }}>
+      <div style={{ padding: "9px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+        <CoinLogo symbol={symbol} size={22} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fg)" }}>{symbol}</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--fg-muted)" }}>
+            {parts.join(" · ")}
+          </span>
+        </div>
+        {row.settled > 0 && onClaim && (
+          <ActionButton onClick={() => onClaim(row.coinType, symbol, bmId)}>Claim</ActionButton>
+        )}
+      </div>
     </div>
   );
 }

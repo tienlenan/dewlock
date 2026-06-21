@@ -112,6 +112,46 @@ describe("checkActionShape — DeepBook order-lifecycle shapes", () => {
     );
     expect(smuggled.ok).toBe(false);
   });
+
+  it("claim_settled accepts withdraw_settled_amounts + owner proof, BLOCKS a smuggled order", async () => {
+    const ok = await checkActionShape(
+      baseProposal({
+        actionType: "claim_settled",
+        txBytes: await ptbWithCalls([
+          `${DEEPBOOK_PACKAGE}::balance_manager::generate_proof_as_owner`,
+          `${DEEPBOOK_PACKAGE}::pool::withdraw_settled_amounts`,
+        ]),
+      }),
+    );
+    expect(ok.ok).toBe(true);
+    const smuggled = await checkActionShape(
+      baseProposal({
+        actionType: "claim_settled",
+        txBytes: await ptbWithCalls([
+          `${DEEPBOOK_PACKAGE}::pool::withdraw_settled_amounts`,
+          `${DEEPBOOK_PACKAGE}::pool::place_limit_order`,
+        ]),
+      }),
+    );
+    expect(smuggled.ok).toBe(false);
+  });
+});
+
+describe("checkOrderLifecycleConstraints — claim_settled", () => {
+  const client = {} as never;
+
+  it("passes with a valid BalanceManager (no order/recipient/amount needed)", async () => {
+    const r = await checkOrderLifecycleConstraints(baseProposal({ actionType: "claim_settled" }), client);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("blocks when no BalanceManager is resolved", async () => {
+    const r = await checkOrderLifecycleConstraints(
+      baseProposal({ actionType: "claim_settled", balanceManagerId: undefined }),
+      client,
+    );
+    expect(r.errors.some((e) => e.gate === "ol_balance_manager")).toBe(true);
+  });
 });
 
 describe("checkOrderLifecycleConstraints — cancel_order", () => {

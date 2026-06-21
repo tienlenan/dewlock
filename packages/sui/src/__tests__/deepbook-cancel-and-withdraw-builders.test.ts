@@ -14,7 +14,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { buildCancelOrder, buildWithdrawSettled, OrderManagementBuildError } from "../deepbook/order-management";
+import {
+  buildCancelOrder,
+  buildWithdrawSettled,
+  buildClaimSettled,
+  OrderManagementBuildError,
+} from "../deepbook/order-management";
 
 const BM_KEY = "DEWLOCK";
 
@@ -23,13 +28,14 @@ const m = vi.hoisted(() => ({
   cancelOrder: vi.fn(() => () => {}),
   withdrawFromManager: vi.fn(() => () => {}),
   withdrawAllFromManager: vi.fn(() => () => {}),
+  withdrawSettledAmounts: vi.fn(() => () => {}),
 }));
 
 // DeepBookClient must be a real class — createDeepBookClient calls `new DeepBookClient()`
 // on the live path, and an arrow-fn vi.fn() is not constructable.
 vi.mock("@mysten/deepbook-v3", () => ({
   DeepBookClient: class {
-    deepBook = { cancelOrder: m.cancelOrder };
+    deepBook = { cancelOrder: m.cancelOrder, withdrawSettledAmounts: m.withdrawSettledAmounts };
     balanceManager = {
       withdrawFromManager: m.withdrawFromManager,
       withdrawAllFromManager: m.withdrawAllFromManager,
@@ -52,6 +58,7 @@ beforeEach(() => {
   m.cancelOrder.mockClear();
   m.withdrawFromManager.mockClear();
   m.withdrawAllFromManager.mockClear();
+  m.withdrawSettledAmounts.mockClear();
 });
 
 describe("buildCancelOrder", () => {
@@ -109,5 +116,29 @@ describe("buildWithdrawSettled", () => {
       coinKey: "DEEP",
     }).catch(() => {});
     expect(m.withdrawAllFromManager).toHaveBeenCalledWith(BM_KEY, "DEEP", SENDER);
+  });
+});
+
+describe("buildClaimSettled", () => {
+  it("throws when no pools are provided (nothing to claim)", async () => {
+    await expect(
+      buildClaimSettled(makeMockSuiClient() as never, {
+        senderAddress: SENDER,
+        balanceManagerId: BM_ID,
+        poolKeys: [],
+      }),
+    ).rejects.toThrow(OrderManagementBuildError);
+    expect(m.withdrawSettledAmounts).not.toHaveBeenCalled();
+  });
+
+  it("emits withdrawSettledAmounts(poolKey, DEWLOCK) once per pool with a settled balance", async () => {
+    await buildClaimSettled(makeMockSuiClient() as never, {
+      senderAddress: SENDER,
+      balanceManagerId: BM_ID,
+      poolKeys: ["SUI_USDC", "DEEP_USDC"],
+    }).catch(() => {});
+    expect(m.withdrawSettledAmounts).toHaveBeenCalledTimes(2);
+    expect(m.withdrawSettledAmounts).toHaveBeenCalledWith("SUI_USDC", BM_KEY);
+    expect(m.withdrawSettledAmounts).toHaveBeenCalledWith("DEEP_USDC", BM_KEY);
   });
 });

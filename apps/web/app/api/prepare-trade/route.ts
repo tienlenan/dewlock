@@ -56,6 +56,7 @@ const DETERMINISTIC_ACTIONS = [
   "bm_deposit",
   "cancel_order",
   "withdraw_settled",
+  "claim_settled",
 ] as const;
 
 const requestSchema = z.object({
@@ -106,7 +107,7 @@ const requestSchema = z.object({
 });
 
 /** DeepBook order-lifecycle actions that bypass the transfer/swap coin+amount precondition. */
-const DEEPBOOK_ACTIONS = new Set(["bm_create", "bm_deposit", "cancel_order", "withdraw_settled"]);
+const DEEPBOOK_ACTIONS = new Set(["bm_create", "bm_deposit", "cancel_order", "withdraw_settled", "claim_settled"]);
 
 // ---------------------------------------------------------------------------
 // CORS headers
@@ -125,6 +126,8 @@ function buildActionLabel(actionType: string, amountInNative: string): string {
       return `Fund DeepBook account (${amountInNative} native units)`;
     case "cancel_order":
       return "Cancel DeepBook order";
+    case "claim_settled":
+      return "Claim settled DeepBook balances";
     case "withdraw_settled":
       return `Withdraw settled balance (${amountInNative} native units)`;
     default:

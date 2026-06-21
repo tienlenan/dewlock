@@ -43,6 +43,14 @@ export interface WithdrawSettledSpec {
   humanAmount?: number;
 }
 
+export interface ClaimSettledSpec {
+  senderAddress: string;
+  /** BalanceManager shared object id (0x…64hex). */
+  balanceManagerId: string;
+  /** Whitelisted pool keys to claim settled balances from (must be non-empty). */
+  poolKeys: string[];
+}
+
 export interface OrderManagementBuildResult {
   /** Serialized unsigned PTB in base64. */
   txBytes: string;
@@ -115,6 +123,39 @@ export async function buildWithdrawSettled(
   } catch (err) {
     throw new OrderManagementBuildError(
       `Failed to serialize withdraw-settled PTB: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return { txBytes: Buffer.from(txBytes).toString("base64") };
+}
+
+/**
+ * Build an unsigned PTB that claims a BM's settled (filled/owed) balances from the given
+ * pools back INTO the BalanceManager. Each pool emits an owner trade-proof + a single
+ * `pool::withdraw_settled_amounts`. No wallet outflow — funds land in the BM and then show
+ * as Available (withdraw to the wallet is a separate, existing action).
+ */
+export async function buildClaimSettled(
+  suiClient: SuiClient,
+  spec: ClaimSettledSpec,
+): Promise<OrderManagementBuildResult> {
+  const { senderAddress, balanceManagerId, poolKeys } = spec;
+  if (poolKeys.length === 0) {
+    throw new OrderManagementBuildError("At least one pool with a settled balance is required to claim.");
+  }
+
+  const { client } = await createDeepBookClient({ suiClient, senderAddress, balanceManagerId });
+  const tx = new Transaction();
+  tx.setSender(senderAddress);
+  for (const poolKey of poolKeys) {
+    client.deepBook.withdrawSettledAmounts(poolKey, BALANCE_MANAGER_KEY)(tx);
+  }
+
+  let txBytes: Uint8Array;
+  try {
+    txBytes = await tx.build({ client: suiClient as unknown as ClientWithCoreApi });
+  } catch (err) {
+    throw new OrderManagementBuildError(
+      `Failed to serialize claim-settled PTB: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   return { txBytes: Buffer.from(txBytes).toString("base64") };

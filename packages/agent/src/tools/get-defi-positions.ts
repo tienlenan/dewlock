@@ -16,7 +16,12 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { getSuiMainnetClient } from "@dewlock/sui";
 import { getExistingBalanceManagers } from "@dewlock/sui/balance-manager";
-import { getOpenOrders, getSettledBalances, WHITELISTED_POOL_KEYS } from "@dewlock/sui/account-orders";
+import {
+  getOpenOrders,
+  getSettledBalances,
+  getPoolTiedBalances,
+  WHITELISTED_POOL_KEYS,
+} from "@dewlock/sui/account-orders";
 import { readNaviLending } from "@dewlock/sui/lending-positions";
 
 const SUILEND_MANAGE_URL = "https://suilend.fi";
@@ -56,6 +61,17 @@ export const getDefiPositions = createTool({
           ),
           settledBalances: z.array(
             z.object({ coinType: z.string(), coinKey: z.string(), balance: z.number() }),
+          ),
+          // Funds tied to pools — not in checkManagerBalance. `locked` = in resting orders;
+          // `settled` = filled/owed, claimable back to the BM. Surfaces a "funded" BM that
+          // would otherwise read 0 (all its funds committed to the order book).
+          poolTied: z.array(
+            z.object({
+              coinType: z.string(),
+              coinKey: z.string(),
+              locked: z.number(),
+              settled: z.number(),
+            }),
           ),
         }),
       ),
@@ -111,16 +127,19 @@ export const getDefiPositions = createTool({
       balanceManagerId: string;
       openOrders: Awaited<ReturnType<typeof getOpenOrders>>;
       settledBalances: Awaited<ReturnType<typeof getSettledBalances>>;
+      poolTied: Awaited<ReturnType<typeof getPoolTiedBalances>>;
     }> = [];
     for (const bmId of bmIds) {
-      const [ordersRes, settledRes] = await Promise.allSettled([
+      const [ordersRes, settledRes, poolTiedRes] = await Promise.allSettled([
         getOpenOrders(suiClient, walletAddress, bmId, WHITELISTED_POOL_KEYS),
         getSettledBalances(suiClient, walletAddress, bmId),
+        getPoolTiedBalances(suiClient, walletAddress, bmId),
       ]);
       balanceManagers.push({
         balanceManagerId: bmId,
         openOrders: ordersRes.status === "fulfilled" ? ordersRes.value : [],
         settledBalances: settledRes.status === "fulfilled" ? settledRes.value : [],
+        poolTied: poolTiedRes.status === "fulfilled" ? poolTiedRes.value : [],
       });
     }
 
@@ -161,12 +180,18 @@ function buildFixturePositions(walletAddress: string) {
             },
           ],
           settledBalances: [{ coinType: "USDC", coinKey: "USDC", balance: 12.5 }],
+          // The resting BUY 10 SUI @ 2.8 locks ~28 USDC in the order book (not in the BM).
+          poolTied: [
+            { coinType: "USDC", coinKey: "USDC", locked: 28, settled: 0 },
+            { coinType: "SUI", coinKey: "SUI", locked: 0, settled: 4.2 },
+          ],
         },
         {
           // A second (empty) BM — demonstrates the multi-account list + per-BM actions.
           balanceManagerId: "0x" + "cd".repeat(32),
           openOrders: [],
           settledBalances: [],
+          poolTied: [],
         },
       ],
     },
