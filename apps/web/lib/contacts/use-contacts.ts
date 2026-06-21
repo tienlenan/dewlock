@@ -60,6 +60,11 @@ export function useContacts(wallet: string | undefined) {
   }, [wallet]);
 
   useEffect(() => {
+    // `reload`'s identity changes only when `wallet` changes (useCallback dep), so this
+    // effect doubles as the wallet-switch hook: drop the PREVIOUS wallet's book SYNCHRONOUSLY
+    // before the async refetch resolves, so a stale list can't be read during the gap — incl.
+    // fed to the agent for "send to <friend>" resolution — under the newly-connected wallet.
+    setContacts([]);
     void reload();
   }, [reload]);
 
