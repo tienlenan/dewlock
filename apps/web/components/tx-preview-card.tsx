@@ -47,7 +47,7 @@ export interface TxPreviewData {
   amountInNative: string;
   minAmountOutNative?: string;
   slippageBps?: number;
-  swapSource?: "cetus" | "aggregator";
+  swapSource?: "cetus" | "aggregator" | "aftermath";
   routeProviders?: string[];
   lendingProtocol?: "navi" | "suilend";
   healthBefore?: number;

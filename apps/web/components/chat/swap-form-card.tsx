@@ -297,10 +297,13 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
     setSubmitted(true);
     // Thread the chosen source into the command so prepareTrade + Guardian both route to the
     // same source and re-derive min-out consistently. The trailing marker carries the EXACT
-    // allowlisted coin types so the server binds tokens deterministically (the LLM never re-maps
-    // a ticker); it is stripped from the visible bubble by use-copilot-chat.
+    // allowlisted coin types AND the source id (src=) so the server binds tokens + venue
+    // deterministically (parse-intent reads src= from the marker, never the prose); it is
+    // stripped from the visible bubble by use-copilot-chat. The visible prose shows the
+    // friendly source name ("Cetus Aggregator" / "Aftermath Router") so the user can see
+    // which of the two aggregators they picked — the raw id would read as a generic "aggregator".
     const bind = `[[swap:in=${from.coinType}|out=${to.coinType}|src=${selectedSource}]]`;
-    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol} via ${selectedSource} ${bind}`);
+    onSend?.(`swap ${amount.trim()} ${from.symbol} to ${to.symbol} via ${SOURCE_LABELS[selectedSource]} ${bind}`);
   }
 
   const activeQuote = sourceQuotes[selectedSource];

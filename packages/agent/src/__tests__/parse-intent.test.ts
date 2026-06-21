@@ -211,6 +211,21 @@ describe("parseIntent — swap-form binding (via + exact-type marker)", () => {
     });
   });
 
+  it("the friendly source name in the prose does not break routing — src= marker is authoritative", () => {
+    // The swap form shows the human label ("Cetus Aggregator" / "Aftermath Router") in the
+    // visible prose while the marker carries the routing id. The bind branch must read src=
+    // from the marker and ignore the multi-word prose name entirely.
+    const cetus = `swap 1 SUI to USDC via Cetus Aggregator [[swap:in=${COIN_TYPES.SUI}|out=${COIN_TYPES.USDC}|src=aggregator]]`;
+    expect(parseIntent(cetus)).toMatchObject({
+      action: "swap", coinInType: COIN_TYPES.SUI, coinOutType: COIN_TYPES.USDC,
+      amount: { kind: "exact", human: "1" }, swapSource: "aggregator",
+    });
+    const aftermath = `swap 2.5 SUI to USDC via Aftermath Router [[swap:in=${COIN_TYPES.SUI}|out=${COIN_TYPES.USDC}|src=aftermath]]`;
+    expect(parseIntent(aftermath)).toMatchObject({
+      amount: { kind: "exact", human: "2.5" }, swapSource: "aftermath",
+    });
+  });
+
   it("a marker with a non-allowlisted type is rejected → falls back to the readable command", () => {
     const cmd = `swap 1 SUI to USDC [[swap:in=0xdead::x::X|out=${COIN_TYPES.USDC}|src=cetus]]`;
     expect(parseIntent(cmd)).toMatchObject({

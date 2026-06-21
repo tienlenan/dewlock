@@ -36,15 +36,7 @@ export function TxDetailsGrid({ preview }: { preview: TxPreviewData }) {
         </>
       )}
       {isSwap && preview.swapSource && (
-        <DetailRow
-          label="Route"
-          value={
-            preview.swapSource === "aggregator"
-              ? `aggregator · ${(preview.routeProviders ?? []).join(" → ") || "best route"}`
-              : "Cetus (direct pool)"
-          }
-          mono
-        />
+        <DetailRow label="Route" value={routeLabel(preview.swapSource, preview.routeProviders)} mono />
       )}
       <DetailRow label="Network gas" value={gasCost} mono />
       {/* Coin type — always shown for fake-coin prevention */}
@@ -62,6 +54,18 @@ export function TxDetailsGrid({ preview }: { preview: TxPreviewData }) {
       />
     </div>
   );
+}
+
+/**
+ * Human-readable route label per swap venue. Names the SPECIFIC aggregator
+ * (Cetus Aggregator vs Aftermath Router) so the two are never collapsed into a
+ * generic "aggregator", and a direct Cetus pool reads as such.
+ */
+function routeLabel(source: NonNullable<TxPreviewData["swapSource"]>, providers?: string[]): string {
+  const route = (providers ?? []).join(" → ") || "best route";
+  if (source === "aggregator") return `Cetus Aggregator · ${route}`;
+  if (source === "aftermath") return `Aftermath Router · ${route}`;
+  return "Cetus (direct pool)";
 }
 
 // ---------------------------------------------------------------------------
