@@ -91,16 +91,18 @@ function TokenSelect({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ position: "relative" }}>
+    // shrink:0 so the token pill keeps its size and the amount input absorbs any
+    // width squeeze — the pill must never get pushed past the panel edge.
+    <div style={{ position: "relative", flexShrink: 0 }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 transition-colors"
-        style={{ padding: "5px 8px 5px 5px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--bg-elev)", boxShadow: "var(--shadow-sm)", cursor: "pointer" }}
+        style={{ padding: "5px 8px 5px 5px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--bg-elev)", boxShadow: "var(--shadow-sm)", cursor: "pointer", maxWidth: 150 }}
       >
         <CoinLogo symbol={value.symbol} logoUrl={value.logoUrl} size={24} />
-        <span style={{ fontSize: 14, fontWeight: 650, color: "var(--fg)" }}>{value.symbol}</span>
-        <ChevronDown size={14} style={{ color: "var(--fg-faint)" }} aria-hidden />
+        <span style={{ fontSize: 14, fontWeight: 650, color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{value.symbol}</span>
+        <ChevronDown size={14} style={{ color: "var(--fg-faint)", flexShrink: 0 }} aria-hidden />
       </button>
       {open && (
         <>
@@ -211,8 +213,11 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
   const { native: fromBalanceNative } = useCoinBalance(account?.address, from?.coinType);
 
   const amountValid = /^\d+(\.\d+)?$/.test(amount.trim()) && Number(amount) > 0;
+  // Both sides must be resolved, verified coins — guards against ever emitting a
+  // "swap … to undefined" command if the form lands in a degenerate state.
+  const bothResolved = Boolean(from?.coinType && to?.coinType);
   const sameCoin = from?.coinType === to?.coinType;
-  const canSubmit = amountValid && !sameCoin && !submitted;
+  const canSubmit = amountValid && bothResolved && !sameCoin && !submitted;
 
   /** Amount usable for MAX/50% — full balance, minus a gas reserve for native SUI. */
   function spendableNative(): bigint {
@@ -314,10 +319,10 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
         {/* You pay — with live balance + percentage shortcuts */}
         <div style={{ background: "var(--bg-sub)", border: "1px solid var(--border)", borderRadius: 13, padding: "11px 13px" }}>
           <div className="flex items-center justify-between" style={{ marginBottom: 7, gap: 8 }}>
-            <span className="split-mono" style={{ fontSize: 9.5, letterSpacing: "0.12em", color: "var(--fg-faint)", textTransform: "uppercase" }}>You pay</span>
+            <span className="split-mono" style={{ fontSize: 9.5, letterSpacing: "0.12em", color: "var(--fg-faint)", textTransform: "uppercase", flexShrink: 0 }}>You pay</span>
             {hasBalance && (
-              <div className="flex items-center gap-1.5">
-                <span className="mono" style={{ fontSize: 10.5, color: "var(--fg-muted)" }}>
+              <div className="flex items-center gap-1.5" style={{ minWidth: 0 }}>
+                <span className="mono" style={{ fontSize: 10.5, color: "var(--fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                   {nativeToHuman(fromBalanceNative!, from.decimals)} {from.symbol}
                 </span>
                 {[["50%", 50], ["MAX", 100]].map(([label, pct]) => (
@@ -327,7 +332,7 @@ export function SwapFormCard({ data, onSend }: { data: SwapFormData; onSend?: (t
                     onClick={() => applyPercent(pct as number)}
                     disabled={submitted}
                     className="split-mono"
-                    style={{ fontSize: 9, letterSpacing: "0.04em", color: "var(--accent-ink)", background: "var(--accent-soft)", border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)", padding: "2px 6px", borderRadius: 6, cursor: submitted ? "default" : "pointer" }}
+                    style={{ fontSize: 9, letterSpacing: "0.04em", color: "var(--accent-ink)", background: "var(--accent-soft)", border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)", padding: "2px 6px", borderRadius: 6, cursor: submitted ? "default" : "pointer", flexShrink: 0 }}
                   >
                     {label as string}
                   </button>

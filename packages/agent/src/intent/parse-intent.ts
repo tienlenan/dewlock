@@ -36,6 +36,10 @@ export type Intent =
   // Swap whose destination is a raw 0x coin type NOT on the verified allowlist — routed
   // through the Guardian's coin_allowlist gate (blocked before any build), never built.
   | { action: "swap_unverified"; coinInType: string; coinOutRaw: string; amount: IntentAmount }
+  // Swap whose destination is an UNKNOWN ticker (not a verified symbol, not a 0x type) —
+  // e.g. "swap USDC to aaa cat". Resolved to a plain "not recognised" reply so the LLM
+  // never fabricates a route or renders a broken swap form for a scam/typo ticker.
+  | { action: "swap_unknown_symbol"; inSym: string; outSym: string }
   | { action: "swap_form" } // bare "swap" — missing args, render the form
   // DeepBook limit order. "limit_order_form" = bare/partial intent → render the order
   // form; "limit_order" = a complete order (from the form's deterministic marker) →
@@ -279,7 +283,9 @@ export function parseIntent(text: string): Intent | null {
     let coinOutType: string;
     if (symB) {
       const outTok = resolveSymbol(symB);
-      if (!outTok) return null; // unknown destination → clarify
+      // Unknown destination ticker → deterministic "not recognised" reply (NOT a broken
+      // form): the LLM must never guess an address or render getSwapForm for it.
+      if (!outTok) return { action: "swap_unknown_symbol", inSym: symA.toUpperCase(), outSym: symB };
       coinOutType = outTok.coinType;
     } else {
       coinOutType = defaultDestination(inTok.coinType); // USDC→SUI, else→USDC
@@ -295,6 +301,33 @@ export function parseIntent(text: string): Intent | null {
       swapSource: src && SWAP_SOURCE_IDS.has(src) ? (src as SwapSourceId) : undefined,
       slippageBps,
     };
+  }
+
+  // Swap verb with a MULTI-WORD destination clause the strict pair regex above can't match
+  // (e.g. "swap USDC to aaa cat"). Resolve the destination (full phrase, else its first word):
+  // a known token → a normal swap (the directive/Guardian still gate a non-swappable output);
+  // an unrecognised destination → "not recognised" deterministically, never a broken form.
+  const swapDestRe = /^(?:swap|sell|dump|convert)\s+(all|max|everything|\d+(?:\.\d+)?)?\s*([a-z0-9]+)\s+(?:to|for|into)\s+(.+?)(?:\s+via\s+[a-z]+)?$/i;
+  const dm = swapDestRe.exec(swapText);
+  if (dm) {
+    const inTok = resolveSymbol(dm[2]);
+    if (inTok) {
+      const destRaw = dm[3].trim();
+      const destTok = resolveSymbol(destRaw) ?? resolveSymbol(destRaw.split(/\s+/)[0]);
+      if (!destTok) {
+        return { action: "swap_unknown_symbol", inSym: dm[2].toUpperCase(), outSym: destRaw };
+      }
+      if (destTok.coinType !== inTok.coinType) {
+        return {
+          action: "swap",
+          coinInType: inTok.coinType,
+          coinOutType: destTok.coinType,
+          amount: parseAmount(dm[1]),
+          swappable: inTok.swappable,
+          slippageBps,
+        };
+      }
+    }
   }
 
   // send / transfer: <verb> [all|<amount>] <token> [to <recipient>] — recipient parsing

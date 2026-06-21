@@ -346,5 +346,14 @@ export async function buildIntentDirective(
         `The Guardian will block this (coin_allowlist) — present the returned block card plainly. Do NOT substitute another token and do NOT call any other tool.`,
       ].filter(Boolean).join("\n");
     }
+
+    case "swap_unknown_symbol":
+      // Unknown destination TICKER (no address) → there's nothing to build or block on-chain.
+      // Reply plainly; never render a swap form or guess an address for a scam/typo ticker.
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user asked to swap ${intent.inSym} into "${sanitizeName(intent.outSym)}", which is NOT a recognised, verified token on Dewlock.`,
+        `Do NOT call getSwapForm, prepareTrade, or any other tool. Reply briefly (no card): that token isn't on Dewlock's verified swap list, and suggest a few supported tokens (e.g. SUI, USDC, USDT, DEEP, CETUS, WAL). Ask the user to pick one of those.`,
+      ].join("\n");
   }
 }

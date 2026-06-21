@@ -103,6 +103,14 @@ describe("buildIntentDirective — form routing for missing args", () => {
     expect(d).toContain('side: "BUY"');
   });
 
+  it("'swap USDC to zzz fake junk' (unknown destination) → plain reply, NO form/build", async () => {
+    const d = (await buildIntentDirective("swap USDC to zzz fake junk", WALLET)) ?? "";
+    expect(d).toContain("recognised, verified token on Dewlock");
+    expect(d).toContain("Do NOT call getSwapForm");
+    // Must not instruct a build (no prepareTrade actionType args for this path).
+    expect(d).not.toContain('actionType:');
+  });
+
   it("the form's [[limit:…]] marker (complete) → prepareTrade limit_order, not a form", async () => {
     const cmd = "limit BUY 10 SUI at 2.8 USDC on SUI_USDC [[limit:pool=SUI_USDC|side=BUY|price=2.8|qty=10|exp=4102444800000]]";
     const d = (await buildIntentDirective(cmd, WALLET)) ?? "";

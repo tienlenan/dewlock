@@ -142,6 +142,26 @@ describe("parseIntent — unverified raw 0x destination (coin_allowlist demo)", 
   });
 });
 
+describe("parseIntent — unknown swap destination (must not render a broken form)", () => {
+  it("known input → unknown single-word ticker → swap_unknown_symbol", () => {
+    expect(parseIntent("swap USDC to zzzfaketoken")).toEqual({
+      action: "swap_unknown_symbol", inSym: "USDC", outSym: "zzzfaketoken",
+    });
+  });
+  it("known input → unknown MULTI-word destination → swap_unknown_symbol", () => {
+    expect(parseIntent("swap usdc to zzz fake junk")).toEqual({
+      action: "swap_unknown_symbol", inSym: "USDC", outSym: "zzz fake junk",
+    });
+    expect(parseIntent("sell SUI for moon rocketzzz")).toMatchObject({
+      action: "swap_unknown_symbol", inSym: "SUI",
+    });
+  });
+  it("a valid pair still parses as a swap (no false positive)", () => {
+    expect(parseIntent("swap 5 SUI to USDC")).toMatchObject({ action: "swap" });
+    expect(parseIntent("sell SUI")).toMatchObject({ action: "swap" });
+  });
+});
+
 describe("parseIntent — LLM fallback (null)", () => {
   it("contextual replies → null", () => {
     for (const t of ["yes", "do it", "the second one", "ok", "confirm"]) {
