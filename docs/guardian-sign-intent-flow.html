@@ -81,12 +81,12 @@
     <li><b>SuiNS lookalike</b> <span class="m">— homoglyph-normalized edit-distance vs verified contacts.</span></li>
     <li><b>Min-out re-derive</b> <span class="m">— swaps: recompute min-output from on-chain decimals + the same route source.</span></li>
     <li><b>Orderbook / Lending</b> <span class="m">— POST_ONLY / self-match / expiry; lending is health-improving only.</span></li>
-    <li><b>Dry-run + WYSIWYS digest</b> <span class="m">— dry-run the exact bytes (fail-closed); <code>approvedDigest = sha256(txBytes)</code>.</span></li>
+    <li><b>Dry-run + WYSIWYS digest</b> <span class="m">— dry-run full bytes for effects (fail-closed); <code>approvedDigest = sha256(kindBytes)</code> over the TransactionKind only.</span></li>
     <li><b>Authoritative value gate</b> <span class="m">— re-value from actual net outflow; block if outflow &gt; 1.5× declared.</span></li>
   </ol>
 
   <div class="callout">
-    <b>WYSIWYS (What You Sign Is What You Saw).</b> The Guardian computes <code>approvedDigest = sha256(txBytes)</code> over the exact bytes it dry-ran and previewed. The wallet signs those same bytes; the sign hook asserts <b>signed bytes == approved bytes</b>. The agent never holds user-fund keys and the LLM never overrides a gate — code is the gate, fail-closed on every dependency.
+    <b>WYSIWYS (What You Sign Is What You Saw).</b> The Guardian dry-runs the full bytes (for effects) but computes <code>approvedDigest = sha256(kindBytes)</code> over the <b>TransactionKind only</b> — the programmable inputs + commands you previewed, with no gas coin or sender. The wallet reconstructs via <code>Transaction.fromKind()</code> and fills a fresh gas coin at sign time; the sign hook re-derives the kind digest from the wallet-built bytes and asserts <b>kind digest == approved digest</b> before execute. Gas is the wallet's concern; the action is what you consent to. The agent never holds user-fund keys and the LLM never overrides a gate — code is the gate, fail-closed on every dependency.
   </div>
 
   <footer>
@@ -165,11 +165,11 @@
       { t: "allowlist · shape · coin-type · provenance · price · caps", c: C.ink, f: "11.5px ui-monospace, Menlo, monospace", h: 16 },
       { t: "SuiNS · min-out · orderbook/lending · dry-run · digest · outflow", c: C.ink, f: "11.5px ui-monospace, Menlo, monospace", h: 16 } ] },
     { y: 400, h: 56, t: "digest", lines: [
-      { t: "5 · approvedDigest = sha256(txBytes)  +  preview", c: C.aqua, f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "5 · approvedDigest = sha256(kindBytes)  +  preview", c: C.aqua, f: "bold 13px -apple-system, Segoe UI, Arial" },
       { t: "balance deltas · gas · USD value (from the dry-run)", c: C.muted } ] },
     { y: 482, h: 56, t: "sign", lines: [
-      { t: "6 · You sign the EXACT bytes in your wallet", f: "bold 13px -apple-system, Segoe UI, Arial" },
-      { t: "WYSIWYS — signed bytes == approved bytes", c: C.aqua, f: "12px ui-monospace, Menlo, monospace" } ] },
+      { t: "6 · You sign the action (TransactionKind); wallet adds gas", f: "bold 13px -apple-system, Segoe UI, Arial" },
+      { t: "WYSIWYS — kind digest re-checked == approved digest", c: C.aqua, f: "12px ui-monospace, Menlo, monospace" } ] },
     { y: 564, h: 40, t: "node", lines: [
       { t: "7 · On-chain execute", f: "bold 13px -apple-system, Segoe UI, Arial" } ] },
     { y: 630, h: 50, t: "node", lines: [
