@@ -22,10 +22,18 @@ import type { DryRunResult } from "@dewlock/sui/dry-run";
 // Mock the @dewlock/sui root so guardianCheck's dryRunTransaction is controllable.
 // The guardian imports ONLY { dryRunTransaction, DryRunFailedError } from the root;
 // allowlist/quotes-source come from their own subpaths (not mocked).
-vi.mock("@dewlock/sui", () => ({
-  dryRunTransaction: vi.fn(),
-  DryRunFailedError: class DryRunFailedError extends Error {},
-}));
+vi.mock("@dewlock/sui", async () => {
+  // Real, dependency-free capObjectsForPreview (dry-run subpath) so the mocked root
+  // still satisfies guardian's preview compose; dryRunTransaction stays controllable.
+  const { capObjectsForPreview } = await vi.importActual<typeof import("@dewlock/sui/dry-run")>(
+    "@dewlock/sui/dry-run",
+  );
+  return {
+    dryRunTransaction: vi.fn(),
+    DryRunFailedError: class DryRunFailedError extends Error {},
+    capObjectsForPreview,
+  };
+});
 
 import { dryRunTransaction } from "@dewlock/sui";
 import { checkActionShape, checkAllowlist, computeNetOutflowUsd, guardianCheck } from "../guardian";

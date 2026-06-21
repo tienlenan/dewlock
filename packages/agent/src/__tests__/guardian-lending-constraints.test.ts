@@ -14,10 +14,18 @@ import { Transaction } from "@mysten/sui/transactions";
 import { COIN_TYPES, NAVI_PACKAGE, SUILEND_PACKAGE } from "../allowlist";
 import type { DryRunResult } from "@dewlock/sui/dry-run";
 
-vi.mock("@dewlock/sui", () => ({
-  dryRunTransaction: vi.fn(),
-  DryRunFailedError: class DryRunFailedError extends Error {},
-}));
+vi.mock("@dewlock/sui", async () => {
+  // Real, dependency-free capObjectsForPreview (dry-run subpath) so the mocked root
+  // still satisfies guardian's preview compose; dryRunTransaction stays controllable.
+  const { capObjectsForPreview } = await vi.importActual<typeof import("@dewlock/sui/dry-run")>(
+    "@dewlock/sui/dry-run",
+  );
+  return {
+    dryRunTransaction: vi.fn(),
+    DryRunFailedError: class DryRunFailedError extends Error {},
+    capObjectsForPreview,
+  };
+});
 
 import { dryRunTransaction } from "@dewlock/sui";
 import { checkLendingConstraints, checkActionShape, checkAllowlist, guardianCheck } from "../guardian";

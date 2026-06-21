@@ -47,8 +47,8 @@ export type {
 } from "./protocol-registry";
 export { stableJson, sha256Hex, sha256HexBytes, WysiwysError } from "./sign";
 export { getSuiMainnetClient, getSuiDevnetClient } from "./client";
-export { dryRunTransaction, DryRunFailedError } from "./dry-run";
-export type { DryRunResult, BalanceDelta } from "./dry-run";
+export { dryRunTransaction, DryRunFailedError, capObjectsForPreview } from "./dry-run";
+export type { DryRunResult, BalanceDelta, ObjectChange, ObjectOwnerKind } from "./dry-run";
 export { buildTransfer, TransferBuildError } from "./build-transfer";
 export type { TransferSpec, TransferBuildResult } from "./build-transfer";
 // NOTE: build-swap and quotes-source are NOT re-exported here — they pull in

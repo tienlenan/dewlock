@@ -10,6 +10,10 @@
  */
 
 import type { SuiJsonRpcClient, DryRunTransactionBlockResponse } from "@mysten/sui/jsonRpc";
+import { extractObjectChanges, type ObjectChange } from "./dry-run-object-changes";
+
+export { capObjectsForPreview } from "./dry-run-object-changes";
+export type { ObjectChange, ObjectOwnerKind } from "./dry-run-object-changes";
 
 // Server-side SuiClient type — SuiJsonRpcClient is the v2.x successor to the
 // old SuiClient class; both expose dryRunTransactionBlock with the same signature.
@@ -26,10 +30,16 @@ export interface BalanceDelta {
 /** Structured result from a successful dry-run simulation. */
 export interface DryRunResult {
   effects: DryRunTransactionBlockResponse["effects"];
-  /** Per-owner balance deltas parsed from objectChanges. */
+  /** Per-owner net coin deltas parsed from balanceChanges. */
   balanceDeltas: BalanceDelta[];
   /** Estimated gas in MIST. */
   gasCostMist: bigint;
+  /**
+   * Per-object changes parsed from objectChanges (created/mutated/transferred/…).
+   * Optional: a required field would break the many hand-built mock DryRunResults
+   * in the guardian test suite. Absent when not requested / not parseable.
+   */
+  objectChanges?: ObjectChange[];
 }
 
 /**
@@ -39,10 +49,14 @@ export interface DryRunResult {
  *
  * @param client - Server-side SuiClient instance.
  * @param txBytes - Base64-encoded serialized transaction bytes.
+ * @param senderAddress - Optional tx sender; used only to classify object-change
+ *   ownership ("you" vs "third-party"). Omitting it never affects the gate decision,
+ *   only the preview's ownerKind labels.
  */
 export async function dryRunTransaction(
   client: SuiClient,
   txBytes: string,
+  senderAddress?: string,
 ): Promise<DryRunResult> {
   let response: DryRunTransactionBlockResponse;
 
@@ -74,11 +88,13 @@ export async function dryRunTransaction(
 
   const gasCostMist = extractGasCost(response);
   const balanceDeltas = extractBalanceDeltas(response);
+  const objectChanges = extractObjectChanges(response, senderAddress);
 
   return {
     effects: response.effects,
     balanceDeltas,
     gasCostMist,
+    objectChanges,
   };
 }
 

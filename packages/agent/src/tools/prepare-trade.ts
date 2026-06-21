@@ -266,6 +266,29 @@ export const prepareTrade = createTool({
             owner: z.string(),
           }),
         ),
+        // Contracts the PTB invokes (permissions UI). MUST be declared here — the
+        // tool outputSchema strips undeclared keys, so the runtime spread alone
+        // would never reach the client.
+        contractsCalled: z.array(
+          z.object({
+            target: z.string(),
+            protocolName: z.string(),
+            category: z.string(),
+            status: z.string(),
+            allowlistKind: z.enum(["pinned", "signature-matched", "none"]),
+          }),
+        ),
+        // Objects the PTB creates/mutates/transfers (permissions UI). Capped server-side;
+        // objectsTouchedTotal is the true count for the "+K more" affordance.
+        objectsTouched: z.array(
+          z.object({
+            objectId: z.string(),
+            changeType: z.enum(["created", "mutated", "transferred", "deleted", "wrapped"]),
+            objectType: z.string().optional(),
+            ownerKind: z.enum(["you", "shared", "object", "third-party"]),
+          }),
+        ),
+        objectsTouchedTotal: z.number(),
         // Real decimals (curated map → on-chain CoinMetadata) for every coin type the
         // preview displays, so the client formats amounts with the correct scale.
         coinDecimals: z.record(z.string(), z.number()).optional(),

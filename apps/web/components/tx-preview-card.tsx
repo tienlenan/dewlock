@@ -22,17 +22,25 @@
 import React, { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { LendSummary } from "./lend-card";
+import {
+  formatNative,
+  formatMist,
+  formatUsd,
+  shortCoinType,
+  type BalanceDeltaDisplay,
+  type ContractCallDisplay,
+  type ObjectTouchedDisplay,
+} from "./tx-preview-format";
+import { TxAssuranceHeader } from "./tx-assurance-header";
+import { TxPermissionsSection } from "./tx-permissions-section";
+import { TxFlowSection } from "./tx-flow-section";
+import { useCurrentAccount } from "@mysten/dapp-kit";
 
 // ---------------------------------------------------------------------------
 // Types — kept identical to preserve data contract with use-copilot-chat
 // ---------------------------------------------------------------------------
 
-export interface BalanceDeltaDisplay {
-  coinType: string;
-  /** Signed bigint as string (negative = outflow). */
-  amount: string;
-  owner: string;
-}
+export type { BalanceDeltaDisplay } from "./tx-preview-format";
 
 export interface TxPreviewData {
   actionLabel: string;
@@ -50,6 +58,12 @@ export interface TxPreviewData {
   estimatedUsdValue: number;
   gasCostMist: string;
   balanceDeltas: BalanceDeltaDisplay[];
+  /** Contracts (Move targets) the PTB invokes — permissions UI. Optional for legacy payloads. */
+  contractsCalled?: ContractCallDisplay[];
+  /** Objects the PTB creates/mutates/transfers — permissions UI (server-capped). */
+  objectsTouched?: ObjectTouchedDisplay[];
+  /** True object-change count before the cap, for the "+K more" affordance. */
+  objectsTouchedTotal?: number;
   /** Real decimals per coin type (server-resolved). Absent → fall back to the curated map. */
   coinDecimals?: Record<string, number>;
   capsWarning: boolean;
@@ -68,34 +82,6 @@ export interface TxPreviewCardProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function shortCoinType(coinType: string): string {
-  const parts = coinType.split("::");
-  return parts[parts.length - 1] ?? coinType;
-}
-
-// Curated last-resort decimals — only used when the server didn't supply coinDecimals
-// (legacy payloads / fixtures). The server-resolved map is authoritative for any token.
-const FALLBACK_DECIMALS: Record<string, number> = {
-  "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI": 9,
-  "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC": 6,
-  "0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT": 6,
-};
-
-function formatNative(native: string, coinType: string, coinDecimals?: Record<string, number>): string {
-  const decimals = coinDecimals?.[coinType] ?? FALLBACK_DECIMALS[coinType] ?? 9;
-  const value = Number(BigInt(native)) / 10 ** decimals;
-  return value.toLocaleString("en-US", { maximumFractionDigits: 6 });
-}
-
-function formatMist(mist: string): string {
-  const sui = Number(BigInt(mist)) / 1e9;
-  return `${sui.toFixed(4)} SUI`;
-}
-
-function formatUsd(usd: number): string {
-  return usd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-}
 
 // Security affordance badge — green checkmark chips
 function GuardianBadge({ label }: { label: string }) {
@@ -123,6 +109,7 @@ function GuardianBadge({ label }: { label: string }) {
 export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false }: TxPreviewCardProps) {
   const [provenanceAcknowledged, setProvenanceAcknowledged] = useState(false);
   const [showDigest, setShowDigest] = useState(false);
+  const account = useCurrentAccount();
 
   const isLend = !!preview.lendingProtocol;
   const isSwap = !!preview.coinTypeOut && !isLend;
@@ -208,6 +195,12 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
 
       {/* ── Body ── */}
       <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "14px" }}>
+
+        {/* Security-assurance header — truthful-scoped, surfaces third-party transfers */}
+        <TxAssuranceHeader
+          estimatedUsdValue={preview.estimatedUsdValue}
+          objectsTouched={preview.objectsTouched}
+        />
 
         {/* You pay / You receive — swap style */}
         {isSwap && (
@@ -381,67 +374,16 @@ export function TxPreviewCard({ preview, onConfirm, onCancel, isPending = false 
           />
         </div>
 
-        {/* Balance deltas from dry-run */}
-        {preview.balanceDeltas.length > 0 && (
-          <div>
-            <p
-              className="split-mono mb-2"
-              style={{ fontSize: "10px", letterSpacing: "0.12em", color: "var(--fg-muted)", textTransform: "uppercase" }}
-            >
-              Expected balance changes
-            </p>
-            <div
-              style={{
-                borderRadius: "8px",
-                border: "1px solid var(--border)",
-                overflow: "hidden",
-              }}
-            >
-              {preview.balanceDeltas.map((delta, i) => {
-                const amount = BigInt(delta.amount);
-                const isPositive = amount >= 0n;
-                const ticker = shortCoinType(delta.coinType);
-                const formatted = formatNative(
-                  (amount < 0n ? -amount : amount).toString(),
-                  delta.coinType,
-                  preview.coinDecimals,
-                );
-                return (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between"
-                    style={{
-                      padding: "8px 12px",
-                      fontSize: "12px",
-                      borderTop: i > 0 ? "1px solid var(--border)" : undefined,
-                    }}
-                  >
-                    <span className="mono" style={{ color: "var(--fg-muted)", fontSize: "11px" }}>
-                      {delta.owner.slice(0, 6)}…{delta.owner.slice(-4)}
-                    </span>
-                    <span
-                      className="mono split-mono"
-                      style={{
-                        fontSize: "11px",
-                        color: isPositive ? "var(--success)" : "var(--destructive)",
-                        background: isPositive
-                          ? "color-mix(in srgb, var(--success) 10%, transparent)"
-                          : "color-mix(in srgb, var(--destructive) 10%, transparent)",
-                        border: isPositive
-                          ? "1px solid color-mix(in srgb, var(--success) 30%, transparent)"
-                          : "1px solid color-mix(in srgb, var(--destructive) 30%, transparent)",
-                        padding: "2px 8px",
-                        borderRadius: 99,
-                      }}
-                    >
-                      {isPositive ? "+" : "−"}{formatted} {ticker}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* Asset flow — directional, labelled (replaces the raw balance-delta list).
+            deriveFlowRows preserves every non-zero delta, so no data is lost. */}
+        <TxFlowSection preview={preview} walletAddress={account?.address} />
+
+        {/* Permissions & contracts — collapsible (contracts called + objects touched) */}
+        <TxPermissionsSection
+          contractsCalled={preview.contractsCalled}
+          objectsTouched={preview.objectsTouched}
+          objectsTouchedTotal={preview.objectsTouchedTotal}
+        />
 
         {/* Guardian gate badges */}
         <div className="flex flex-wrap gap-1.5">

@@ -19,6 +19,12 @@
 
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
+import {
+  extractMoveTargets,
+  classifyTarget,
+  buildContractsCalled,
+  type ContractCall,
+} from "./tx-introspection";
 // SuiJsonRpcClient is the v2.x successor to SuiClient; same interface for our purposes.
 type SuiClient = SuiJsonRpcClient;
 import {
@@ -91,7 +97,7 @@ export type LendingProtocol = (typeof LENDING_PROTOCOLS)[number];
 /** Swap execution source. "cetus" = direct CLMM pool; "aggregator" = Cetus best route; "aftermath" = Aftermath AMM router. */
 export const SWAP_SOURCES = ["cetus", "aggregator", "aftermath"] as const;
 export type SwapSource = (typeof SWAP_SOURCES)[number];
-import { dryRunTransaction, DryRunFailedError, type DryRunResult } from "@dewlock/sui";
+import { dryRunTransaction, DryRunFailedError, capObjectsForPreview, type DryRunResult } from "@dewlock/sui";
 // Settled-balance reader for the withdraw_settled amount ceiling (lazy DeepBook SDK
 // inside — importing the module evaluates no SDK). Subpath keeps it off non-order paths.
 import { readSettledBalance } from "@dewlock/sui/account-orders";
@@ -259,6 +265,12 @@ export interface TxPreview {
   estimatedUsdValue: number;
   gasCostMist: bigint;
   balanceDeltas: DryRunResult["balanceDeltas"];
+  /** Contracts (Move targets) the PTB invokes, with allowlist provenance for the permissions UI. */
+  contractsCalled: ContractCall[];
+  /** Objects the PTB creates/mutates/transfers (permissions UI). Capped for display. */
+  objectsTouched: NonNullable<DryRunResult["objectChanges"]>;
+  /** Total object-change count before the display cap (FE renders "+K more"). */
+  objectsTouchedTotal: number;
   /** Real decimals per coin type the preview displays (curated map → on-chain
    * CoinMetadata → 9). The client formats native amounts with these, so a non-9-decimal
    * swap output renders at the correct scale instead of a hardcoded default. */
@@ -543,7 +555,7 @@ export async function guardianCheck(
 
   if (reasons.length === 0) {
     // Only attempt dry-run if all prior gates passed (avoid leaking RPC calls on blocked tx)
-    const dryRunCheck = await runDryRunGate(proposal.txBytes, suiClient);
+    const dryRunCheck = await runDryRunGate(proposal.txBytes, suiClient, proposal.walletAddress);
     if (!dryRunCheck.ok) {
       block("dry_run", dryRunCheck.reason);
     } else {
@@ -627,6 +639,23 @@ export async function guardianCheck(
     coinDecimals[ct] = await resolveCoinDecimals(ct, suiClient);
   }
 
+  // Contracts the PTB calls — display-only, derived from the same bytes the gates
+  // already parsed, so it cannot fail here (defensive empty on any parse miss).
+  let contractsCalled: ContractCall[] = [];
+  try {
+    contractsCalled = buildContractsCalled(extractMoveTargets(proposal.txBytes));
+  } catch {
+    contractsCalled = [];
+  }
+
+  // Objects the PTB touches, shaped for the capped preview. capObjectsForPreview keeps
+  // third-party transfers + unclassified owners always visible (never hidden by the cap)
+  // and reports the true total for the "+K more" affordance.
+  const { shown: objectsTouched, total: objectsTouchedTotal } = capObjectsForPreview(
+    dryRunResult!.objectChanges ?? [],
+    6,
+  );
+
   const preview: TxPreview = {
     actionLabel: proposal.actionLabel,
     coinTypeIn: proposal.coinTypeIn,
@@ -640,6 +669,9 @@ export async function guardianCheck(
     estimatedUsdValue,
     gasCostMist: dryRunResult!.gasCostMist,
     balanceDeltas: dryRunResult!.balanceDeltas,
+    contractsCalled,
+    objectsTouched,
+    objectsTouchedTotal,
     coinDecimals,
     capsWarning,
     requiresProvenanceConfirm,
@@ -679,43 +711,9 @@ export async function guardianCheck(
 interface GateResult { ok: boolean; reason: string }
 
 export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
+  let calls;
   try {
-    const bytes = Buffer.from(txBytesB64, "base64");
-    const tx = Transaction.from(bytes);
-    const data = tx.getData();
-
-    // Inspect all MoveCall commands in the transaction
-    const commands = data.commands ?? [];
-    for (const cmd of commands) {
-      if ("MoveCall" in cmd && cmd.MoveCall) {
-        const mc = cmd.MoveCall;
-        const target = `${mc.package}::${mc.module}::${mc.function}`;
-        // Aggregator swap-route calls carry a per-route, upgradeable integration
-        // package that cannot be statically allowlisted, so they are matched by
-        // module::function signature. The action-scoped shape gate ensures these
-        // only appear in a declared swap; the value gates bound the swap itself.
-        if (isAggregatorSwapCall(mc.module, mc.function)) continue;
-        // Aftermath per-DEX router calls (router::swap_a_b, swap_b_a,
-        // add_swap_exact_in_to_route) have the same upgradeable-package pattern.
-        if (isAftermathSwapCall(mc.module, mc.function)) continue;
-        if (!ALLOWED_MOVE_TARGETS.has(target)) {
-          // Status-aware reason: if the target maps to a known-but-excluded
-          // protocol, name it; otherwise the generic refusal.
-          const owner = getProtocolByTarget(target);
-          const statusNote = owner
-            ? ` Target belongs to "${owner.name}", which is ${owner.status}` +
-              `${owner.lastIncident ? ` (security incident ${owner.lastIncident.date})` : ""} — refused.`
-            : "";
-          return {
-            ok: false,
-            reason:
-              `Move call "${target}" is not on the protocol allowlist (refused before build).` +
-              statusNote,
-          };
-        }
-      }
-    }
-    return { ok: true, reason: "" };
+    calls = extractMoveTargets(txBytesB64);
   } catch (err) {
     // Parsing failure → unknown content → block
     return {
@@ -723,6 +721,30 @@ export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
       reason: `Failed to parse PTB for allowlist check: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  for (const call of calls) {
+    // classifyTarget is the SINGLE predicate shared with the preview labeller:
+    // pass iff the call is exact-package pinned OR an aggregator/aftermath route call
+    // matched by module::function signature (their per-route integration package is
+    // upgradeable and cannot be statically pinned; the action-shape + value gates
+    // bound those swaps). Enforcing the carve-out here — not via an upstream skip —
+    // keeps the gate decision and the displayed allowlist provenance from drifting.
+    if (classifyTarget(call.target, call.module, call.function) === "none") {
+      // Status-aware reason: if the target maps to a known-but-excluded
+      // protocol, name it; otherwise the generic refusal.
+      const owner = getProtocolByTarget(call.target);
+      const statusNote = owner
+        ? ` Target belongs to "${owner.name}", which is ${owner.status}` +
+          `${owner.lastIncident ? ` (security incident ${owner.lastIncident.date})` : ""} — refused.`
+        : "";
+      return {
+        ok: false,
+        reason:
+          `Move call "${call.target}" is not on the protocol allowlist (refused before build).` +
+          statusNote,
+      };
+    }
+  }
+  return { ok: true, reason: "" };
 }
 
 // ---------------------------------------------------------------------------
@@ -1427,10 +1449,13 @@ interface DryRunGateResult {
 async function runDryRunGate(
   txBytesB64: string,
   suiClient: SuiClient,
+  senderAddress?: string,
 ): Promise<DryRunGateResult & { result: DryRunResult; digest: string }> {
   let result: DryRunResult;
   try {
-    result = await dryRunTransaction(suiClient, txBytesB64);
+    // senderAddress only labels object-change ownership in the preview; it never
+    // affects the gate decision (which is bytes + balance-delta driven).
+    result = await dryRunTransaction(suiClient, txBytesB64, senderAddress);
   } catch (err) {
     // DryRunFailedError or any other error → fail-closed (hardening #5)
     const isDryRunError = err instanceof DryRunFailedError;

@@ -15,10 +15,18 @@ import { COIN_TYPES, CETUS_AGGREGATOR_PACKAGE, CETUS_CLMM_PACKAGE } from "../all
 import type { SwapQuote } from "@dewlock/sui/quotes-source";
 import type { DryRunResult } from "@dewlock/sui/dry-run";
 
-vi.mock("@dewlock/sui", () => ({
-  dryRunTransaction: vi.fn(),
-  DryRunFailedError: class DryRunFailedError extends Error {},
-}));
+vi.mock("@dewlock/sui", async () => {
+  // Real, dependency-free capObjectsForPreview (dry-run subpath) so the mocked root
+  // still satisfies guardian's preview compose; dryRunTransaction stays controllable.
+  const { capObjectsForPreview } = await vi.importActual<typeof import("@dewlock/sui/dry-run")>(
+    "@dewlock/sui/dry-run",
+  );
+  return {
+    dryRunTransaction: vi.fn(),
+    DryRunFailedError: class DryRunFailedError extends Error {},
+    capObjectsForPreview,
+  };
+});
 vi.mock("@dewlock/sui/quotes-source", () => ({ fetchSwapQuote: vi.fn() }));
 vi.mock("@dewlock/sui/aggregator-quotes", () => ({
   fetchAggregatorQuote: vi.fn(),
