@@ -28,7 +28,7 @@ import { serializeMessages, deserializeMessages, deriveTitle } from "./serialize
 import { isSealUsable } from "@/lib/seal/seal-client";
 import { encryptConversation, decryptConversation, isSealCiphertext } from "@/lib/seal/conversation-crypto";
 import { ensureSessionKey, clearSessionKey } from "@/lib/seal/session-key";
-import { ensureWriteAuth } from "./conversation-auth-client";
+import { ensureWriteAuth, clearWriteAuth } from "./conversation-auth-client";
 import { ensureTitleKey, getCachedTitleKey, encryptTitle, decryptTitle, clearTitleKey } from "./title-crypto";
 import { isWalletSwitch } from "./wallet-switch";
 
@@ -189,6 +189,7 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
     if (prev) {
       clearTitleKey(prev);
       clearSessionKey(prev);
+      clearWriteAuth(prev); // drop the previous wallet's cached conversation write-auth too
     }
   }, [wallet, onReset]);
 
