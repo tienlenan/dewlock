@@ -27,9 +27,10 @@ import type { ConversationRecord, ConversationIndexEntry } from "./conversation-
 import { serializeMessages, deserializeMessages, deriveTitle } from "./serialize";
 import { isSealUsable } from "@/lib/seal/seal-client";
 import { encryptConversation, decryptConversation, isSealCiphertext } from "@/lib/seal/conversation-crypto";
-import { ensureSessionKey } from "@/lib/seal/session-key";
+import { ensureSessionKey, clearSessionKey } from "@/lib/seal/session-key";
 import { ensureWriteAuth } from "./conversation-auth-client";
-import { ensureTitleKey, getCachedTitleKey, encryptTitle, decryptTitle } from "./title-crypto";
+import { ensureTitleKey, getCachedTitleKey, encryptTitle, decryptTitle, clearTitleKey } from "./title-crypto";
+import { isWalletSwitch } from "./wallet-switch";
 
 type SignPersonalMessage = (input: { message: Uint8Array }) => Promise<{ signature: string }>;
 
@@ -155,6 +156,41 @@ export function useConversations(wallet: string | undefined, opts: UseConversati
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Hard reset on a wallet SWITCH (logout→login other wallet, or account change). The
+  // list is refetched per-wallet, but the in-memory thread, message cache, refs, and the
+  // previous wallet's cached crypto would otherwise carry over — leaking the old wallet's
+  // conversations into the new session. Purge EVERYTHING tied to the previous wallet.
+  const prevWallet = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevWallet.current;
+    prevWallet.current = wallet;
+    if (!isWalletSwitch(prev, wallet)) return; // initial mount or same wallet → nothing to purge
+
+    // In-memory hook state + refs.
+    cache.current.clear();
+    createdAt.current = {};
+    idRef.current = null;
+    autoOpenedFor.current = undefined;
+    interacted.current = false;
+    sessionReady.current = false;
+    titleKeyReady.current = false;
+    saving.current = false;
+    pendingSave.current = null;
+    setList([]);
+    setActiveId(null);
+    setLoadingId(null);
+    setLockedId(null);
+    setDecryptError(null);
+    onReset(); // wipe the displayed chat thread (old wallet's messages)
+
+    // Forget the PREVIOUS wallet's cached crypto: the in-memory SessionKey and the title
+    // key persisted in localStorage ("kể cả local storage" — clear it fully).
+    if (prev) {
+      clearTitleKey(prev);
+      clearSessionKey(prev);
+    }
+  }, [wallet, onReset]);
 
   const create = useCallback(() => {
     interacted.current = true;
