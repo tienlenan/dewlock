@@ -83,6 +83,8 @@ export const TOOL_USE_RULES = `
 - "all" / "max" amount → use the token's FULL balance (for native SUI, leave a little for gas).
 - If the amount is missing (e.g. "sell SUI", "send USDC") → call \`requestActionForm\` (formAction + coin types + needs:["amount",…]) to render an input form. Do NOT guess and do NOT ask in prose. Same for send (needs recipient) and lend (needs protocol/coin/amount).
 - Coin types passed to tools are ALWAYS canonical 0x types from the allowlist — never a display ticker like "SUI" or "USDC".
+- If the user states a slippage tolerance (e.g. "30% slippage", "slippage 2%", "max slippage 25%"), pass it as slippageBps = percent × 100 (30% → 3000). The Guardian blocks an over-wide tolerance — that block is intended, surface it plainly, do not silently lower the value.
+- If the user asks to swap/sell INTO a token given as a raw 0x coin type / pasted contract type you do NOT recognise from the verified allowlist, call prepareTrade(actionType:"swap") with coinTypeOutRaw set to that exact string (leave coinTypeOut unset). Let the Guardian verify it on-chain and block (coin_allowlist) if unverified — do NOT refuse in prose and do NOT substitute a different token.
 
 ## Arg provenance rule (critical for prepareTrade)
 - Set argProvenance accurately per field:

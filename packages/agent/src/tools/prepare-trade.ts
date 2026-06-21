@@ -29,7 +29,7 @@ import { buildCancelOrder, buildWithdrawSettled } from "@dewlock/sui/order-manag
 import { deepbookCoinKeyForType } from "@dewlock/sui/account-orders";
 import { resolveBalanceManagerForAction } from "./resolve-balance-manager";
 import { InsufficientGasCoverageError } from "@dewlock/sui/sui-gas-payment";
-import { guardianCheck, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
+import { guardianCheck, checkCoinTypeOnChain, SWAP_SOURCES, LENDING_PROTOCOLS } from "../guardian";
 import { COIN_TYPES, COIN_DECIMALS } from "../allowlist";
 import type { TradeProposal, ActionType, SwapSource, LendingProtocol } from "../guardian";
 
@@ -87,6 +87,9 @@ function addDailySpend(walletAddress: string, usdAmount: number): void {
 
 const COIN_TYPE_VALUES = Object.values(COIN_TYPES) as [string, ...string[]];
 
+/** Verified, allowlisted coin types — authoritative set for the unverified-token guard. */
+const ALLOWLISTED_COIN_TYPES = new Set<string>(COIN_TYPE_VALUES);
+
 // ---------------------------------------------------------------------------
 // Tool definition
 // ---------------------------------------------------------------------------
@@ -118,6 +121,17 @@ export const prepareTrade = createTool({
       .describe("Canonical output coin type for swaps"),
 
     poolId: z.string().optional().describe("Cetus pool ID (required for live swaps)"),
+
+    // --- Unverified-token probe (swap output) ---
+    coinTypeOutRaw: z
+      .string()
+      .optional()
+      .describe(
+        "Raw output coin type for an UNVERIFIED token the user named (e.g. a pasted 0x::module::TYPE " +
+          "contract not in the verified set). Set this INSTEAD of coinTypeOut when the target is not a " +
+          "recognised allowlisted asset — the Guardian verifies it and blocks (coin_allowlist) before any " +
+          "build/route. Never use for known tokens (use coinTypeOut for those).",
+      ),
 
     swapSource: z
       .enum(SWAP_SOURCES)
@@ -280,6 +294,7 @@ export const prepareTrade = createTool({
       recipientInput,
       coinTypeIn,
       coinTypeOut,
+      coinTypeOutRaw,
       amountInNative: amountStr,
       slippageBps = 50,
       poolId,
@@ -300,6 +315,31 @@ export const prepareTrade = createTool({
 
     const amountInNative = BigInt(amountStr);
     const suiClient = getSuiMainnetClient();
+
+    // --- Unverified-token guard (pre-build, swaps only) ---
+    // A raw output coin type the user named that is NOT on the verified allowlist is blocked
+    // before any build/route. A scam token can still carry on-chain CoinMetadata, so allowlist
+    // membership — not metadata existence — is the authoritative control. We probe on-chain
+    // identity only to enrich the message, then block fail-closed (RPC error never unblocks).
+    if (actionType === "swap" && coinTypeOutRaw && !ALLOWLISTED_COIN_TYPES.has(coinTypeOutRaw)) {
+      let identityNote = "no verified on-chain identity";
+      try {
+        const probe = await checkCoinTypeOnChain(coinTypeOutRaw, suiClient);
+        identityNote = probe.ok
+          ? "has on-chain metadata but is NOT on the verified allowlist"
+          : "no verified on-chain identity";
+      } catch {
+        /* fail-closed: block regardless of probe outcome */
+      }
+      return {
+        ok: false as const,
+        reasons: [
+          `Token "${coinTypeOutRaw}" is not on Dewlock's verified token allowlist (${identityNote}) — ` +
+            "refusing to route a swap into an unverified asset. Dewlock trades verified tokens only.",
+        ],
+        gates: ["coin_allowlist"],
+      };
+    }
 
     // --- BalanceManager resolution (server cross-check + client-carried id) ---
     // The server resolves the sender's BM via getExistingBalanceManagers. BUT a freshly

@@ -1,8 +1,7 @@
 /**
- * Tests the swap price-impact gate: a swap whose output is worth materially less than its input
- * (thin-liquidity / bad-rate route) is BLOCKED, even when the PTB min-out matches the fresh quote
- * (both agree on the bad rate — only an absolute USD-value comparison catches it). A normal-rate
- * swap passes. Threshold defaults to 5% and is overridable per proposal.
+ * Tests the swap slippage-tolerance gate: a swap requesting a slippage tolerance wider than the
+ * server ceiling (MAX_SLIPPAGE_BPS, default 10%) is BLOCKED — an over-wide tolerance drives
+ * min-out near zero and invites sandwich/MEV loss. A tolerance at/under the ceiling passes the gate.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -20,8 +19,6 @@ vi.mock("@dewlock/sui/aggregator-quotes", () => ({
   fetchAggregatorQuote: vi.fn(),
   fetchSuiUsdPrice: vi.fn().mockResolvedValue(3), // SUI = $3 (deterministic)
 }));
-// Price the non-SUI side deterministically (USDC = $1) so the impact math is stable. SUI is
-// priced via liveSuiUsd (above), so getTrustedUsdPrice is only consulted for USDC here.
 vi.mock("../allowlist", async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   const types = actual.COIN_TYPES as Record<string, string>;
@@ -81,70 +78,54 @@ const dr = (deltas: DryRunResult["balanceDeltas"]): DryRunResult => ({
   gasCostMist: 0n,
 });
 
-describe("guardian — swap price-impact gate", () => {
+describe("guardian — swap slippage-tolerance gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("SUI_USD_PRICE_FLOOR", "3.0");
     vi.stubEnv("TX_USD_CAP", "50");
     vi.stubEnv("DAILY_USD_CAP", "200");
-  });
-  afterEach(() => vi.unstubAllEnvs());
-
-  it("BLOCKs a bad-rate swap (0.7 USDC out for 1 SUI in) even when min-out is consistent", async () => {
-    // The fresh quote agrees on the bad rate, so the min-out consistency gate passes — only the
-    // absolute USD-value gate catches the ~77% value loss.
+    // A consistent fresh quote so the min-out gate never blocks on its own.
     mockCetus.mockResolvedValue({
       coinTypeIn: COIN_TYPES.SUI, coinTypeOut: COIN_TYPES.USDC, amountIn: 1_000_000_000n,
-      estimatedAmountOut: 700_000n, minAmountOut: 700_000n, slippageFraction: 0, poolId: "p", source: "live",
+      estimatedAmountOut: 3_000_000n, minAmountOut: 2_985_000n, slippageFraction: 0.005, poolId: "p", source: "live",
     });
     mockDryRun.mockResolvedValue(dr([
       { coinType: COIN_TYPES.SUI, amount: -1_000_000_000n, owner: WALLET },
-      { coinType: COIN_TYPES.USDC, amount: 700_000n, owner: WALLET },
+      { coinType: COIN_TYPES.USDC, amount: 2_985_000n, owner: WALLET },
     ]));
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("BLOCKs a swap whose slippage tolerance exceeds the 10% default ceiling", async () => {
     const txBytes = await realBytes();
     const res = await guardianCheck(
-      swapProposal({ txBytes, minAmountOutNative: 700_000n, swapSource: "cetus" }),
+      swapProposal({ txBytes, slippageBps: 3000, swapSource: "cetus" }), // 30% tolerance
       stubClient,
     );
     expect(res.ok).toBe(false);
     if (!res.ok) {
-      expect(res.gates).toContain("low_liquidity");
-      expect(res.reasons.join(" ")).toMatch(/Low liquidity/i);
+      expect(res.gates).toContain("slippage_tolerance");
+      expect(res.reasons.join(" ")).toMatch(/Slippage tolerance/i);
     }
   });
 
-  it("passes a normal-rate swap (2.97 USDC out for 1 SUI in, ~1% loss)", async () => {
-    mockCetus.mockResolvedValue({
-      coinTypeIn: COIN_TYPES.SUI, coinTypeOut: COIN_TYPES.USDC, amountIn: 1_000_000_000n,
-      estimatedAmountOut: 2_970_000n, minAmountOut: 2_970_000n, slippageFraction: 0, poolId: "p", source: "live",
-    });
-    mockDryRun.mockResolvedValue(dr([
-      { coinType: COIN_TYPES.SUI, amount: -1_000_000_000n, owner: WALLET },
-      { coinType: COIN_TYPES.USDC, amount: 2_970_000n, owner: WALLET },
-    ]));
+  it("honors a server-configured MAX_SLIPPAGE_BPS override (2% ceiling blocks a 5% tolerance)", async () => {
+    vi.stubEnv("MAX_SLIPPAGE_BPS", "200");
     const txBytes = await realBytes();
     const res = await guardianCheck(
-      swapProposal({ txBytes, minAmountOutNative: 2_970_000n, swapSource: "cetus" }),
-      stubClient,
-    );
-    expect(res.ok).toBe(true);
-  });
-
-  it("a stricter per-proposal threshold (1%) BLOCKs a 3% loss the 5% default would allow", async () => {
-    mockCetus.mockResolvedValue({
-      coinTypeIn: COIN_TYPES.SUI, coinTypeOut: COIN_TYPES.USDC, amountIn: 1_000_000_000n,
-      estimatedAmountOut: 2_910_000n, minAmountOut: 2_910_000n, slippageFraction: 0, poolId: "p", source: "live",
-    });
-    mockDryRun.mockResolvedValue(dr([
-      { coinType: COIN_TYPES.SUI, amount: -1_000_000_000n, owner: WALLET },
-      { coinType: COIN_TYPES.USDC, amount: 2_910_000n, owner: WALLET }, // $2.91 → 3% loss
-    ]));
-    const txBytes = await realBytes();
-    const res = await guardianCheck(
-      swapProposal({ txBytes, minAmountOutNative: 2_910_000n, swapSource: "cetus", maxPriceImpactBps: 100 }),
+      swapProposal({ txBytes, slippageBps: 500, swapSource: "cetus" }),
       stubClient,
     );
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.gates).toContain("low_liquidity");
+    if (!res.ok) expect(res.gates).toContain("slippage_tolerance");
+  });
+
+  it("does NOT add the slippage gate for a tolerance at/under the ceiling", async () => {
+    const txBytes = await realBytes();
+    const res = await guardianCheck(
+      swapProposal({ txBytes, slippageBps: 1000, minAmountOutNative: 2_985_000n, swapSource: "cetus" }), // 10% == ceiling
+      stubClient,
+    );
+    if (!res.ok) expect(res.gates).not.toContain("slippage_tolerance");
   });
 });

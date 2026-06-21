@@ -209,6 +209,13 @@ export interface TradeProposal {
 /** Default price-impact ceiling (5%) when the proposal doesn't carry a user-configured value. */
 export const DEFAULT_MAX_PRICE_IMPACT_BPS = 500;
 
+/**
+ * Default slippage-tolerance ceiling (10%). A swap whose requested slippage tolerance exceeds
+ * this is blocked: an over-wide tolerance drives min-out near zero and invites sandwich/MEV
+ * value loss. Server-overridable via MAX_SLIPPAGE_BPS (never an LLM-controlled value).
+ */
+export const DEFAULT_MAX_SLIPPAGE_BPS = 1000;
+
 /** Guardian pass result — includes the WYSIWYS digest and dry-run effects. */
 export interface GuardianPass {
   ok: true;
@@ -304,6 +311,15 @@ function getServerCaps(): { txUsdCap: number; dailyUsdCap: number } {
     throw new Error("DAILY_USD_CAP env var is invalid — refusing all transactions.");
   }
   return { txUsdCap, dailyUsdCap };
+}
+
+/**
+ * Server-authoritative max swap slippage tolerance in bps. An LLM-supplied slippageBps above
+ * this is blocked. Read from MAX_SLIPPAGE_BPS env; falls back to the 10% default on absent/invalid.
+ */
+function getMaxSlippageBps(): number {
+  const raw = parseFloat(process.env.MAX_SLIPPAGE_BPS ?? String(DEFAULT_MAX_SLIPPAGE_BPS));
+  return isNaN(raw) || raw <= 0 ? DEFAULT_MAX_SLIPPAGE_BPS : raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -458,6 +474,22 @@ export async function guardianCheck(
     }
   }
 
+  // --- Slippage-tolerance gate (swaps): refuse an over-wide tolerance ---
+  // A very high slippageBps makes the on-chain min-out near zero, opening the fill to
+  // sandwich/MEV value loss even on a deep pool. The ceiling is server-authoritative;
+  // the LLM-supplied slippageBps can never widen past it.
+  if (proposal.actionType === "swap" && proposal.slippageBps !== undefined) {
+    const maxSlippageBps = getMaxSlippageBps();
+    if (proposal.slippageBps > maxSlippageBps) {
+      block(
+        "slippage_tolerance",
+        `Slippage tolerance ${(proposal.slippageBps / 100).toFixed(2)}% exceeds the ` +
+          `${(maxSlippageBps / 100).toFixed(0)}% ceiling — an over-wide tolerance drives min-out near zero ` +
+          "and invites sandwich/MEV loss. Refusing. Lower the slippage and retry.",
+      );
+    }
+  }
+
   // --- Gate 4: Independent min-out cross-check (for swaps) ---
   // Runs for ANY swap with an output coin — not gated on poolId (the aggregator
   // has no single pool), so a swap can never skip the min-out re-derive.
@@ -561,11 +593,11 @@ export async function guardianCheck(
         }
       }
 
-      // Swap price-impact gate — refuse a swap whose output is worth materially less than its
-      // input (thin-liquidity / bad-rate protection), valued from the dry-run's actual deltas.
+      // Low-liquidity / price-impact gate — refuse a swap whose output is worth materially less
+      // than its input (thin-pool / bad-rate protection), valued from the dry-run's actual deltas.
       if (dryRunResult) {
         const impact = checkSwapPriceImpact(dryRunResult, proposal, liveSuiUsd);
-        if (!impact.ok) block("price_impact", impact.reason);
+        if (!impact.ok) block("low_liquidity", impact.reason);
       }
     }
   }
@@ -1108,9 +1140,9 @@ function checkSwapPriceImpact(
     return {
       ok: false,
       reason:
-        `Price impact too high: you pay ~$${inUsd.toFixed(2)} but receive only ~$${outUsd.toFixed(2)} ` +
+        `Low liquidity — price impact too high: you pay ~$${inUsd.toFixed(2)} but receive only ~$${outUsd.toFixed(2)} ` +
         `— a ${lossPct.toFixed(1)}% value loss, above the ${limitPct % 1 === 0 ? limitPct.toFixed(0) : limitPct.toFixed(1)}% limit. ` +
-        "Refusing — the pool likely has thin liquidity. Try a smaller amount, a different token, or another route.",
+        "Refusing — the pool is too thin for this size. Try a smaller amount, a different token, or another route.",
     };
   }
   return { ok: true, reason: "" };
