@@ -92,8 +92,9 @@ export function WelcomeActions({ onSend }: { onSend?: (text: string) => void }) 
   if (!onSend) return null;
   return (
     <>
-      {/* Value actions — 4-up on large screens, 2-up on small (viewport breakpoint). */}
-      <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 8, marginTop: 11 }}>
+      {/* Value actions — 5 cards laid out so none is left orphaned: 3:2 on desktop
+          (Swap·Limit·Send / Lending·Portfolio) and 2:2:1 on the smallest screen. */}
+      <div className="grid grid-cols-2 md:grid-cols-3" style={{ gap: 8, marginTop: 11 }}>
         {ACTIONS.map((card) => (
           <ActionButton key={card.key} card={card} onSend={onSend} />
         ))}
