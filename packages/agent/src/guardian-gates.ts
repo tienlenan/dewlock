@@ -7,7 +7,8 @@
  * string matching, provenance check, lookalike detection) is pure TS with zero SDK deps
  * and belongs here so tests can import it without pulling the full SDK chain.
  *
- * guardian.ts re-exports everything from this file so public API is unchanged.
+ * guardian.ts imports these pure gates from here (e.g. checkProvenance) and re-exports
+ * them, so the public API via index.ts is unchanged and there is a single definition.
  */
 
 import {

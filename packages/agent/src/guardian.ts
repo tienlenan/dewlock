@@ -55,6 +55,10 @@ import {
   editDistance,
   LOOKALIKE_EDIT_DISTANCE_THRESHOLD,
 } from "./allowlist";
+// checkProvenance is a pure, SDK-free gate — its single source of truth lives in
+// guardian-gates.ts (so tests can import it without the SDK chain). guardianCheck uses
+// this binding; it is re-exported below for the public API (index.ts).
+import { checkProvenance } from "./guardian-gates";
 
 // ---------------------------------------------------------------------------
 // ActionType — SINGLE source of truth.
@@ -1546,89 +1550,11 @@ export async function checkCoinTypeOnChain(
   }
 }
 
-// Gate 6: Injection provenance
-interface ProvenanceResult {
-  requiresConfirm: boolean;
-  blocked: boolean;
-  reason?: string;
-}
-
-export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
-  const { argProvenance, amountInNative, recipientAddress } = proposal;
-
-  // Derived recipient on a transfer is always a provenance confirm (hardening #6)
-  const hasDerivedArg =
-    argProvenance.recipient === "derived" ||
-    argProvenance.amount === "derived" ||
-    argProvenance.coinType === "derived";
-
-  // BLOCK rule: if the recipient was never mentioned in the user turn at all
-  // (i.e., came from memory/pool-data injection) AND moves real value → block.
-  // The distinction: "derived" with user confirmation is requiresConfirm;
-  // a completely untraced recipient with value > 0 is a hard block.
-  const untracedRecipientWithValue =
-    proposal.actionType === "transfer" &&
-    argProvenance.recipient === "derived" &&
-    amountInNative > 0n &&
-    recipientAddress !== proposal.walletAddress; // sending to self is always safe
-
-  if (untracedRecipientWithValue) {
-    return {
-      requiresConfirm: false,
-      blocked: true,
-      reason:
-        `Transfer recipient "${recipientAddress}" was not provided in the current user message — ` +
-        "it appears to come from memory or injected pool data. " +
-        "Blocking: injection provenance gate. Please retype the recipient explicitly.",
-    };
-  }
-
-  // Hard block: borrow/withdraw with a derived amount or coinType.
-  // A borrow or withdraw whose amount/coinType came from memory or injected context
-  // (not the current user turn) could silently move value the user never authorised.
-  // Unlike a transfer where the recipient is the suspicious field, here the
-  // amount/coinType are the sensitive args — a derived value on either → hard block.
-  const isBorrowOrWithdraw =
-    proposal.actionType === "lend_borrow" || proposal.actionType === "lend_withdraw";
-  const hasDerivedValueArg =
-    argProvenance.amount === "derived" || argProvenance.coinType === "derived";
-
-  if (isBorrowOrWithdraw && hasDerivedValueArg) {
-    const which = argProvenance.amount === "derived" ? "amount" : "coinType";
-    return {
-      requiresConfirm: false,
-      blocked: true,
-      reason:
-        `Lending action "${proposal.actionType}" has a derived ${which} — ` +
-        "it appears to come from memory or injected context rather than the current user message. " +
-        "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
-    };
-  }
-
-  // Hard block: stake/unstake with a derived amount or coinType.
-  // A staking action whose amount/coinType came from memory or injected context
-  // (not the current user turn) could silently move value the user never authorised.
-  // Same invariant as borrow/withdraw: the amount and coin are the sensitive args.
-  const isStakeOrUnstake =
-    proposal.actionType === "stake" || proposal.actionType === "unstake";
-
-  if (isStakeOrUnstake && hasDerivedValueArg) {
-    const which = argProvenance.amount === "derived" ? "amount" : "coinType";
-    return {
-      requiresConfirm: false,
-      blocked: true,
-      reason:
-        `Staking action "${proposal.actionType}" has a derived ${which} — ` +
-        "it appears to come from memory or injected context rather than the current user message. " +
-        "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
-    };
-  }
-
-  return {
-    requiresConfirm: hasDerivedArg,
-    blocked: false,
-  };
-}
+// Gate 6: Injection provenance — implementation is the single source of truth in
+// guardian-gates.ts (pure, SDK-free; imported above for guardianCheck). Re-exported
+// here so the public API surfaced via index.ts is unchanged.
+export { checkProvenance };
+export type { ProvenanceResult } from "./guardian-gates";
 
 // Gate 8: SuiNS lookalike
 interface LookalikeResult { suspect: boolean; similarTo: string | null }
