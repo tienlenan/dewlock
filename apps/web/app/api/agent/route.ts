@@ -222,16 +222,60 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Single-action guard: a message bundling 2+ distinct value actions (e.g. "send … and
-  // swap …") is refused BEFORE the LLM — we stream guidance to do one action per message
-  // and call no value tool. Deterministic; never throws into the turn.
+  // Multi-action guard: a message bundling 2+ distinct value actions is either
+  //  (a) a supported sequential chain (swap→lend) → emit a chain-plan card, OR
+  //  (b) an unsupported combo (send+swap, etc.) → refuse with guidance.
+  // Deterministic; never throws into the turn.
   try {
     /* eslint-disable-next-line @typescript-eslint/no-require-imports */
-    const { detectMultiAction } = require("@dewlock/agent/intent/detect-multi-action") as {
+    const { detectMultiAction, isChainableSequence, parseChainSteps } = require("@dewlock/agent/intent/detect-multi-action") as {
       detectMultiAction: (text: string) => { multi: boolean; actions: string[] };
+      isChainableSequence: (actions: string[]) => boolean;
+      parseChainSteps: (text: string) => import("@dewlock/agent/intent/detect-multi-action").ChainStep[] | null;
     };
     const ma = detectMultiAction(lastMessage.content);
     if (ma.multi) {
+      // Carve-out: a chainable ordered pair (swap→lend) routes to the chain planner.
+      // The client renders a ChainPlanCard and drives sequential signing.
+      if (isChainableSequence(ma.actions)) {
+        const steps = parseChainSteps(lastMessage.content);
+        if (steps) {
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                ndjsonLine({
+                  type: "tool-result",
+                  toolName: "chainPlan",
+                  result: {
+                    steps: steps.map((s, i) => ({
+                      index: i,
+                      category: s.category,
+                      clause: s.clause,
+                      amountFrom: s.amountFrom,
+                      status: "pending",
+                    })),
+                    walletAddress: walletAddress ?? null,
+                    originalText: lastMessage.content,
+                  },
+                }),
+              );
+              controller.enqueue(ndjsonLine({ type: "done" }));
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            headers: {
+              "content-type": "application/x-ndjson; charset=utf-8",
+              "x-content-type-options": "nosniff",
+              "cache-control": "no-cache",
+              ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
+              ...corsHeaders(origin),
+            },
+          });
+        }
+      }
+
+      // Non-chainable multi-action → refuse with guidance (unchanged behaviour).
       const labels: Record<string, string> = {
         send: "send", swap: "swap/sell", lend: "lend", bridge: "bridge", limit: "place a limit order",
       };

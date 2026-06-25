@@ -28,6 +28,7 @@
     "./tools/get-trending-tokens": "./dist/tools/get-trending-tokens.js",
     "./tools/request-action-form": "./dist/tools/request-action-form.js",
     "./tools/request-contact-picker": "./dist/tools/request-contact-picker.js",
+    "./chaining/plan-stepper": "./dist/chaining/plan-stepper.js",
     "./guardian-bridge": "./dist/guardian-bridge.js",
     "./memory/conviction-streak": {
       "import": "./dist/memory/conviction-streak.js",

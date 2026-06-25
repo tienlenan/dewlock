@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-06-25 — Multi-step intent chaining: Track A (sequential) — machinery + safety
+
+### Added
+- **Sequential chaining machinery** for compound intents ("swap 5 SUI to USDC then lend it on NAVI"): the existing `detectMultiAction` splitter extended with VN connectors (rồi / và sau đó / tiếp theo) + `isChainableSequence` / `parseChainSteps` → an ordered `ChainStep[]`; the agent route carves a hole in the "one action per message" refusal so a chainable sequence routes to a chain-plan card instead of being refused.
+- **`PlanStepper` state machine** (`packages/agent/src/chaining/plan-stepper.ts`) with the load-bearing safety contracts, all unit-tested:
+  - **Delta resolver** (`resolveStepDelta`) — a step consuming a prior step's output is pinned to the *delta* (`post − pre` snapshot), never the wallet's current total: "swap 5 SUI→USDC then lend it" with 1000 pre-existing USDC lends the ~swap-output, NOT 1018.
+  - **Stale-object wait** (`waitForObjectVersions` / `objectsToWaitBeforeStep`) — step k+1 waits for the coin object versions step k touched to be visible before building (avoids "object unavailable for consumption" aborts); never silently retries stale bytes.
+  - **Halt semantics** — a BLOCK at step k cancels all later steps; `isChainIncomplete` + block reasons drive a chain-incomplete receipt marker.
+  - Each step remains a normal single-action PTB through the unchanged Guardian (no composition).
+- **Daily-spend moved to sign-time** (`recordSpendAtSignTime`, idempotent by txDigest) — was counted at Guardian-PASS, causing double-count/abandon pollution; a chain's recycled output is counted net-once.
+- `ChainPlanCard` (per-step status, resolved amount, chain-incomplete banner) + 26 new tests.
+
+### Deferred (flagged, not faked)
+- **End-to-end client sign-loop wiring** — the Plan card renders and the stepper/route/parser are complete, but `useCopilotChat`/`ChatThread` does not yet drive the actual prepare→sign→confirm cycle *between* steps, so a chain is not yet executable in the UI. (Machinery + safety are done and tested; the multi-turn sign loop is the remaining integration.)
+- **Durable cross-refresh persistence** — the stepper is in-session; a page refresh loses in-flight chain state (resume needs a wallet-keyed KV store).
+
+### Notes
+- Tests: 935/935 pass; typecheck clean.
+
 ## 2026-06-25 — Yield advisor + activity history (read-only) + Guardian gate dedup
 
 ### Added

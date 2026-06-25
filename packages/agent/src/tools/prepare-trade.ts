@@ -74,9 +74,21 @@ const BM_ACTION_TYPES = new Set<ActionType>([
 // ---------------------------------------------------------------------------
 // Session spend tracker (server-side in-memory for the hackathon)
 // In production: persisted in a KV store keyed by walletAddress + date
+//
+// IMPORTANT: spend is recorded at confirmed-sign time (idempotent by txDigest),
+// NOT at Guardian-PASS time. This prevents:
+//  (a) double-counting when a Guardian pass is abandoned (no sign follows),
+//  (b) chain double-counting — a swap→lend chain that recycles the swap output
+//      should count $20 net external value once, not $20+$20.
+//
+// recordSpendAtSignTime() is the ONLY public write path. prepareTrade no
+// longer calls addDailySpend on PASS — it only reads the current total for
+// the Guardian's daily-cap input.
 // ---------------------------------------------------------------------------
 
 const dailySpendTracker = new Map<string, number>();
+/** txDigests for which spend has already been recorded — prevents double-count on retry. */
+const recordedDigests = new Set<string>();
 
 function getDailyKey(walletAddress: string): string {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -87,9 +99,24 @@ function getDailySpend(walletAddress: string): number {
   return dailySpendTracker.get(getDailyKey(walletAddress)) ?? 0;
 }
 
-function addDailySpend(walletAddress: string, usdAmount: number): void {
-  const key = getDailyKey(walletAddress);
-  dailySpendTracker.set(key, (dailySpendTracker.get(key) ?? 0) + usdAmount);
+/**
+ * Record spend at confirmed-sign time (idempotent by txDigest).
+ * Call this from the receipt pipeline after a transaction is confirmed on-chain,
+ * NOT from the Guardian PASS path. Pass isRecycled=true when this step's input
+ * is the output of a prior chain step (net external value already counted).
+ */
+export function recordSpendAtSignTime(
+  walletAddress: string,
+  txDigest: string,
+  usdAmount: number,
+  isRecycled = false,
+): void {
+  if (recordedDigests.has(txDigest)) return; // idempotent
+  recordedDigests.add(txDigest);
+  if (!isRecycled && usdAmount > 0) {
+    const key = getDailyKey(walletAddress);
+    dailySpendTracker.set(key, (dailySpendTracker.get(key) ?? 0) + usdAmount);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -720,21 +747,12 @@ export const prepareTrade = createTool({
       return { ok: false as const, reasons: guardianResult.reasons, gates: guardianResult.gates };
     }
 
-    // Update daily spend tracker on pass (approximate — real spend happens at sign time).
-    // Only genuine external-value-leaving actions count toward the daily cap. Onboarding
-    // (bm_create), funding one's own trading account (bm_deposit), canceling an order, and
-    // withdrawing one's own settled funds (an INFLOW) are not "spend" — counting them would
-    // mis-bound the daily cap and let an unauthenticated prepare pollute it more easily.
-    const SPEND_TRACKED_ACTIONS = new Set<ActionType>([
-      "transfer",
-      "swap",
-      "limit_order",
-      "lend_deposit",
-      "lend_repay",
-    ]);
-    if (SPEND_TRACKED_ACTIONS.has(actionType)) {
-      addDailySpend(walletAddress, guardianResult.preview.estimatedUsdValue);
-    }
+    // Daily spend is now recorded at confirmed-sign time (via recordSpendAtSignTime),
+    // not here at Guardian-PASS. Recording at PASS time was wrong because:
+    //  (a) the user may abandon after preview (no sign → no spend),
+    //  (b) a swap→lend chain would double-count if both steps hit this path.
+    // The Guardian still reads the current daily total (getDailySpend) at check time
+    // to enforce the cap — that read happens above in the proposal construction.
 
     // Serialize bigints to strings for JSON transport
     return {

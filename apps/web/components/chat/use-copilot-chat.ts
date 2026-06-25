@@ -200,6 +200,15 @@ export function toolResultToCard(toolName: string, result: unknown): ToolCard | 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return { type: "defi-positions", positions: result as any };
   }
+  // Sequential chain plan — emitted by route.ts when the parser detects a
+  // supported swap→lend compound intent. The client renders ChainPlanCard.
+  if (toolName === "chainPlan" && hasKeys(result, ["steps", "originalText"])) {
+    return {
+      type: "chain-plan",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      plan: result as any,
+    };
+  }
   return null;
 }
 

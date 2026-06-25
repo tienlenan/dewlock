@@ -112,6 +112,8 @@ export type ToolCard =
   | { type: "ecosystem-tokens" }
   | { type: "receipt"; receipt: TxReceipt }
   | { type: "wysiwys-error"; wysiwysMessage: string }
+  /** Sequential multi-step chain plan (Track A) — drives N-sign cycle. */
+  | { type: "chain-plan"; plan: import("@/components/chat/chain-plan-card").ChainPlanData }
   /**
    * agent-error: shown when the streaming request fails (network error,
    * gateway timeout, 429, etc.). Separate from wysiwys-error to enable
@@ -869,6 +871,13 @@ function CardSlot({
   }
   if (card.type === "bm-onboarding") {
     return <BmOnboardingCard walletAddress={card.walletAddress} />;
+  }
+  if (card.type === "chain-plan") {
+    // Lazy import to avoid pulling chain-plan-card into the main bundle until needed.
+    const { ChainPlanCard } = require("@/components/chat/chain-plan-card") as {
+      ChainPlanCard: (props: { plan: import("@/components/chat/chain-plan-card").ChainPlanData }) => React.ReactElement | null;
+    };
+    return <ChainPlanCard plan={card.plan} />;
   }
   return null;
 }
