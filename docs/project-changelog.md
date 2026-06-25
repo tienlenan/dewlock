@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-06-25 — Yield advisor + activity history (read-only) + Guardian gate dedup
+
+### Added
+- **Yield advisor** (`get-yield-advice`) — composes the existing read tools (stablecoin yields, top-TVL, afSUI/haSUI staking APYs, live portfolio) into a ranked recommendation card for the user's idle balances; action buttons reuse the existing Guardian-gated flows (advice never auto-executes). No fabricated numbers — a venue with no readable APY is omitted.
+- **Activity history** (`get-history`) — reverse-chronological feed of a wallet's actions (incl. BLOCK receipts), enumerated from the existing memwal "action log" recall. **No P&L column**: the receipt schema stores no entry-USD baseline and pricing is spot-only, so cost basis is undeterminable — a fabricated P&L would violate the zero-fabricated-numbers rule (amounts shown are the values recorded at action time, not profit/loss).
+- Intent routing for advice/history queries → the READ tools; load-bearing tests prove a read intent can never become a value move (no `prepareTrade`). Ambiguous free-form prose falls through to the LLM (the deterministic matcher only catches clear advisory phrasings).
+
+### Changed
+- **Deduped the Guardian `checkProvenance` gate to a single source of truth** in `guardian-gates.ts` (the pure, SDK-free module); `guardian.ts` now imports + re-exports it instead of carrying a second, hand-synced copy that had begun to drift. Public API unchanged.
+
+### Notes
+- Tests: 909/909 pass; typecheck clean.
+
 ## 2026-06-25 — Liquid staking 2nd provider: haSUI (Haedal, direct-PTB)
 
 ### Added

@@ -60,7 +60,12 @@ export type Intent =
   // its /api/ecosystem/* route. No value move, no args.
   | { action: "ecosystemYields" }
   | { action: "ecosystemTvl" }
-  | { action: "ecosystemTokens" };
+  | { action: "ecosystemTokens" }
+  // Read-only per-wallet advisory / history — never trigger a value move.
+  // yieldAdvice: "what should I do with my <coin>" / "best yield for my holdings"
+  // history:     "my history" / "show my receipts" / "my activity"
+  | { action: "yieldAdvice" }
+  | { action: "history" };
 
 // Swap-picker binding: the swap form emits the EXACT allowlisted coin types (+ chosen source)
 // as a machine marker so token mapping never depends on symbol re-parsing — the LLM can't
@@ -385,6 +390,35 @@ export function parseIntent(text: string): Intent | null {
     /\b(tokens?|coins?)\b[\s\S]{0,16}\b(trending|hot)\b/.test(lower)
   ) {
     return { action: "ecosystemTokens" };
+  }
+
+  // Yield advisor — "what should I do with my <coin>" / "best yield for my SUI" /
+  // "where should I put my USDC" / "how can I earn on my holdings".
+  // Matched AFTER all value verbs (swap/send/lend/stake) so an advisory query can't
+  // accidentally trigger a trade. The coin token in the query is informational only —
+  // the tool reads the live portfolio and does NOT parse a coin type from this regex.
+  // Only clear advisory phrasings match deterministically; ambiguous free-form prose
+  // (e.g. "what's the best way to earn yield on my sui?") falls through to the LLM,
+  // which still routes to the advisor tool — a bare "earn ... my <coin>" catch-all
+  // over-matched real prose, so it is intentionally NOT included here.
+  if (
+    /\bwhat\s+should\s+i\s+(do|put)\b/i.test(raw) ||
+    /\bwhere\s+should\s+i\s+(put|park|deploy|invest)\b/i.test(raw) ||
+    /\bhow\s+(can|do)\s+i\s+(earn|yield|generate)\b/i.test(raw) ||
+    (/\bbest\s+(yield|apy|apr|return)\b/.test(lower) && /\b(my|for|on)\b/.test(lower))
+  ) {
+    return { action: "yieldAdvice" };
+  }
+
+  // History feed — "my history" / "show my receipts" / "my activity" /
+  // "transaction history" / "show my transactions".
+  // Matched AFTER all value verbs — a query about history is read-only.
+  if (
+    /\b(my\s+history|my\s+activity|my\s+transactions?|my\s+receipts?)\b/i.test(raw) ||
+    /\b(show|view|see)\s+(my\s+)?(history|activity|transactions?|receipts?)\b/i.test(raw) ||
+    /\btransaction\s+history\b/i.test(raw)
+  ) {
+    return { action: "history" };
   }
 
   return null; // nothing matched → LLM fallback

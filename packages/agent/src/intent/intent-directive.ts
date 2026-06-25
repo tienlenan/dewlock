@@ -103,6 +103,26 @@ export async function buildIntentDirective(
     case "ecosystemYields": return only("getStablecoinYields");
     case "ecosystemTvl": return only("getTopTvl");
     case "ecosystemTokens": return only("getTrendingTokens");
+    // Read-only advisory / history — must NEVER route to a value-moving tool.
+    // The directive forces ONLY the read tool so the LLM cannot misroute
+    // a "what should I do?" question into a trade call.
+    case "yieldAdvice":
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user wants yield advice for their idle balances — a READ query, NOT a value move.`,
+        `Call ONLY \`getYieldAdvice\`. Do not call any value-moving tool.`,
+        `Pass the user's walletAddress: "${walletAddress ?? ""}"`,
+        `If portfolio balances are available, pass them in the portfolio field; otherwise call getPortfolio first, then getYieldAdvice with the result.`,
+        `The returned card shows ranked lending/staking options with action buttons — it does NOT execute any trade.`,
+      ].join("\n");
+    case "history":
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user wants their action history — a READ query, NOT a value move.`,
+        `Call ONLY \`getHistory\`. Do not call any value-moving tool.`,
+        `Pass walletAddress: "${walletAddress ?? ""}"`,
+        `The caller supplies receiptLines from the user's memwal recall (action log: prefix). If the route provides them, pass them; otherwise pass receiptLines:[].`,
+      ].join("\n");
 
     case "lend": {
       // Lending must NEVER become a portfolio call. Route by what the user already

@@ -68,6 +68,8 @@ export const TOOL_USE_RULES = `
 - "top / biggest / largest TVL on Sui / which protocols have the most value locked" → getTopTvl (read-only DefiLlama discovery; the ranked protocol list renders in the card). This is ECOSYSTEM-WIDE discovery — distinct from getProtocolMetrics (Dewlock's own registry counts).
 - "memes / meme tokens / trending or hot tokens/coins on Sui" → getTrendingTokens (read-only CoinGecko discovery; the ranked token list renders in the card).
 - "withdraw FROM a CEX" → explain honestly that this is done on the CEX itself; Dewlock can only build a Sui transaction to send/receive on-chain, not act on a CEX account.
+- "what should I do with my <coin>" / "best yield for my SUI" / "where should I put my USDC" / "how can I earn on my holdings" → getYieldAdvice (read-only advisory card; this is a READ query, not a trade — do not call any value-moving tool). The card shows ranked lending/staking venues with action buttons the user clicks explicitly.
+- "my history" / "show my receipts" / "my activity" / "transaction history" → getHistory (read-only feed from the immutable receipt log; this is a READ query, not a trade). The feed shows approved and blocked actions reverse-chronologically with the recorded USD value at action time (NOT profit/loss).
 
 ## Contact resolution rules (send to a saved friend name)
 - When a send targets a NAME that is not a 0x address or a .sui name, the routing directive resolves it against the user's address book and tells you what to do. FOLLOW IT EXACTLY:

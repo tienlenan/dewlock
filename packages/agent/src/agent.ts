@@ -31,6 +31,8 @@ import { getProtocolMetrics } from "./tools/get-protocol-metrics";
 import { getStablecoinYields } from "./tools/get-stablecoin-yields";
 import { getTopTvl } from "./tools/get-top-tvl";
 import { getTrendingTokens } from "./tools/get-trending-tokens";
+import { getYieldAdvice } from "./tools/get-yield-advice";
+import { getHistory } from "./tools/get-history";
 import { requestActionForm } from "./tools/request-action-form";
 import { requestContactPicker } from "./tools/request-contact-picker";
 
@@ -63,6 +65,8 @@ export const copilot = new Agent({
     getStablecoinYields,
     getTopTvl,
     getTrendingTokens,
+    getYieldAdvice,
+    getHistory,
     requestActionForm,
     requestContactPicker,
   },
