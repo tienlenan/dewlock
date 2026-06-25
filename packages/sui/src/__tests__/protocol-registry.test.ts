@@ -46,13 +46,17 @@ describe("protocol registry — posture", () => {
 
   it("only active+built protocols contribute Move targets", () => {
     const built = getBuiltProtocols().map((p) => p.id).sort();
-    // Built adapters: Aftermath (aggregator) + Aftermath LST (afSUI staking) + Cetus + DeepBook + Cetus aggregator (swap) + NAVI/Suilend (lending) + Wormhole (bridge).
-    expect(built).toEqual(["aftermath", "aftermath-staking", "cetus", "cetus-aggregator", "deepbook", "navi", "suilend", "wormhole"]);
+    // Built adapters: Aftermath (aggregator) + Aftermath LST (afSUI staking) + Cetus + DeepBook
+    // + Cetus aggregator (swap) + Haedal (haSUI staking) + NAVI/Suilend (lending) + Wormhole (bridge).
+    expect(built).toEqual(["aftermath", "aftermath-staking", "cetus", "cetus-aggregator", "deepbook", "haedal", "navi", "suilend", "wormhole"]);
     // NAVI now has all four lending verbs: deposit, repay, borrow, withdraw.
     // The action-shape gate (not the allowlist) is what separates borrow from deposit.
     expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("entry_deposit"))).toBe(true);
     expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("borrow"))).toBe(true);
     expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("withdraw"))).toBe(true);
+    // Haedal (haSUI staking) has exactly 2 targets: request_stake + request_unstake_instant.
+    expect(getProtocol("haedal")?.allowlistedTargets.some((t) => t.includes("request_stake"))).toBe(true);
+    expect(getProtocol("haedal")?.allowlistedTargets.some((t) => t.includes("request_unstake_instant"))).toBe(true);
     // A deferred-but-active protocol (e.g. Scallop) still contributes no targets.
     expect(getProtocol("scallop")?.status).toBe("active");
     expect(getProtocol("scallop")?.allowlistedTargets).toEqual([]);
@@ -74,8 +78,9 @@ describe("protocol registry — single-authored allowlist", () => {
     // (create_obligation, deposit×2, rebalance_staker, repay) + 1 Wormhole
     // (complete_transfer) + 3 Aftermath swap (swap_cap::obtain_router_cap, initiate_path,
     // return_router_cap_already_payed_fee) + 2 Aftermath LST staking
-    // (staked_sui_vault::request_stake_and_keep, request_unstake_atomic_and_keep) = 45.
-    expect(ALLOWED_MOVE_TARGETS.size).toBe(45);
+    // (staked_sui_vault::request_stake_and_keep, request_unstake_atomic_and_keep) + 2 Haedal
+    // (interface::request_stake, interface::request_unstake_instant) = 47.
+    expect(ALLOWED_MOVE_TARGETS.size).toBe(47);
   });
 
   it("isTargetActive: active Cetus/DeepBook targets + core targets are active", () => {

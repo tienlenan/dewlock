@@ -3,13 +3,13 @@
  * UI can render a picker card (protocol name, live APY, exchange-rate).
  *
  * Called when the user said "stake X SUI" without specifying a protocol.
- * Currently only Aftermath Finance (afSUI) is built; the registry is queried so
- * future LST adapters (haSUI, vSUI) surface automatically once their buildState
- * is set to "built".
+ * Returns afSUI (Aftermath Finance) and haSUI (Haedal) concurrently; per-row
+ * fail-soft (a provider whose metadata can't be read is omitted from the options,
+ * never shown with a fabricated number).
  *
  * Pure + registry-driven: read-only, never builds or signs a PTB.
- * Live APY / exchange-rate are returned as opaque metadata so the UI card can
- * display them — the values come from the Aftermath SDK at read time (fail-soft).
+ * Active built LST protocols surface automatically from the registry — adding
+ * a new provider only requires flipping its buildState to "built".
  */
 
 import { createTool } from "@mastra/core/tools";

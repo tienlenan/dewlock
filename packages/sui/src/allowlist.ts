@@ -45,6 +45,8 @@ export {
   DEEPBOOK_DEEP_TREASURY,
   DEEPBOOK_POOLS,
   CORE_TARGETS,
+  HAEDAL_PACKAGE,
+  HAEDAL_STAKING_OBJECT,
 } from "./protocol-constants";
 export type { SupportedCoinType } from "./protocol-constants";
 

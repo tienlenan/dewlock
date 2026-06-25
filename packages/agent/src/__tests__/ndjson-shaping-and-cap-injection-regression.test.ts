@@ -228,7 +228,10 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::swap_cap::return_router_cap_already_payed_fee") ||
         // Aftermath LST (afSUI) liquid staking — mint (stake) + atomic redeem (unstake)
         t.includes("::staked_sui_vault::request_stake_and_keep") ||
-        t.includes("::staked_sui_vault::request_unstake_atomic_and_keep");
+        t.includes("::staked_sui_vault::request_unstake_atomic_and_keep") ||
+        // Haedal LST (haSUI) liquid staking — direct-PTB stake + instant unstake
+        t.includes("::interface::request_stake") ||
+        t.includes("::interface::request_unstake_instant");
       expect(isAllowed).toBe(true);
     }
   });

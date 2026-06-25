@@ -2,15 +2,23 @@
  * Tests: Guardian staking gate — stake/unstake action-shape + provenance + outflow cap.
  *
  * Proves (all fail-closed):
+ *  afSUI (Aftermath):
  *  1. stake to allowlisted afSUI → PASS (action-shape + coin-type + cap all green).
  *  2. unstake → PASS.
- *  3. Scam-clone "afSUI" coin type on stake → BLOCK (coin_type gate, not in curated map).
+ *  3. Scam-clone "afSUI" coin type on stake → BLOCK (staking gate, not in curated map).
  *  4. A swap MoveCall smuggled into a stake action-shape → BLOCK (action_shape gate).
  *  5. Derived-amount stake → BLOCK (provenance hard-block, mirrors borrow/withdraw rule).
  *  6. Derived-amount unstake → BLOCK.
  *  7. unstake of an UNPRICED LST (unknown coin) → BLOCK (trusted_price outflow fail-closed).
  *  8. Exchange-rate / price unreadable → BLOCK.
  *  9. BLOCK-theater: scam-clone "afSUI" stake → BLOCK gate result.
+ *
+ *  haSUI (Haedal) — Phase 3:
+ *  10. stake to haSUI via allowlisted target → PASS.
+ *  11. unstake haSUI → SUI → PASS.
+ *  12. Scam-clone haSUI coin type → BLOCK (staking gate).
+ *  13. afSUI target inside a hasui-declared stake shape → BLOCK (provider-keyed action_shape).
+ *  14. Unpriced haSUI unstake (scam coin) → BLOCK.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -41,9 +49,11 @@ import { dryRunTransaction } from "@dewlock/sui";
 import { guardianCheck, checkActionShape, checkProvenance } from "../guardian";
 import type { TradeProposal } from "../guardian";
 
-// Known on-chain constants (verified from Aftermath SDK bundle runtime)
+// Known on-chain constants (verified from Aftermath SDK bundle runtime and mainnet txns)
 const AFTERMATH_LSD_PACKAGE = "0x1575034d2729907aefca1ac757d6ccfcd3fc7e9e77927523c06007d8353ad836";
 const NAVI_PACKAGE_ID = "0x1e4a13a0494d5facdbe8473e74127b838c2d446ecec0ce262e2eddafa77259cb";
+// Haedal package — same package as the HASUI coin type (verified from mainnet request_stake txn)
+const HAEDAL_PACKAGE_ID = "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d";
 
 const WALLET = "0x" + "a".repeat(64);
 const stubClient = {
@@ -101,6 +111,15 @@ async function buildSwapPtb(): Promise<string> {
   );
 }
 
+// haSUI PTB helpers (Phase 3)
+async function buildHaedalStakePtb(): Promise<string> {
+  return buildPtbWithTarget(`${HAEDAL_PACKAGE_ID}::interface::request_stake`);
+}
+
+async function buildHaedalUnstakePtb(): Promise<string> {
+  return buildPtbWithTarget(`${HAEDAL_PACKAGE_ID}::interface::request_unstake_instant`);
+}
+
 // ---------------------------------------------------------------------------
 // Dry-run results
 // ---------------------------------------------------------------------------
@@ -149,12 +168,55 @@ function scamUnstakeDryRun(wallet: string = WALLET): DryRunResult {
   };
 }
 
+function haSuiStakeDryRun(wallet: string = WALLET): DryRunResult {
+  return {
+    balanceDeltas: [
+      // SUI leaves: 1 SUI staked
+      { coinType: COIN_TYPES.SUI, amount: -1_000_000_000n, owner: wallet },
+      // haSUI arrives (~0.95 haSUI for 1 SUI; haSUI accrues staking rewards)
+      { coinType: COIN_TYPES.HASUI, amount: 950_000_000n, owner: wallet },
+    ],
+    gasCostMist: 2_000_000n,
+    objectChanges: [],
+    effects: {} as DryRunResult["effects"],
+  };
+}
+
+function haSuiUnstakeDryRun(wallet: string = WALLET): DryRunResult {
+  return {
+    balanceDeltas: [
+      // haSUI leaves
+      { coinType: COIN_TYPES.HASUI, amount: -1_000_000_000n, owner: wallet },
+      // SUI arrives
+      { coinType: COIN_TYPES.SUI, amount: 1_050_000_000n, owner: wallet },
+    ],
+    gasCostMist: 2_000_000n,
+    objectChanges: [],
+    effects: {} as DryRunResult["effects"],
+  };
+}
+
+function scamHaSuiUnstakeDryRun(wallet: string = WALLET): DryRunResult {
+  const SCAM_HASUI_TYPE = "0xdeadbeef00000000000000000000000000000000000000000000000000000002::scamhasui::SCAMHASUI";
+  return {
+    balanceDeltas: [
+      { coinType: SCAM_HASUI_TYPE, amount: -1_000_000_000n, owner: wallet },
+      { coinType: COIN_TYPES.SUI, amount: 1_050_000_000n, owner: wallet },
+    ],
+    gasCostMist: 2_000_000n,
+    objectChanges: [],
+    effects: {} as DryRunResult["effects"],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Proposal factories
 // ---------------------------------------------------------------------------
 
 const AFSUI = COIN_TYPES.AFSUI;
+const HASUI = COIN_TYPES.HASUI;
 const SCAM_AFSUI = "0xdeadbeef00000000000000000000000000000000000000000000000000000001::scamafsui::SCAMAFSUI";
+const SCAM_HASUI = "0xdeadbeef00000000000000000000000000000000000000000000000000000002::scamhasui::SCAMHASUI";
 
 function stakeProposal(over: Partial<TradeProposal> = {}): TradeProposal {
   return {
@@ -180,6 +242,38 @@ function unstakeProposal(over: Partial<TradeProposal> = {}): TradeProposal {
     coinTypeIn: AFSUI,
     coinTypeOut: COIN_TYPES.SUI,
     amountInNative: 1_000_000_000n,
+    argProvenance: { amount: "user_turn", coinType: "user_turn" },
+    dailyUsdSpentSoFar: 0,
+    ...over,
+  };
+}
+
+function haSuiStakeProposal(over: Partial<TradeProposal> = {}): TradeProposal {
+  return {
+    txBytes: "",
+    walletAddress: WALLET,
+    actionLabel: "stake 1 SUI → haSUI",
+    actionType: "stake",
+    coinTypeIn: COIN_TYPES.SUI,
+    coinTypeOut: HASUI,
+    amountInNative: 1_000_000_000n,
+    lstProvider: "hasui",
+    argProvenance: { amount: "user_turn", coinType: "user_turn" },
+    dailyUsdSpentSoFar: 0,
+    ...over,
+  };
+}
+
+function haSuiUnstakeProposal(over: Partial<TradeProposal> = {}): TradeProposal {
+  return {
+    txBytes: "",
+    walletAddress: WALLET,
+    actionLabel: "unstake 1 haSUI → SUI",
+    actionType: "unstake",
+    coinTypeIn: HASUI,
+    coinTypeOut: COIN_TYPES.SUI,
+    amountInNative: 1_000_000_000n,
+    lstProvider: "hasui",
     argProvenance: { amount: "user_turn", coinType: "user_turn" },
     dailyUsdSpentSoFar: 0,
     ...over,
@@ -435,5 +529,101 @@ describe("checkActionShape — staking shape gate", () => {
     const txBytes = await buildStakePtb();
     const result = await checkActionShape(unstakeProposal({ txBytes }));
     expect(result.ok).toBe(false);
+  });
+
+  // --- haSUI shape gate (provider-keyed single-target) ---
+
+  it("hasui stake with Haedal target → shape PASS", async () => {
+    const txBytes = await buildHaedalStakePtb();
+    const result = await checkActionShape(haSuiStakeProposal({ txBytes }));
+    expect(result.ok).toBe(true);
+  });
+
+  it("hasui unstake with Haedal unstake target → shape PASS", async () => {
+    const txBytes = await buildHaedalUnstakePtb();
+    const result = await checkActionShape(haSuiUnstakeProposal({ txBytes }));
+    expect(result.ok).toBe(true);
+  });
+
+  it("hasui stake with afSUI (Aftermath) target → shape BLOCK (provider-keyed)", async () => {
+    // Aftermath target inside a hasui-declared stake: wrong provider → BLOCK.
+    const txBytes = await buildStakePtb(); // builds with Aftermath target
+    const result = await checkActionShape(haSuiStakeProposal({ txBytes }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/shape mismatch/i);
+  });
+
+  it("afsui stake with Haedal target → shape BLOCK (provider-keyed)", async () => {
+    // Haedal target inside an afsui-declared stake: wrong provider → BLOCK.
+    const txBytes = await buildHaedalStakePtb();
+    const result = await checkActionShape(stakeProposal({ txBytes })); // afsui default
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/shape mismatch/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3: Guardian haSUI gate — full guardianCheck integration
+// ---------------------------------------------------------------------------
+
+describe("Guardian staking gate — haSUI (Haedal)", () => {
+  it("stake to allowlisted haSUI → PASS", async () => {
+    const txBytes = await buildHaedalStakePtb();
+    mockDryRun.mockResolvedValue(haSuiStakeDryRun());
+
+    const result = await guardianCheck(haSuiStakeProposal({ txBytes }), stubClient);
+    expect(result.ok).toBe(true);
+  });
+
+  it("unstake haSUI → SUI → PASS", async () => {
+    const txBytes = await buildHaedalUnstakePtb();
+    mockDryRun.mockResolvedValue(haSuiUnstakeDryRun());
+
+    const result = await guardianCheck(haSuiUnstakeProposal({ txBytes }), stubClient);
+    expect(result.ok).toBe(true);
+  });
+
+  it("stake to scam-clone haSUI coin type → BLOCK (staking gate)", async () => {
+    const txBytes = await buildHaedalStakePtb();
+
+    const result = await guardianCheck(
+      haSuiStakeProposal({ txBytes, coinTypeOut: SCAM_HASUI }),
+      stubClient,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // The staking gate fires on the curated-map check (scam-clone not in COIN_DECIMALS).
+      expect(result.gates).toContain("staking");
+    }
+  });
+
+  it("afSUI target inside a hasui-declared stake → BLOCK (action_shape gate)", async () => {
+    // PTB uses Aftermath target, but proposal declares lstProvider:"hasui" → shape mismatch.
+    const txBytes = await buildStakePtb();
+
+    const result = await guardianCheck(haSuiStakeProposal({ txBytes }), stubClient);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.gates).toContain("action_shape");
+    }
+  });
+
+  it("unpriced haSUI unstake (scam clone coin type) → BLOCK", async () => {
+    const txBytes = await buildHaedalUnstakePtb();
+    mockDryRun.mockResolvedValue(scamHaSuiUnstakeDryRun());
+
+    const result = await guardianCheck(
+      haSuiUnstakeProposal({ txBytes, coinTypeIn: SCAM_HASUI }),
+      stubClient,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(
+        result.gates.some((g) => g === "trusted_price" || g === "staking" || g.startsWith("coin_type")),
+      ).toBe(true);
+    }
   });
 });

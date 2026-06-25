@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-06-25 — Liquid staking 2nd provider: haSUI (Haedal, direct-PTB)
+
+### Added
+- **haSUI** (Haedal) as a second LST provider for `stake`/`unstake`, built as a **direct PTB** (Haedal has no unsigned-PTB SDK). Targets captured from mainnet: `interface::request_stake(&mut SuiSystemState@0x5, &mut Staking, Coin<SUI>, recipient)` (mint) and `interface::request_unstake_instant(&mut Staking, Coin<HASUI>)` (instant redeem). New `HAEDAL_PACKAGE` + `HAEDAL_STAKING_OBJECT` constants.
+- **Provider-keyed action-shape gate** — a new `lstProvider` (`afsui`|`hasui`) threads through the proposal so the shape gate's allowed set is a SINGLE target per provider: a haSUI PTB cannot pass an afSUI-declared stake shape (and vice-versa), and an unknown provider BLOCKs (`checkStakingConstraints` fail-closed).
+- haSUI priced for the unstake outflow cap the same independent way as afSUI (SUI floor × floored haSUI/SUI rate, not Haedal's own rate). Registry: Haedal `deferred`→`built` (+2 targets, allowlist 45 → 47); the 2-provider picker is registry-driven.
+- Tests: +19 (haSUI stake/unstake PASS, scam-clone haSUI → BLOCK via the staking gate, cross-provider shape BLOCK, unknown-provider fail-closed, registry snapshot).
+
+### Notes
+- **vSUI/Volo stays excluded** (registry `status:"hacked"`) — not re-enabled.
+- The Haedal **live PTB path is not unit-verifiable** (no SDK; fixture-mode tests only). The builder is marked `[needs mainnet verification]`; the PTB shape was checked arg-by-arg against the captured on-chain entry signatures but a mainnet dry-run is still required before a live demo.
+- Tests: 882/882 pass; typecheck clean.
+
 ## 2026-06-25 — Liquid staking (afSUI via Aftermath)
 
 ### Added

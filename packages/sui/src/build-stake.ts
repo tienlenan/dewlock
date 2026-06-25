@@ -1,11 +1,15 @@
 /**
- * Build an unsigned Aftermath liquid-staking PTB for afSUI (stake SUI → afSUI, unstake afSUI → SUI).
+ * Build unsigned liquid-staking PTBs for afSUI (Aftermath SDK) and haSUI (Haedal direct-PTB).
+ *
+ * Provider discriminator: "afsui" | "hasui". The caller (Guardian / prepareTrade) passes the
+ * lstProvider field from the TradeProposal. Unknown provider → StakeBuildError (fail-closed).
  *
  * WHY a separate builder from build-lend.ts: staking uses the Aftermath LSD SDK path
  * (staked_sui_vault::request_stake / request_unstake_atomic), not NAVI/Suilend. The Guardian
  * action-shape gate enforces distinct allowlist targets per verb, so lending and staking share
  * no MoveCall shape — mixing them would falsely pass the shape gate.
  *
+ * afSUI path:
  * WHY prebundled CJS via static require: aftermath-ts-sdk is ESM-only and sits behind a pnpm
  * symlink the Vercel serverless packager strips. Loaded from sdk-bundles/aftermath.cjs by a
  * STATIC relative require so Next's tracer ships it in the function — same rationale as
@@ -27,31 +31,48 @@
  * native epoch delay." Atomic unstake may carry a small protocol fee but is the only path
  * that delivers SUI in the same transaction.
  *
- * Move targets emitted by the Aftermath LSD SDK (verified by runtime inspection):
+ * afSUI Move targets (Aftermath LSD SDK, verified by runtime inspection):
  *  stake:   {lsd}::staked_sui_vault::request_stake_and_keep
  *  unstake: {lsd}::staked_sui_vault::request_unstake_atomic_and_keep
  * where lsd = 0x1575034d2729907aefca1ac757d6ccfcd3fc7e9e77927523c06007d8353ad836
  * (verified: af.Staking().stakingApi().addresses.packages.lsd at runtime).
+ *
+ * haSUI path (DIRECT-PTB, no SDK, no new bundle):
+ * Targets captured from a real mainnet request_stake txn (see HAEDAL_PACKAGE / HAEDAL_STAKING_OBJECT):
+ *  stake:   interface::request_stake(&mut SuiSystemState@0x5, &mut Staking, Coin<SUI>, address)
+ *  unstake: interface::request_unstake_instant(&mut Staking, Coin<HASUI>)
+ * SUI for stake is split from tx.gas (same as afSUI path: SUI is always the gas coin).
+ * haSUI for unstake is selected from wallet coin objects (merge+split pattern, no gas pin).
+ * [needs mainnet verification] direct-PTB built from captured request_stake/request_unstake_instant
+ * signatures; not exercised by unit tests.
  */
 
 import { Transaction } from "@mysten/sui/transactions";
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { pinSuiGasPayment, InsufficientGasCoverageError } from "./sui-gas-payment";
+import { HAEDAL_PACKAGE, HAEDAL_STAKING_OBJECT, COIN_TYPES } from "./protocol-constants";
 
 type SuiClient = SuiJsonRpcClient;
 type AftermathSdk = typeof import("aftermath-ts-sdk");
+
+/** Which LST provider to use for stake/unstake. */
+export type LstProvider = "afsui" | "hasui";
 
 export interface StakeSpec {
   senderAddress: string;
   /** Amount of SUI to stake, in MIST (native units). */
   amountNative: bigint;
+  /** LST provider discriminator. Defaults to "afsui" for backward compatibility. */
+  lstProvider?: LstProvider;
 }
 
 export interface UnstakeSpec {
   senderAddress: string;
-  /** Amount of afSUI to redeem (unstake), in native units (9 decimals). */
+  /** Amount of LST to redeem (unstake), in native units (9 decimals). */
   afSuiAmountNative: bigint;
+  /** LST provider discriminator. Defaults to "afsui" for backward compatibility. */
+  lstProvider?: LstProvider;
 }
 
 export interface StakeBuildResult {
@@ -82,11 +103,11 @@ function loadAftermathSdk(): AftermathSdk {
 }
 
 /**
- * Build an unsigned stake PTB: SUI → afSUI via Aftermath LSD.
+ * Build an unsigned stake PTB: SUI → afSUI (Aftermath) or SUI → haSUI (Haedal).
  * Throws StakeBuildError on any SDK/RPC error — callers (Guardian) treat a throw as BLOCK.
  */
 export async function buildStake(client: SuiClient, spec: StakeSpec): Promise<StakeBuildResult> {
-  const { senderAddress, amountNative } = spec;
+  const { amountNative, lstProvider = "afsui" } = spec;
 
   if (amountNative <= 0n) {
     throw new StakeBuildError("Stake amount must be positive.");
@@ -100,16 +121,21 @@ export async function buildStake(client: SuiClient, spec: StakeSpec): Promise<St
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: true };
   }
 
-  return buildLiveStakePtb(client, spec);
+  if (lstProvider === "hasui") {
+    return buildHaedalStakePtb(client, spec);
+  }
+  if (lstProvider === "afsui") {
+    return buildLiveStakePtb(client, spec);
+  }
+  throw new StakeBuildError(`Unknown lstProvider "${lstProvider}". Must be "afsui" or "hasui".`);
 }
 
 /**
- * Build an unsigned unstake PTB: afSUI → SUI via Aftermath atomic unstake.
- * Uses isAtomic=true for instant SUI return (liquid; no epoch delay).
+ * Build an unsigned unstake PTB: afSUI → SUI (Aftermath atomic) or haSUI → SUI (Haedal instant).
  * Throws StakeBuildError on any SDK/RPC error — callers (Guardian) treat a throw as BLOCK.
  */
 export async function buildUnstake(client: SuiClient, spec: UnstakeSpec): Promise<StakeBuildResult> {
-  const { afSuiAmountNative } = spec;
+  const { afSuiAmountNative, lstProvider = "afsui" } = spec;
 
   if (afSuiAmountNative <= 0n) {
     throw new StakeBuildError("Unstake amount must be positive.");
@@ -121,7 +147,13 @@ export async function buildUnstake(client: SuiClient, spec: UnstakeSpec): Promis
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: true };
   }
 
-  return buildLiveUnstakePtb(client, spec);
+  if (lstProvider === "hasui") {
+    return buildHaedalUnstakePtb(client, spec);
+  }
+  if (lstProvider === "afsui") {
+    return buildLiveUnstakePtb(client, spec);
+  }
+  throw new StakeBuildError(`Unknown lstProvider "${lstProvider}". Must be "afsui" or "hasui".`);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,4 +254,118 @@ async function buildLiveUnstakePtb(client: SuiClient, spec: UnstakeSpec): Promis
       `Aftermath unstake PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Haedal direct-PTB paths — [needs mainnet verification]
+//
+// Direct-PTB built from captured request_stake/request_unstake_instant entry
+// signatures; not exercised by unit tests. Re-verify before a live demo if
+// Haedal upgrades its package (HAEDAL_PACKAGE / HAEDAL_STAKING_OBJECT).
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an unsigned haSUI stake PTB: SUI → haSUI via Haedal interface::request_stake.
+ *
+ * PTB shape (direct MoveCall — no SDK):
+ *   1. splitCoins(tx.gas, [amountNative])  → suiCoin (SUI split from gas)
+ *   2. moveCall(interface::request_stake,  args=[SuiSystemState@0x5, Staking, suiCoin, sender])
+ * haSUI is sent to recipient (sender) by the Move function — no TransferObjects needed.
+ * Gas is pinned AFTER build (pinSuiGasPayment) to cover stake amount + fees without InsufficientGas.
+ *
+ * [needs mainnet verification] direct-PTB built from captured signatures; not unit-tested live.
+ */
+async function buildHaedalStakePtb(client: SuiClient, spec: StakeSpec): Promise<StakeBuildResult> {
+  const { senderAddress, amountNative } = spec;
+
+  try {
+    const tx = new Transaction();
+    tx.setSender(senderAddress);
+
+    // Split SUI from gas coin (SUI is always the gas coin on Sui).
+    const [suiCoin] = tx.splitCoins(tx.gas, [amountNative]);
+
+    // interface::request_stake(&mut SuiSystemState@0x5, &mut Staking, Coin<SUI>, address)
+    tx.moveCall({
+      target: `${HAEDAL_PACKAGE}::interface::request_stake`,
+      arguments: [
+        tx.object("0x0000000000000000000000000000000000000000000000000000000000000005"),
+        tx.object(HAEDAL_STAKING_OBJECT),
+        suiCoin,
+        tx.pure.address(senderAddress),
+      ],
+    });
+
+    // Pin gas payment: ensure the gas coin covers both stake amount and fees.
+    await pinSuiGasPayment(client, tx, senderAddress, amountNative);
+
+    const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
+    return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
+  } catch (err) {
+    if (err instanceof StakeBuildError) throw err;
+    if (err instanceof InsufficientGasCoverageError) throw err;
+    throw new StakeBuildError(
+      `Haedal stake PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
+ * Build an unsigned haSUI unstake PTB: haSUI → SUI via Haedal interface::request_unstake_instant.
+ *
+ * PTB shape (direct MoveCall — no SDK):
+ *   1. select/merge haSUI coins from wallet → haSuiCoin
+ *   2. splitCoins(haSuiCoin, [amountNative])   → exactHaSui
+ *   3. moveCall(interface::request_unstake_instant, args=[Staking, exactHaSui])
+ * SUI is sent to sender by the Move function. Gas is paid from a separate SUI coin (no pin needed).
+ *
+ * [needs mainnet verification] direct-PTB built from captured signatures; not unit-tested live.
+ */
+async function buildHaedalUnstakePtb(client: SuiClient, spec: UnstakeSpec): Promise<StakeBuildResult> {
+  const { senderAddress, afSuiAmountNative } = spec;
+
+  try {
+    const tx = new Transaction();
+    tx.setSender(senderAddress);
+
+    // Select haSUI coin objects from the wallet (merge if fragmented, then split exact amount).
+    const haSuiCoinObj = await selectHaSuiCoin(client, tx, senderAddress, afSuiAmountNative);
+
+    // interface::request_unstake_instant(&mut Staking, Coin<HASUI>)
+    tx.moveCall({
+      target: `${HAEDAL_PACKAGE}::interface::request_unstake_instant`,
+      arguments: [
+        tx.object(HAEDAL_STAKING_OBJECT),
+        haSuiCoinObj,
+      ],
+    });
+
+    const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
+    return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
+  } catch (err) {
+    if (err instanceof StakeBuildError) throw err;
+    if (err instanceof InsufficientGasCoverageError) throw err;
+    throw new StakeBuildError(
+      `Haedal unstake PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
+ * Select (and optionally merge) haSUI coins from the wallet, then split the exact amount needed.
+ * Mirrors the selectCoin pattern from build-lend.ts.
+ */
+async function selectHaSuiCoin(
+  client: SuiClient,
+  tx: Transaction,
+  owner: string,
+  amount: bigint,
+) {
+  const coins = await client.getCoins({ owner, coinType: COIN_TYPES.HASUI });
+  if (!coins.data || coins.data.length === 0) {
+    throw new StakeBuildError(`No haSUI coins owned by ${owner} to unstake.`);
+  }
+  const [primary, ...rest] = coins.data.map((c) => c.coinObjectId);
+  if (rest.length > 0) tx.mergeCoins(tx.object(primary), rest.map((id) => tx.object(id)));
+  return tx.splitCoins(tx.object(primary), [amount])[0];
 }

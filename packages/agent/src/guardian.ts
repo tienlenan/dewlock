@@ -46,6 +46,7 @@ import {
   SUILEND_PACKAGE,
   WORMHOLE_WTT_PACKAGE,
   DEEPBOOK_PACKAGE,
+  HAEDAL_PACKAGE,
   getTrustedUsdPrice,
   normalizeCoinType,
   getProtocolByTarget,
@@ -103,6 +104,10 @@ export type LendingProtocol = (typeof LENDING_PROTOCOLS)[number];
 /** Swap execution source. "cetus" = direct CLMM pool; "aggregator" = Cetus best route; "aftermath" = Aftermath AMM router. */
 export const SWAP_SOURCES = ["cetus", "aggregator", "aftermath"] as const;
 export type SwapSource = (typeof SWAP_SOURCES)[number];
+
+/** LST providers Dewlock has a built adapter for. */
+export const LST_PROVIDERS = ["afsui", "hasui"] as const;
+export type LstProvider = (typeof LST_PROVIDERS)[number];
 import { dryRunTransaction, DryRunFailedError, capObjectsForPreview, type DryRunResult } from "@dewlock/sui";
 import { simulateNaviHealthFactor } from "@dewlock/sui/navi-hf-simulation";
 // PoolOperator discriminant values mirrored from the NAVI bundle (stable numeric constants).
@@ -190,6 +195,15 @@ export interface TradeProposal {
   bookParams?: { tickSize: number; lotSize: number; minSize: number };
   /** Mid-price at build time (for fat-finger sanity band). */
   midPrice?: number;
+
+  // --- Staking fields (actionType === "stake" | "unstake") ---
+  /**
+   * LST provider for stake/unstake. "afsui" → Aftermath LSD SDK; "hasui" → Haedal direct-PTB.
+   * Defaults to "afsui" when absent (backward compatible with Phase 2 proposals).
+   * The Guardian uses this to key the single-target allowlist for the shape gate, ensuring
+   * a PTB built for one provider cannot pass a shape check declared for the other.
+   */
+  lstProvider?: LstProvider;
 
   // --- Lending fields (actionType === "lend_*") ---
   /** Lending protocol routed to. Must be active+built in the registry. */
@@ -307,6 +321,8 @@ export interface TxPreview {
   lendingProtocol?: LendingProtocol;
   healthBefore?: number;
   healthAfter?: number;
+  // --- Staking preview fields ---
+  lstProvider?: LstProvider;
 }
 
 // ---------------------------------------------------------------------------
@@ -744,6 +760,7 @@ export async function guardianCheck(
     lendingProtocol: proposal.lendingProtocol,
     healthBefore: proposal.healthBefore,
     healthAfter: proposal.healthAfter,
+    lstProvider: proposal.lstProvider,
   };
 
   return {
@@ -808,8 +825,13 @@ export async function checkAllowlist(txBytesB64: string): Promise<GateResult> {
  * Move-call targets each action type may legitimately contain. Commands
  * (splitCoins/mergeCoins/transferObjects) are NOT MoveCalls and are not
  * constrained here — value movement is bounded by the dry-run net-outflow cap.
+ *
+ * For stake/unstake the allowed set is SINGLE-TARGET and provider-keyed: an
+ * afSUI-declared stake only accepts the Aftermath request_stake_and_keep target;
+ * a haSUI-declared stake only accepts the Haedal interface::request_stake target.
+ * A PTB built for provider A cannot pass the shape gate for provider B.
  */
-function allowedTargetsForAction(actionType: ActionType): Set<string> {
+function allowedTargetsForAction(actionType: ActionType, proposal?: TradeProposal): Set<string> {
   switch (actionType) {
     case "swap":
       return new Set([
@@ -928,16 +950,29 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
     case "bridge_redeem":
       // Only the Sui-side Wormhole Token-Bridge redeem.
       return new Set([`${WORMHOLE_WTT_PACKAGE}::complete_transfer::complete_transfer`]);
-    case "stake":
-      // Aftermath LST mint: SUI → afSUI. Minimal-exact: only request_stake_and_keep is
-      // permitted. The "and_keep" variant transfers afSUI to the wallet in the same call
-      // (no separate TransferObjects needed), so no extra MoveCall rides along.
-      // Non-atomic unstake (request_unstake) is intentionally absent — not a stake verb.
+    case "stake": {
+      // Provider-keyed single-target: only the declared provider's stake entry is allowed.
+      // A PTB built for afSUI cannot pass a haSUI-declared stake shape and vice versa.
+      const lstProvider = proposal?.lstProvider ?? "afsui";
+      if (lstProvider === "hasui") {
+        // Haedal direct-PTB: interface::request_stake sends haSUI to recipient in same call.
+        return new Set([`${HAEDAL_PACKAGE}::interface::request_stake`]);
+      }
+      // Default: afSUI (Aftermath). Minimal-exact: only request_stake_and_keep.
+      // The "and_keep" variant transfers afSUI to the wallet in the same call —
+      // no extra TransferObjects needed. Non-atomic request_unstake absent (not a stake verb).
       return new Set([`${AFTERMATH_LSD_PACKAGE}::staked_sui_vault::request_stake_and_keep`]);
-    case "unstake":
-      // Aftermath LST atomic redeem: afSUI → SUI. Only the atomic variant is supported
-      // (instant SUI return, no epoch wait). Non-atomic request_unstake is absent.
+    }
+    case "unstake": {
+      // Provider-keyed single-target: only the declared provider's unstake entry is allowed.
+      const lstProvider = proposal?.lstProvider ?? "afsui";
+      if (lstProvider === "hasui") {
+        // Haedal direct-PTB: request_unstake_instant sends SUI to sender instantly.
+        return new Set([`${HAEDAL_PACKAGE}::interface::request_unstake_instant`]);
+      }
+      // Default: afSUI (Aftermath). Only the atomic variant — instant SUI return, no epoch wait.
       return new Set([`${AFTERMATH_LSD_PACKAGE}::staked_sui_vault::request_unstake_atomic_and_keep`]);
+    }
     case "transfer":
       // Supported transfers (SUI) use splitCoins+transferObjects — no MoveCall —
       // so the legitimate shape has an empty MoveCall set. Any MoveCall in a
@@ -961,7 +996,7 @@ export async function checkActionShape(proposal: TradeProposal): Promise<GateRes
     const bytes = Buffer.from(proposal.txBytes, "base64");
     const tx = Transaction.from(bytes);
     const commands = tx.getData().commands ?? [];
-    const allowed = allowedTargetsForAction(proposal.actionType);
+    const allowed = allowedTargetsForAction(proposal.actionType, proposal);
     // Zero-value framework calls permitted inside ANY action's shape: the SuiNS forward
     // resolve (read-only), coin::destroy_zero (aborts unless the coin balance is 0 — drops
     // the emptied input coin), coin::from_balance (wraps a swap-output Balance into a Coin),
@@ -1053,32 +1088,42 @@ export function checkLendingConstraints(proposal: TradeProposal): GateResult {
 }
 
 // ---------------------------------------------------------------------------
-// Staking constraints gate — Aftermath LST stake / unstake
+// Staking constraints gate — Aftermath LST stake / unstake + Haedal haSUI
 // ---------------------------------------------------------------------------
 
 /**
  * Staking constraints:
- *  - Protocol must be active+built (assertProtocolActive on "aftermath-staking").
- *  - The LST coin type (afSUI) must be the canonical type from COIN_TYPES (curated map).
- *    A scam-clone afSUI with a different package address is blocked by the coin_type
+ *  - Provider must be a known LST provider (afsui|hasui). Unknown → BLOCK.
+ *  - Protocol must be active+built in the registry (aftermath-staking for afSUI, haedal for haSUI).
+ *  - The LST coin type must be the canonical type from COIN_DECIMALS (curated map).
+ *    A scam-clone haSUI/afSUI with a different package address is blocked by the coin_type
  *    gate upstream (not in COIN_DECIMALS) — this gate adds a belt-and-suspenders check
- *    on the coinTypeOut for stake and coinTypeIn for unstake.
+ *    on coinTypeOut for stake and coinTypeIn for unstake.
  *
- * Fail-closed: any unknown coin type or inactive protocol → BLOCK.
+ * Fail-closed: any unknown coin type, unknown provider, or inactive protocol → BLOCK.
  */
 export function checkStakingConstraints(proposal: TradeProposal): GateResult {
-  const { actionType } = proposal;
+  const { actionType, lstProvider = "afsui" } = proposal;
 
-  // Verify the Aftermath staking LST entry is active+built in the registry.
-  const gate = assertProtocolActive("aftermath-staking");
-  if (!gate.ok) {
+  // Unknown provider → fail-closed.
+  if (lstProvider !== "afsui" && lstProvider !== "hasui") {
     return {
       ok: false,
-      reason: gate.reason ?? `Aftermath staking protocol "aftermath-staking" is not active. Blocking (fail-closed).`,
+      reason: `Unknown lstProvider "${lstProvider}". Must be "afsui" or "hasui". Blocking (fail-closed).`,
     };
   }
 
-  // For stake: coinTypeOut should be the canonical afSUI (not a clone).
+  // Verify the staking protocol entry is active+built in the registry.
+  const registryId = lstProvider === "hasui" ? "haedal" : "aftermath-staking";
+  const gate = assertProtocolActive(registryId);
+  if (!gate.ok) {
+    return {
+      ok: false,
+      reason: gate.reason ?? `Staking protocol "${registryId}" is not active. Blocking (fail-closed).`,
+    };
+  }
+
+  // For stake: coinTypeOut should be the canonical LST for this provider (not a clone).
   // The coin_type gate already checks on-chain CoinMetadata; this adds a registry
   // check that the outgoing LST is in our curated COIN_DECIMALS map.
   if (actionType === "stake") {
@@ -1088,12 +1133,12 @@ export function checkStakingConstraints(proposal: TradeProposal): GateResult {
         ok: false,
         reason:
           `stake action output coin type "${outType ?? "(missing)"}" is not in the curated coin map — ` +
-          "cannot verify LST provenance. Blocking (fail-closed): use the canonical afSUI type.",
+          "cannot verify LST provenance. Blocking (fail-closed): use the canonical LST type.",
       };
     }
   }
 
-  // For unstake: coinTypeIn should be a curated LST type (afSUI).
+  // For unstake: coinTypeIn should be a curated LST type (afSUI or haSUI).
   // An unpriced LST as input means the outflow cap cannot be computed → fail-closed.
   if (actionType === "unstake") {
     const inType = proposal.coinTypeIn;

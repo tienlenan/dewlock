@@ -34,6 +34,8 @@ export {
   DEEPBOOK_PACKAGE,
   DEEPBOOK_REGISTRY,
   DEEPBOOK_POOLS,
+  HAEDAL_PACKAGE,
+  HAEDAL_STAKING_OBJECT,
   getTrustedUsdPrice,
   normalizeCoinType,
   normalizeHomoglyphs,

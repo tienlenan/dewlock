@@ -195,6 +195,18 @@ export function getTrustedUsdPrice(coinTypeRaw: string): number | undefined {
     const derivedFloor = suiFloor * rateFallback;
     return Math.max(liveAfSuiUsd ?? 0, derivedFloor);
   }
+  // haSUI (Haedal LST): same independent-pricing pattern as afSUI.
+  // WHY independent of Haedal's own exchange-rate: same rationale — the cap must not be
+  // gameable by inflating a protocol-provided rate. We use SUI/USD floor × haSUI/SUI
+  // exchange-rate floor (≥ 1.0 SUI; haSUI accrues staking rewards so only grows).
+  // Conservative (under-prices haSUI) → tighter cap.
+  if (coinType === COIN_TYPES.HASUI) {
+    const suiFloor = process.env.SUI_USD_PRICE_FLOOR ? parseFloat(process.env.SUI_USD_PRICE_FLOOR) : 3.0;
+    const rateFallback = process.env.HASUI_SUI_RATE_FLOOR ? parseFloat(process.env.HASUI_SUI_RATE_FLOOR) : 1.0;
+    const liveHaSuiUsd = livePrice(coinType);
+    const derivedFloor = suiFloor * rateFallback;
+    return Math.max(liveHaSuiUsd ?? 0, derivedFloor);
+  }
   // Any other coin: a live feed if one exists (future coins), else unknown → block.
   return livePrice(coinType);
 }
@@ -418,6 +430,25 @@ export const SUINS_PACKAGE =
 /** DeepBook V3 mainnet package id. */
 export const DEEPBOOK_PACKAGE =
   "0x0e735f8c93a95722efd73521aca7a7652c0bb71ed1daf41b26dfd7d1ff71f748";
+
+/**
+ * Haedal liquid-staking package (same package that mints the HASUI coin).
+ * Source: captured from a real mainnet request_stake txn.
+ * Entry targets:
+ *   stake:   interface::request_stake(&mut SuiSystemState, &mut Staking, Coin<SUI>, address)
+ *   unstake: interface::request_unstake_instant(&mut Staking, Coin<HASUI>)
+ * [needs mainnet verification] targets captured from mainnet tx; re-verify if Haedal upgrades.
+ */
+export const HAEDAL_PACKAGE =
+  "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d";
+
+/**
+ * Haedal Staking shared object id (mutable shared; captures protocol state for stake/unstake).
+ * Source: captured from a real mainnet request_stake txn.
+ * [needs mainnet verification] re-verify if Haedal migrates to a new staking object.
+ */
+export const HAEDAL_STAKING_OBJECT =
+  "0x47b224762220393057ebf4f70501b6e657c3e56684737568439a04f80849b2ca";
 
 /** DeepBook V3 registry object id. */
 export const DEEPBOOK_REGISTRY =

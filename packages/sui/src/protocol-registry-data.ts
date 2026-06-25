@@ -26,10 +26,11 @@ import {
   WORMHOLE_WTT_PACKAGE,
   AFTERMATH_ROUTER_UTILS_PACKAGE,
   AFTERMATH_LSD_PACKAGE,
+  HAEDAL_PACKAGE,
 } from "./protocol-constants";
 import type { ProtocolEntry } from "./protocol-registry";
 
-const { SUI, USDC, USDT, WETH, wBTC, DEEP, AFSUI } = COIN_TYPES;
+const { SUI, USDC, USDT, WETH, wBTC, DEEP, AFSUI, HASUI } = COIN_TYPES;
 
 export const PROTOCOLS: ProtocolEntry[] = [
   // -------------------------------------------------------------------------
@@ -285,10 +286,22 @@ export const PROTOCOLS: ProtocolEntry[] = [
     name: "Haedal",
     category: "lst",
     status: "active",
-    buildState: "deferred",
-    allowlistedTargets: [],
-    coinTypes: [SUI],
-    guardianNotes: "Liquid staking; build-deferred — no unsigned-PTB SDK path yet.",
+    buildState: "built",
+    // Exact Move targets (direct-PTB, no SDK). Captured from a real mainnet request_stake txn.
+    // stake:   interface::request_stake(&mut SuiSystemState@0x5, &mut Staking, Coin<SUI>, address)
+    // unstake: interface::request_unstake_instant(&mut Staking, Coin<HASUI>)
+    // [needs mainnet verification] re-verify if Haedal upgrades its package.
+    allowlistedTargets: [
+      `${HAEDAL_PACKAGE}::interface::request_stake`,
+      `${HAEDAL_PACKAGE}::interface::request_unstake_instant`,
+    ],
+    coinTypes: [SUI, HASUI],
+    guardianNotes:
+      "Liquid staking only (LST, instant unstake via request_unstake_instant). haSUI coin-type provenance " +
+      "checked on-chain. haSUI outflow cap uses SUI_price × haSUI/SUI exchange-rate floor (independent of " +
+      "Haedal's own rate display). Scam-clone haSUI blocked by coin_type gate. " +
+      "Direct-PTB (no SDK bundle) — targets captured from mainnet txn. " +
+      "[needs mainnet verification] re-verify package + entry signatures before live demo.",
   },
   {
     id: "wormhole",
