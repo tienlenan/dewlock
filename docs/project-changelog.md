@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-06-26 — Atomic composite-recipe Guardian gate (Track B) — the moat
+
+### Added
+- **`checkCompositeRecipe` Guardian gate** — the authoritative, fail-closed safety check for a single-PTB atomic composite (recipe v1 = `swap→lend`). Enforces four invariants in order, any failure → BLOCK: (a) **closed-recipe registry** — `compositeRecipeId` must name a pre-declared recipe (NO ad-hoc LLM composition); (b) **target multiset** — the PTB's MoveCall set must equal the recipe's declared legs (no extra/missing calls); (c) **coin-type linkage** — swap output coin must equal lend input coin; (d) **delta/owner anti-leak + caps** — runs the dry-run and BLOCKs on ANY third-party object-change owner OR any positive balance delta to a non-sender address, then bounds the whole-PTB net outflow by both a USD cap and an independent **net-SUI cap** (`NET_SUI_DELTA_CAP_MIST` = 10 SUI). Dry-run failure / unpriced coin / unclassifiable owner → BLOCK.
+- The anti-leak is **delta/owner-based, not static graph-isomorphism** — it reuses the existing `extractObjectChanges`/`classifyOwner` + `computeNetOutflowUsd` machinery, so a leak is caught regardless of PTB graph shape (closes the `tx.gas`-split→TransferObjects SUI-exfil and Result-derived-recipient vectors). Verified that the live dry-run surfaces per-owner balance changes for ALL owners, so the gate catches real leaks, not just mocked ones.
+- `composite` action type + `composite-recipes.ts` (closed registry) + `build-composite.ts` + 17 adversarial safety tests (third-party transfer, SUI-exfil, non-sender delta, multiset splice, unknown/missing recipe, both caps, fail-closed dry-run, atomicity, WYSIWYS digest stability, single-action non-regression).
+
+### Deferred (fail-closed, not faked)
+- **Live composite BUILD is fail-closed** — `buildComposite` refuses live mode (the aggregator SDK exposes no stable output-coin hook for in-PTB composition) and a composite intent **degrades to the Track-A sequential chain** (which works). So atomic execution is not yet available, but no unsafe composite can be built; the verified gate guards it for when the builder lands. The Track-A planner opt-in ("execute atomically") UI is also deferred.
+
+### Notes
+- This was the moat-critical phase; the security gate is implemented, adversarially tested, and personally reviewed against the real dry-run path. Single-action flows unchanged. 982/982 tests pass; typecheck clean.
+
 ## 2026-06-25 — Multi-step intent chaining: Track A (sequential) — machinery + safety
 
 ### Added

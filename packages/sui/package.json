@@ -31,7 +31,8 @@
     "./order-management": "./dist/deepbook/order-management.js",
     "./account-orders": "./dist/deepbook/account-orders.js",
     "./sign": "./dist/sign.js",
-    "./suins-resolver": "./dist/suins-resolver.js"
+    "./suins-resolver": "./dist/suins-resolver.js",
+    "./build-composite": "./dist/build-composite.js"
   },
   "scripts": {
     "build": "node scripts/bundle-sdks.mjs && tsc --noCheck",

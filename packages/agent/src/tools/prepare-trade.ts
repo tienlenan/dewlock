@@ -20,6 +20,7 @@ import { buildAftermathSwap } from "@dewlock/sui/build-aftermath-swap";
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
 import { buildStake, buildUnstake } from "@dewlock/sui/build-stake";
+import { buildComposite, CompositeBuildError } from "@dewlock/sui/build-composite";
 // DeepBook order-lifecycle builders + BM resolver (DeepBook SDK lazy-imported inside).
 import {
   buildCreateBalanceManager,
@@ -54,6 +55,8 @@ const TOOL_ACTION_TYPES = [
   // Liquid staking via Aftermath Finance (afSUI).
   "stake",
   "unstake",
+  // Atomic composite: a declared closed-set recipe compiled into ONE PTB, ONE signature.
+  "composite",
 ] as const satisfies readonly ActionType[];
 
 /** Actions that operate on the wallet's BalanceManager (require server-side BM resolution). */
@@ -228,6 +231,31 @@ export const prepareTrade = createTool({
       .optional()
       .describe("Resting DeepBook order id to cancel (for cancel_order)."),
 
+    // --- Composite fields (actionType==="composite") ---
+    compositeRecipeId: z
+      .string()
+      .optional()
+      .describe(
+        "Declared recipe id from the closed recipe registry (e.g. 'swap_lend_v1'). " +
+          "Required when actionType==='composite'. Only pre-declared recipes are buildable.",
+      ),
+
+    compositeLegs: z
+      .array(
+        z.object({
+          coinTypeIn: z.enum(COIN_TYPE_VALUES),
+          coinTypeOut: z.enum(COIN_TYPE_VALUES).optional(),
+          amountInNative: z.string().regex(/^\d+$/).describe("Amount in native units"),
+          lendingProtocol: z.enum(LENDING_PROTOCOLS).optional(),
+          slippageBps: z.number().int().min(0).max(5000).optional(),
+        }),
+      )
+      .optional()
+      .describe(
+        "Per-leg specs for a composite proposal. Must have exactly as many entries as the declared " +
+          "recipe's leg count. The linkage (leg-0 output = leg-1 input) is verified by the Guardian.",
+      ),
+
     // --- Lending fields (actionType==="lend_*") ---
     lendingProtocol: z
       .enum(LENDING_PROTOCOLS)
@@ -369,6 +397,8 @@ export const prepareTrade = createTool({
       orderId,
       lendingProtocol,
       obligationId,
+      compositeRecipeId,
+      compositeLegs,
       actionLabel,
       argProvenance,
       verifiedContacts = [],
@@ -637,6 +667,36 @@ export const prepareTrade = createTool({
         });
         txBytes = lendResult.txBytes;
         lendHealthBefore = lendResult.healthBefore;
+      } else if (actionType === "composite") {
+        // Atomic composite: build all legs into ONE PTB using the declared recipe.
+        // The Guardian's checkCompositeRecipe then verifies the whole composite's
+        // target multiset + delta/owner anti-leak before any signature is returned.
+        if (!compositeRecipeId) {
+          return {
+            ok: false as const,
+            reasons: ["compositeRecipeId is required for composite actions (fail-closed: no ad-hoc composition)."],
+            gates: ["input_validation"],
+          };
+        }
+        if (!compositeLegs || compositeLegs.length < 2) {
+          return {
+            ok: false as const,
+            reasons: ["compositeLegs with at least 2 entries is required for composite actions."],
+            gates: ["input_validation"],
+          };
+        }
+        // Parse native amounts from strings and pass to the composite builder.
+        const parsedLegs = compositeLegs.map((leg) => ({
+          ...leg,
+          amountInNative: BigInt(leg.amountInNative),
+          lendingProtocol: leg.lendingProtocol as "navi" | "suilend" | undefined,
+        }));
+        const compositeResult = await buildComposite(suiClient, {
+          senderAddress: walletAddress,
+          recipeId: compositeRecipeId,
+          legs: parsedLegs as Parameters<typeof buildComposite>[1]["legs"],
+        });
+        txBytes = compositeResult.txBytes;
       } else {
         // swap
         if (!coinTypeOut) {
@@ -732,6 +792,16 @@ export const prepareTrade = createTool({
       // Lending
       lendingProtocol: actionType.startsWith("lend_") ? (lendingProtocol as LendingProtocol) : undefined,
       healthBefore: lendHealthBefore,
+      // Composite
+      compositeRecipeId: actionType === "composite" ? compositeRecipeId : undefined,
+      compositeLegs: actionType === "composite" && compositeLegs
+        ? compositeLegs.map((leg) => ({
+            coinTypeIn: leg.coinTypeIn,
+            coinTypeOut: leg.coinTypeOut,
+            amountInNative: BigInt(leg.amountInNative),
+            lendingProtocol: leg.lendingProtocol,
+          }))
+        : undefined,
     };
 
     const guardianResult = await guardianCheck(proposal, suiClient);

@@ -59,6 +59,8 @@ import {
 // guardian-gates.ts (so tests can import it without the SDK chain). guardianCheck uses
 // this binding; it is re-exported below for the public API (index.ts).
 import { checkProvenance } from "./guardian-gates";
+import { getRecipe } from "./chaining/composite-recipes";
+import type { CompositeRecipe } from "./chaining/composite-recipes";
 
 // ---------------------------------------------------------------------------
 // ActionType — SINGLE source of truth.
@@ -97,6 +99,10 @@ export const ACTION_TYPES = [
   // lending call cannot ride a stake shape.
   "stake",
   "unstake",
+  // Atomic composite: a declared closed-set recipe (e.g. swap→lend) compiled into ONE PTB,
+  // ONE signature. The composite gate verifies target-multiset + delta/owner anti-leak.
+  // NEVER used for ad-hoc multi-call composition — only declared recipes are admitted.
+  "composite",
 ] as const;
 
 export type ActionType = (typeof ACTION_TYPES)[number];
@@ -208,6 +214,33 @@ export interface TradeProposal {
    * a PTB built for one provider cannot pass a shape check declared for the other.
    */
   lstProvider?: LstProvider;
+
+  // --- Composite fields (actionType === "composite") ---
+  /**
+   * Declared recipe id from the closed recipe registry (e.g. "swap_lend_v1").
+   * Required when actionType === "composite". The Guardian's checkCompositeRecipe
+   * verifies the PTB's MoveCall multiset matches this recipe's declared set.
+   * Absent = reject (fail-closed: no ad-hoc composition).
+   */
+  compositeRecipeId?: string;
+  /**
+   * Per-leg coin types for the composite — ordered by leg index.
+   * Used for provenance: the Guardian checks that the declared coin types
+   * match the recipe's linkage (leg-0 output coin == leg-1 input coin).
+   */
+  compositeLegs?: Array<{
+    coinTypeIn: string;
+    coinTypeOut?: string;
+    amountInNative: bigint;
+    lendingProtocol?: string;
+  }>;
+  /**
+   * Net SUI delta cap for composite transactions (in MIST). Bounds tx.gas-split exfiltration
+   * independently of the USD cap — a composite that drains more SUI than declared is blocked
+   * even when the USD value is within cap. Server-injected; never LLM-controlled.
+   * Defaults to NET_SUI_DELTA_CAP_MIST when absent.
+   */
+  netSuiDeltaCapMist?: bigint;
 
   // --- Lending fields (actionType === "lend_*") ---
   /** Lending protocol routed to. Must be active+built in the registry. */
@@ -569,6 +602,19 @@ export async function guardianCheck(
     const stakingResult = checkStakingConstraints(proposal);
     if (!stakingResult.ok) {
       block("staking", stakingResult.reason);
+    }
+  }
+
+  // --- Composite recipe gate (for composite actions) ---
+  // The composite gate replaces the single-action shape gate for composite proposals.
+  // It enforces: (a) declared recipe exists in the closed registry, (b) PTB MoveCall
+  // multiset == recipe's declared set, (c) delta/owner anti-leak (no third-party owner,
+  // every positive delta accrues to sender), (d) net-SUI delta within cap.
+  // Any deviation → BLOCK. Non-recipe intents must not reach this path (fail-closed).
+  if (proposal.actionType === "composite") {
+    const compositeResult = await checkCompositeRecipe(proposal, suiClient, liveSuiUsd);
+    if (!compositeResult.ok) {
+      block("composite_recipe", compositeResult.reason);
     }
   }
 
@@ -984,6 +1030,14 @@ function allowedTargetsForAction(actionType: ActionType, proposal?: TradeProposa
       // currently a supported build path; were they wired, their target would
       // need an explicit allowlist + shape entry.)
       return new Set<string>();
+    case "composite":
+      // Composite proposals are verified by checkCompositeRecipe (target-multiset +
+      // delta/owner anti-leak), NOT by the single-action shape gate. Returning an
+      // empty set here would BLOCK all composite calls via checkActionShape. Instead
+      // we skip single-action shape checking for composite proposals by returning a
+      // sentinel "allow-all-for-composite" set — the composite gate is authoritative.
+      // The skipping logic lives in checkActionShape (see the composite early-return below).
+      return new Set<string>();
     default:
       return new Set();
   }
@@ -996,6 +1050,12 @@ function allowedTargetsForAction(actionType: ActionType, proposal?: TradeProposa
  * second allowlisted value-mover (e.g. add_liquidity) past the per-target gate.
  */
 export async function checkActionShape(proposal: TradeProposal): Promise<GateResult> {
+  // Composite proposals are verified by checkCompositeRecipe — not the single-action
+  // shape gate. Skip this gate for composite actions; the composite gate is authoritative.
+  if (proposal.actionType === "composite") {
+    return { ok: true, reason: "" };
+  }
+
   try {
     const bytes = Buffer.from(proposal.txBytes, "base64");
     const tx = Transaction.from(bytes);
@@ -2002,6 +2062,360 @@ function resolvePureU8(arg: unknown, inputs: unknown[]): number | undefined {
     }
   }
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Composite recipe gate — enforces the closed-set invariant for atomic composites
+// ---------------------------------------------------------------------------
+
+/**
+ * Default net-SUI-delta outflow cap for composite transactions (in MIST).
+ * Bounds tx.gas-split exfiltration independently of the USD cap — a composite
+ * that drains more SUI than declared is BLOCK'd even when the USD value is within cap.
+ * 10 SUI = 10 * 10^9 MIST. Server-overridable; never LLM-controlled.
+ */
+export const NET_SUI_DELTA_CAP_MIST = 10_000_000_000n; // 10 SUI
+
+/**
+ * Composite recipe gate — the authoritative composite safety check.
+ *
+ * Enforces four invariants (all fail-closed):
+ *
+ * (a) Target MULTISET: the composite PTB's MoveCall set must equal the declared
+ *     recipe's allowedTargets multiset (no extra/missing calls). Aggregator/aftermath
+ *     per-route calls are additionally admitted by module::function signature (same
+ *     rationale as the single-action shape gate). Any unlisted call → BLOCK.
+ *
+ * (b) Coin-type provenance: the declared compositeLegs linkage must be coherent —
+ *     swap output coin type must match the lend input coin type (no value teleportation).
+ *
+ * (c) Delta/owner anti-leak (AUTHORITATIVE): every object change in the dry-run
+ *     must have an owner that is the sender, a shared object, or an object-owned
+ *     (wrapped/dynamic field). ANY third-party address owner → BLOCK. This closes
+ *     the tx.gas-split→TransferObjects SUI exfil AND the Result-derived-recipient
+ *     vectors regardless of graph shape — a leak shows up as a non-sender owner.
+ *     Reuses classifyOwner/extractObjectChanges from dry-run-object-changes.ts.
+ *
+ * (d) Net USD cap + net SUI delta cap on the whole composite PTB (not per-leg).
+ *     Reuses computeNetOutflowUsd for the USD outflow. The net-SUI cap is independent:
+ *     sum all SUI balance deltas for the sender; if net outflow exceeds the cap → BLOCK.
+ *     This specifically bounds tx.gas exfiltration not caught by the USD cap alone.
+ *
+ * Dry-run failure → BLOCK (fail-closed: can't verify → refuse).
+ * Unknown recipe → BLOCK (only declared recipes are composable).
+ * Unpriced coin in outflow → BLOCK (value unbounded).
+ * Unclassifiable owner → BLOCK (fail-loud, never benign).
+ */
+export async function checkCompositeRecipe(
+  proposal: TradeProposal,
+  suiClient: SuiClient,
+  liveSuiUsd?: number,
+): Promise<GateResult> {
+  // --- Require a declared recipe id ---
+  const recipeId = proposal.compositeRecipeId;
+  if (!recipeId) {
+    return {
+      ok: false,
+      reason:
+        "Composite action requires a compositeRecipeId — none provided. " +
+        "Refusing (fail-closed: no ad-hoc composition).",
+    };
+  }
+
+  const recipe = getRecipe(recipeId);
+  if (!recipe) {
+    return {
+      ok: false,
+      reason:
+        `Composite recipe "${recipeId}" is not in the declared registry. ` +
+        "Only pre-declared recipes may be composed into a single PTB.",
+    };
+  }
+
+  // --- (a) Target multiset check ---
+  const multisetResult = checkCompositeTargetMultiset(proposal.txBytes, recipe);
+  if (!multisetResult.ok) return multisetResult;
+
+  // --- (b) Coin-type provenance check ---
+  const provenanceResult = checkCompositeCoinProvenance(proposal, recipe);
+  if (!provenanceResult.ok) return provenanceResult;
+
+  // --- Run dry-run for (c) and (d) ---
+  // Fail-closed: any dry-run error → BLOCK. We pass the sender address so
+  // extractObjectChanges can classify owners correctly relative to the sender.
+  // Uses the statically imported dryRunTransaction (same binding the test mocks via vi.mock).
+  let dryRun: DryRunResult;
+  try {
+    dryRun = await dryRunTransaction(suiClient, proposal.txBytes, proposal.walletAddress);
+  } catch (err) {
+    return {
+      ok: false,
+      reason:
+        `Composite dry-run failed — cannot verify the transaction's effects. ` +
+        `Blocking (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // --- (c) Delta/owner anti-leak: no third-party owner in objectChanges ---
+  const leakResult = checkCompositeDeltaAntiLeak(dryRun, proposal.walletAddress);
+  if (!leakResult.ok) return leakResult;
+
+  // --- (d) Net-USD cap on whole composite ---
+  const outflow = computeNetOutflowUsd(dryRun, proposal.walletAddress, liveSuiUsd);
+  if (!outflow.ok) {
+    return { ok: false, reason: outflow.reason };
+  }
+
+  let txUsdCap: number;
+  let dailyUsdCap: number;
+  try {
+    ({ txUsdCap, dailyUsdCap } = getServerCaps());
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Cap config error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (outflow.usd > txUsdCap) {
+    return {
+      ok: false,
+      reason:
+        `Composite net outflow ~$${outflow.usd.toFixed(2)} exceeds per-tx cap of $${txUsdCap}. ` +
+        "Blocking the composite.",
+    };
+  }
+  if (proposal.dailyUsdSpentSoFar + outflow.usd > dailyUsdCap) {
+    return {
+      ok: false,
+      reason:
+        `Composite would push daily spend to ~$${(proposal.dailyUsdSpentSoFar + outflow.usd).toFixed(2)}, ` +
+        `exceeding the daily cap of $${dailyUsdCap}.`,
+    };
+  }
+
+  // --- (d) Net-SUI delta cap (independent of USD cap) ---
+  // Sum all SUI balance deltas for the sender. A negative net means SUI left the wallet.
+  // Cap bounds tx.gas-split→TransferObjects exfil not otherwise constrained by USD alone.
+  const suiCapMist = proposal.netSuiDeltaCapMist ?? NET_SUI_DELTA_CAP_MIST;
+  const netSuiResult = checkNetSuiDeltaCap(dryRun, proposal.walletAddress, suiCapMist);
+  if (!netSuiResult.ok) return netSuiResult;
+
+  return { ok: true, reason: "" };
+}
+
+/**
+ * (a) Check that the PTB's MoveCall multiset exactly matches the declared recipe's
+ * allowedTargets union across all legs (no extra, no missing).
+ *
+ * Framework/zero-value calls (coin::destroy_zero, coin::from_balance, etc.) are
+ * excluded from the multiset comparison — they are permitted inside any composite
+ * leg and do not represent external protocol calls. Aggregator/aftermath per-route
+ * calls are additionally admitted by module::function signature.
+ */
+function checkCompositeTargetMultiset(txBytesB64: string, recipe: CompositeRecipe): GateResult {
+  const noValueFrameworkCalls = new Set([
+    `${SUINS_PACKAGE}::registry::lookup`,
+    `${NATIVE_PACKAGE}::coin::destroy_zero`,
+    `${NATIVE_PACKAGE}::coin::from_balance`,
+    `${NATIVE_PACKAGE}::balance::join`,
+    `${NATIVE_PACKAGE}::balance::split`,
+    `${NATIVE_PACKAGE}::coin::into_balance`,
+  ]);
+
+  // Union of all targets allowed across all recipe legs.
+  const allowedUnion = new Set<string>();
+  for (const leg of recipe.legs) {
+    for (const t of leg.allowedTargets) allowedUnion.add(t);
+  }
+
+  let calls;
+  try {
+    calls = extractMoveTargets(txBytesB64);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Failed to parse composite PTB for multiset check: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  for (const call of calls) {
+    if (noValueFrameworkCalls.has(call.target)) continue;
+    // Aggregator/aftermath per-route calls admitted by signature (per-route package is upgradeable).
+    if (isAggregatorSwapCall(call.module, call.function)) continue;
+    if (isAftermathSwapCall(call.module, call.function)) continue;
+    if (!allowedUnion.has(call.target)) {
+      return {
+        ok: false,
+        reason:
+          `Composite PTB contains an unlisted MoveCall "${call.target}" not in recipe "${recipe.id}". ` +
+          "An extra call was spliced in — refusing the composite (multiset mismatch).",
+      };
+    }
+  }
+
+  // Check that at least one call from each recipe leg is present (no missing legs).
+  // This catches a stripped composite that omits an entire leg while passing the
+  // "no extra calls" check above.
+  for (let i = 0; i < recipe.legs.length; i++) {
+    const leg = recipe.legs[i];
+    const legAllowed = leg.allowedTargets;
+    const hasLegCall = calls.some(
+      (c) =>
+        legAllowed.has(c.target) ||
+        (leg.allowSignatureMatch && (isAggregatorSwapCall(c.module, c.function) || isAftermathSwapCall(c.module, c.function))),
+    );
+    if (!hasLegCall) {
+      return {
+        ok: false,
+        reason:
+          `Composite PTB is missing calls for leg ${i} ("${leg.actionType}") of recipe "${recipe.id}". ` +
+          "The declared recipe requires all legs to be present.",
+      };
+    }
+  }
+
+  return { ok: true, reason: "" };
+}
+
+/**
+ * (b) Coin-type provenance: verify the declared compositeLegs linkage is coherent.
+ * The swap output coin type must match the lend input coin type — no value teleportation.
+ * Any mismatch → BLOCK. Missing compositeLegs → BLOCK (fail-closed).
+ */
+function checkCompositeCoinProvenance(proposal: TradeProposal, recipe: CompositeRecipe): GateResult {
+  if (!proposal.compositeLegs || proposal.compositeLegs.length !== recipe.legs.length) {
+    return {
+      ok: false,
+      reason:
+        `Composite proposal is missing compositeLegs (expected ${recipe.legs.length} legs). ` +
+        "Blocking (fail-closed).",
+    };
+  }
+
+  for (const linkage of recipe.linkages) {
+    const fromLeg = proposal.compositeLegs[linkage.fromLeg];
+    const toLeg = proposal.compositeLegs[linkage.toLeg];
+    if (!fromLeg || !toLeg) {
+      return {
+        ok: false,
+        reason: `Linkage leg index out of bounds (fromLeg=${linkage.fromLeg}, toLeg=${linkage.toLeg}).`,
+      };
+    }
+    if (!fromLeg.coinTypeOut) {
+      return {
+        ok: false,
+        reason:
+          `Composite leg ${linkage.fromLeg} (swap) is missing coinTypeOut — ` +
+          "cannot verify coin-type linkage.",
+      };
+    }
+    if (fromLeg.coinTypeOut !== toLeg.coinTypeIn) {
+      return {
+        ok: false,
+        reason:
+          `Coin-type linkage mismatch: leg ${linkage.fromLeg} outputs "${fromLeg.coinTypeOut}" ` +
+          `but leg ${linkage.toLeg} expects input "${toLeg.coinTypeIn}". ` +
+          "The declared composite coin flow is incoherent.",
+      };
+    }
+  }
+  return { ok: true, reason: "" };
+}
+
+/**
+ * (c) Delta/owner anti-leak: walk every objectChange in the dry-run result.
+ * Any object ending up with a third-party owner (an address that is neither the
+ * sender, shared, object-owned, nor immutable) → BLOCK.
+ *
+ * This is the authoritative value/leak check. It catches:
+ * - TransferObjects([coin], attacker) → objectChange.type="transferred", owner=attacker
+ * - SplitCoins(tx.gas)→TransferObjects([that], attacker) → net-SUI delta to non-sender
+ * - Result-derived recipient that isn't the sender → classified as third-party
+ *
+ * The sender is always the only allowed address owner. Protocol-owned/shared objects
+ * (NAVI pool, Suilend market, etc.) appear as "shared" or "object" and are permitted.
+ *
+ * NOTE: we also walk balanceDeltas to catch cases where a coin transfer doesn't produce
+ * an objectChange (e.g. if a balance merge hides the recipient). Any positive balance
+ * delta (inflow) to a non-sender address → BLOCK.
+ */
+function checkCompositeDeltaAntiLeak(
+  dryRun: DryRunResult,
+  sender: string,
+): GateResult {
+  const senderNorm = sender.toLowerCase();
+
+  // Walk objectChanges — classify each owner relative to the sender.
+  // Third-party owners are the leak signal (fail-loud, never hidden).
+  for (const change of dryRun.objectChanges ?? []) {
+    if (change.ownerKind === "third-party") {
+      return {
+        ok: false,
+        reason:
+          `Composite dry-run shows an object (${change.objectId}) with a third-party owner ` +
+          `— a non-sender address controls an asset after this transaction. ` +
+          "Blocking the composite (anti-leak invariant).",
+      };
+    }
+  }
+
+  // Walk balanceDeltas — any positive delta (inflow) to a non-sender address is a leak.
+  // This catches balance-level transfers the objectChange walk might not surface (e.g.
+  // a coin that is created, transferred, and the objectChange is suppressed by merging).
+  for (const delta of dryRun.balanceDeltas) {
+    if (delta.amount <= 0n) continue; // outflow or zero — not a third-party inflow
+    const ownerNorm = (delta.owner ?? "").toLowerCase();
+    if (ownerNorm && ownerNorm !== senderNorm) {
+      return {
+        ok: false,
+        reason:
+          `Composite dry-run shows a positive balance delta for a non-sender address ` +
+          `("${delta.owner}" gained ${delta.amount} of ${delta.coinType}). ` +
+          "This is a leak to a third party — blocking the composite.",
+      };
+    }
+  }
+
+  return { ok: true, reason: "" };
+}
+
+/**
+ * (d) Net-SUI delta cap: sum all SUI balance deltas for the sender.
+ * If the net SUI outflow (negative sender delta) exceeds the cap → BLOCK.
+ *
+ * This independently bounds tx.gas-split→TransferObjects SUI exfiltration:
+ * even if the USD value is within cap, draining more SUI than declared fails here.
+ * Gas cost is excluded (same as computeNetOutflowUsd).
+ */
+function checkNetSuiDeltaCap(
+  dryRun: DryRunResult,
+  sender: string,
+  capMist: bigint,
+): GateResult {
+  const senderNorm = sender.toLowerCase();
+  let netSuiOut = 0n;
+
+  for (const delta of dryRun.balanceDeltas) {
+    if (delta.amount >= 0n) continue; // inflow — not an outflow
+    if ((delta.owner ?? "").toLowerCase() !== senderNorm) continue;
+    const coinType = normalizeCoinType(delta.coinType);
+    if (coinType !== COIN_TYPES.SUI) continue;
+    // Exclude gas cost from the SUI outflow (same as computeNetOutflowUsd).
+    const rawOut = -delta.amount;
+    const out = rawOut > dryRun.gasCostMist ? rawOut - dryRun.gasCostMist : 0n;
+    netSuiOut += out;
+  }
+
+  if (netSuiOut > capMist) {
+    return {
+      ok: false,
+      reason:
+        `Composite net SUI outflow ${netSuiOut} MIST exceeds the SUI cap of ${capMist} MIST. ` +
+        "Blocking (net-SUI delta cap — bounds tx.gas exfiltration).",
+    };
+  }
+  return { ok: true, reason: "" };
 }
 
 // ---------------------------------------------------------------------------
