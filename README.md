@@ -19,6 +19,8 @@
 <p align="center">
   <a href="https://dewlock.vercel.app/"><b>Live App</b></a>
   ·
+  <a href="docs/copilot-command-guide.md">Command Guide</a>
+  ·
   <a href="docs/system-architecture.md">Architecture</a>
   ·
   <a href="docs/hand-off/03-security-model.md">Security Model</a>
@@ -66,7 +68,14 @@ the gate, fail-closed on every dependency. What you sign is the literal artifact
 | Copilot | Live | Natural-language chat; deterministic intent parser front-runs the LLM, generative-UI cards per action. |
 | Swap / Sell | Live | Cetus Aggregator + Aftermath best-execution across activated venues; source-aware min-out re-derive. |
 | Send | Live | SuiNS + saved-friend address book; recipient badge + @mention; homoglyph lookalike guard. |
-| Lending | Live | NAVI + Suilend deposit/repay (health-improving only; borrow/withdraw gated off). |
+| Lending: Deposit & Repay | Live | NAVI + Suilend (health-improving only); live health factor + APY. |
+| Lending: Borrow & Withdraw | Live | NAVI only; post-tx health-factor gate; dedicated borrow-inflow cap. |
+| Liquid staking: afSUI | Live | Aftermath via direct SDK; stake/unstake with live APY and instant redemption. |
+| Liquid staking: haSUI | Beta | Haedal direct-PTB; built & tested in fixtures, pending mainnet verification. |
+| Yield advisor | Live | Read-only ranked recommendations for idle balances; action buttons trigger normal Guardian flows. |
+| Activity history | Live | Reverse-chronological feed of actions + BLOCKs; no fabricated P&L (cost-basis not stored). |
+| Multi-step chaining (sequential) | Wired | End-to-end in-session; delta resolver + per-step signing; page refresh loses in-flight state. Needs mainnet verification. |
+| Atomic composite (single-sign) | Gate only | Security gate implemented + tested; live builder is fail-closed (degrades to sequential). Not yet user-facing. |
 | DeepBook limit order | Live | POST_ONLY resting order with self-match / expiry / BalanceManager-ceiling gates. |
 | Cross-chain inflow | Live | Wormhole Sui-side redeem, built SDK-free, behind fail-closed bridge gates (recipient==self, VAA verify, fee model). |
 | Portfolio | Live | Live balances + USD value; per-row swap/send quick actions. |

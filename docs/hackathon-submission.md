@@ -55,16 +55,24 @@ Copilot chat ──► deterministic intent parse + directive ──► Mastra a
 **Value moves (every one through the Guardian)**
 - **Swap** — Cetus Aggregator best-execution + Aftermath Router, with a **source-aware min-output re-derivation** and a **from→to picker** with live quotes from both venues.
 - **Transfer / Send** — with **SuiNS** resolution (`roast2026wc` → `.sui`), a per-wallet **friend address book**, and a multi-match **contact picker**.
-- **Lending** — NAVI + Suilend deposit/repay (**health-improving only**; borrow/withdraw gated off).
+- **Lending: Deposit & Repay** — NAVI + Suilend (**health-improving only**); live health factor display and APY reads.
+- **Lending: Borrow & Withdraw** — NAVI only; **post-tx health-factor gate** (calls NAVI's official `getSimulatedHealthFactor`); dedicated borrow-inflow cap.
+- **Liquid staking: afSUI (Aftermath)** — mint via `staked_sui_vault::request_stake_and_keep`; instant atomic redeem; live APY; coin-type scam-clone guard.
+- **Liquid staking: haSUI (Haedal)** — direct PTB (Haedal has no SDK); instant redemption; **beta / pending mainnet verification**.
+- **Yield advisor (read-only)** — ranked recommendations for idle balances (stablecoin lending, top-TVL, staking APYs); action buttons trigger normal Guardian flows.
+- **Activity history (read-only)** — reverse-chronological feed of actions + BLOCK receipts; no fabricated P&L (cost-basis not stored).
+- **Multi-step chaining (sequential)** — "swap 5 SUI to USDC then lend it on NAVI"; delta resolver (step k+1 consumes step k output); end-to-end wired, needs mainnet verification; page refresh loses in-flight state.
+- **Atomic composite (single-sign, gate-only)** — security gate implemented + adversarially tested (`checkCompositeRecipe`); live builder fail-closed (degrades to sequential). Not yet user-facing.
 - **DeepBook POST_ONLY limit orders** — "wait at my price, don't market-buy" — *impossible on an AMM*, on the same Guardian spine.
 - **Cross-chain inflow** — Wormhole redeem onto Sui, built SDK-free behind 9 fail-closed bridge gates.
 
 **Security & trust (the moat)**
-- **Fail-closed Guardian** — 11 deterministic gates; any failure → terminal BLOCK, no auto-retry.
+- **Fail-closed Guardian** — 14 deterministic gates; any failure → terminal BLOCK, no auto-retry. New gates: staking constraints (LST provenance + provider-keyed shape), post-tx health factor (NAVI borrow/withdraw), composite recipe (atomic safety).
 - **WYSIWYS** — `approvedDigest = sha256(kindBytes)` over the TransactionKind binds the preview you saw to the action you sign; the wallet adds a fresh gas coin at sign time (gas-agnostic, so a single-coin wallet never hits a stale-gas error).
 - **Zero user-fund keys server-side** — the server builds unsigned PTBs only; your keys never leave your wallet.
 - **Price-impact / slippage guard** — refuses a swap whose output is worth materially less than its input (default 5%, configurable).
 - **Native-SUI gas safety** — guarantees the gas coin covers both the swap input and network gas (no cryptic `InsufficientGas`).
+- **Multi-step safety** — delta resolver (step k+1 output-bound), stale-object waits, daily-spend count-once (recycled values not double-counted).
 
 **Provenance & proof**
 - **The BLOCK, provable** — a deliberate fail-closed block (SuiNS lookalike + broken min-out) writes an **immutable Walrus receipt anchored on a Sui object** — proof a *block* happened, not just a tx.
@@ -131,16 +139,19 @@ move/           dewlock_receipt (receipt anchor) + dewlock_seal (access policy)
 
 ### Flow B — The Guardian gate pipeline (deterministic, in order)
 1. **Allowlist** — every MoveCall `{package::module::function}` must be pre-approved.
-2. **Action-shape** — the PTB must match exactly one declared action template (no composing two allowlisted calls; one value action per PTB).
+2. **Action-shape** — the PTB must match exactly one declared action template (no composing two allowlisted calls; one value action per PTB). Provider-keyed for staking.
 3. **Coin-type provenance** — `coinTypeIn/Out` verified on-chain via CoinMetadata (anti scam-clone).
-4. **Injection provenance** — a `derived` recipient (from memory/pool data) triggers a confirm gate (anti prompt-injection).
-5. **Trusted USD price** — real oracle; no price → BLOCK (can't value ⇒ can't verify).
-6. **Server caps** — per-tx + per-day USD caps (server-authoritative, mainnet-small).
+4. **Injection provenance** — a `derived` recipient (from memory/pool data) triggers a confirm gate (anti prompt-injection). Hard-block for borrow/withdraw derived amounts.
+5. **Trusted USD price** — real oracle; no price → BLOCK (can't value ⇒ can't verify). LST pricing uses floor-based formula (independent of provider exchange rate).
+6. **Server caps** — per-tx + per-day USD caps (server-authoritative, mainnet-small); borrow has dedicated inflow cap.
 7. **SuiNS lookalike** — homoglyph-normalized edit-distance vs your verified contacts.
 8. **Min-out re-derive** (swaps) — recompute min-output from on-chain decimals + the same route source (anti sandwich).
 9. **Price-impact** (swaps) — block when output USD < input USD beyond the configured threshold (thin-liquidity / bad-rate protection).
-10. **Orderbook / Lending** — POST_ONLY / self-match / expiry / BalanceManager-ceiling; lending is health-improving only.
-11. **Dry-run + WYSIWYS digest + authoritative value** — dry-run the exact bytes; re-value from actual net balance deltas; block when the tx moves more than it declared.
+10. **Staking constraints** — LST coin-type provenance; minimal-exact per-verb action-shape (swap/lend cannot ride stake shape).
+11. **Post-tx health factor** (NAVI borrow/withdraw) — calls `getSimulatedHealthFactor`; blocks if HF < 1.6 or outstanding debt would remain on full-withdraw. Fail-closed on error.
+12. **Orderbook / Lending** — POST_ONLY / self-match / expiry / BalanceManager-ceiling; deposit/repay health-improving; borrow/withdraw gated by HF check above.
+13. **Dry-run + WYSIWYS digest + authoritative value** — dry-run the exact bytes; re-value from actual net balance deltas; block when the tx moves more than it declared.
+14. **Composite recipe** (atomic single-sign only) — closed-recipe registry, target multiset, coin-type linkage, delta/owner anti-leak + dual caps (USD + net-SUI).
 
 ### Flow C — The BLOCK theater (a feature, not a failure)
 A deliberately unsafe intent (a SuiNS look-alike recipient + a tampered min-out) is **refused before a PTB exists**, and the refusal itself is written as an **immutable Walrus blob anchored on a Sui object** — verifiable proof that the firewall fired.
@@ -150,7 +161,12 @@ Your chat history is serialized, **encrypted client-side with Seal** (access bou
 
 ## 7. Status
 
-- Core flow (track / transfer / swap / lend / limit-order / bridge), the security-verified Guardian, the BLOCK theater, Seal-encrypted conversations, and the receipt/passport pipeline are **implemented and unit-tested (620 tests)**.
+- Core flow (transfer / swap / lend / borrow / withdraw / liquid staking / multi-step chaining / limit-order / bridge), the security-verified Guardian (14 gates), the BLOCK theater, Seal-encrypted conversations, and the receipt/passport pipeline are **implemented and unit-tested (970+ tests)**.
+- **New in this hackathon:** borrow/withdraw (health-factor gate), afSUI + haSUI (provider-keyed staking), yield advisor + activity history (read-only), multi-step chaining (sequential end-to-end, delta-safe), atomic composite gate (fail-closed, not yet user-facing).
+- **Status notes:**
+  - **Sequential chaining:** wired end-to-end; manual mainnet verification needed.
+  - **haSUI (Haedal):** built & unit-tested; pending mainnet dry-run verification.
+  - **Atomic composite:** security gate fully tested; live builder fail-closed (degrades to sequential).
 - Running on **Sui mainnet** with small server-authoritative USD caps and **zero user-fund keys** server-side.
 - Live at **https://dewlock.vercel.app**.
 
