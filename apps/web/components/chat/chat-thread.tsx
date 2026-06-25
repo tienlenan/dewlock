@@ -86,8 +86,27 @@ export interface TxReceipt {
   status?: ReceiptStatus;
 }
 
+/**
+ * When a tx-preview card is issued for a chain step, this tag lets the sign
+ * handler call back into the chain stepper on confirm/block instead of just
+ * replacing the card with a receipt.  The signing path checks this field and
+ * fires the appropriate stepper callback after the wallet responds.
+ */
+export interface ChainStepContext {
+  planId: string;
+  stepIndex: number;
+  /** Fully-qualified coin type produced by this step (e.g. USDC from swap). */
+  outputCoinType: string | null;
+}
+
 export type ToolCard =
-  | { type: "tx-preview"; pendingTx: PendingTx; rebuildCommand?: string }
+  | {
+      type: "tx-preview";
+      pendingTx: PendingTx;
+      rebuildCommand?: string;
+      /** Present only when this tx is step k of a sequential chain plan. */
+      chainContext?: ChainStepContext;
+    }
   // tx-rebuild: what a reloaded conversation shows where a tx-preview was. We never
   // persist signable bytes, so it carries only the command to re-issue → fresh preview.
   | { type: "tx-rebuild"; command: string; label: string }
@@ -139,6 +158,45 @@ export interface ChatMessage {
 // Props
 // ---------------------------------------------------------------------------
 
+/**
+ * Callbacks for the sequential chain signing loop.
+ * Provided by the parent (app/page.tsx) which owns the useChainPlanStepper instance.
+ */
+export interface ChainSignCallbacks {
+  /**
+   * Called when the user clicks "Prepare Step N" on a chain-plan card.
+   * The chain stepper snapshots balances, waits for stale objects, composes the
+   * command, and re-submits it via sendMessage.
+   */
+  onStartChainStep: (
+    planId: string,
+    stepIndex: number,
+    plan: import("@/components/chat/chain-plan-card").ChainPlanData,
+  ) => void;
+
+  /**
+   * Called by TxPreviewCardWithSigning after a chain step's tx confirms on-chain.
+   * The chain stepper reads the post-balance delta and surfaces the resolved amount.
+   */
+  onChainStepConfirmed: (
+    planId: string,
+    stepIndex: number,
+    txDigest: string,
+    touchedObjIds: string[],
+    outputCoinType: string | null,
+  ) => void;
+
+  /**
+   * Called when a chain step is blocked by Guardian or sign-rejected by the wallet.
+   * Halts the chain and marks subsequent steps cancelled.
+   */
+  onChainStepBlocked: (
+    planId: string,
+    stepIndex: number,
+    reasons: string[],
+  ) => void;
+}
+
 interface ChatThreadProps {
   messages: ChatMessage[];
   onReplaceCard: (messageId: string, cardIndex: number, replacement: ToolCard) => void;
@@ -146,6 +204,8 @@ interface ChatThreadProps {
   walletAddress?: string;
   /** Send a new chat message — used by card quick-actions (e.g. portfolio row sell/send). */
   onSend?: (text: string) => void;
+  /** Chain-plan signing loop callbacks. Absent = chain-plan cards render read-only. */
+  chainCallbacks?: ChainSignCallbacks;
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +548,7 @@ function InlineTxSign({
 // Root component
 // ---------------------------------------------------------------------------
 
-export function ChatThread({ messages, onReplaceCard, walletAddress, onSend }: ChatThreadProps) {
+export function ChatThread({ messages, onReplaceCard, walletAddress, onSend, chainCallbacks }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const isEmpty = messages.length === 0;
 
@@ -534,6 +594,7 @@ export function ChatThread({ messages, onReplaceCard, walletAddress, onSend }: C
             onReplaceCard={onReplaceCard}
             walletAddress={walletAddress}
             onSend={onSend}
+            chainCallbacks={chainCallbacks}
           />
         ))}
 
@@ -610,11 +671,13 @@ function MessageRow({
   onReplaceCard,
   walletAddress,
   onSend,
+  chainCallbacks,
 }: {
   message: ChatMessage;
   onReplaceCard: (messageId: string, cardIndex: number, replacement: ToolCard) => void;
   walletAddress?: string;
   onSend?: (text: string) => void;
+  chainCallbacks?: ChainSignCallbacks;
 }) {
   const isUser = message.role === "user";
 
@@ -688,6 +751,7 @@ function MessageRow({
             onReplace={(replacement) => onReplaceCard(message.id, idx, replacement)}
             walletAddress={walletAddress}
             onSend={onSend}
+            chainCallbacks={chainCallbacks}
           />
         ))}
       </div>
@@ -704,11 +768,13 @@ function CardSlot({
   onReplace,
   walletAddress,
   onSend,
+  chainCallbacks,
 }: {
   card: ToolCard;
   onReplace: (replacement: ToolCard) => void;
   walletAddress?: string;
   onSend?: (text: string) => void;
+  chainCallbacks?: ChainSignCallbacks;
 }) {
   if (card.type === "tx-preview") {
     return (
@@ -716,6 +782,9 @@ function CardSlot({
         pendingTx={card.pendingTx}
         onReplace={onReplace}
         walletAddress={walletAddress}
+        chainContext={card.chainContext}
+        onChainStepConfirmed={chainCallbacks?.onChainStepConfirmed}
+        onChainStepBlocked={chainCallbacks?.onChainStepBlocked}
       />
     );
   }
@@ -875,9 +944,24 @@ function CardSlot({
   if (card.type === "chain-plan") {
     // Lazy import to avoid pulling chain-plan-card into the main bundle until needed.
     const { ChainPlanCard } = require("@/components/chat/chain-plan-card") as {
-      ChainPlanCard: (props: { plan: import("@/components/chat/chain-plan-card").ChainPlanData }) => React.ReactElement | null;
+      ChainPlanCard: (props: import("@/components/chat/chain-plan-card").ChainPlanCardProps) => React.ReactElement | null;
     };
-    return <ChainPlanCard plan={card.plan} />;
+    return (
+      <ChainPlanCard
+        plan={card.plan}
+        onStartStep={
+          chainCallbacks
+            ? (stepIndex) =>
+                chainCallbacks.onStartChainStep(
+                  // planId = originalText is stable within a session and unique per message
+                  card.plan.originalText,
+                  stepIndex,
+                  card.plan,
+                )
+            : undefined
+        }
+      />
+    );
   }
   return null;
 }
@@ -896,10 +980,17 @@ function TxPreviewCardWithSigning({
   pendingTx,
   onReplace,
   walletAddress,
+  chainContext,
+  onChainStepConfirmed,
+  onChainStepBlocked,
 }: {
   pendingTx: PendingTx;
   onReplace: (replacement: ToolCard) => void;
   walletAddress?: string;
+  /** Present when this tx-preview belongs to a chain step. */
+  chainContext?: ChainStepContext;
+  onChainStepConfirmed?: ChainSignCallbacks["onChainStepConfirmed"];
+  onChainStepBlocked?: ChainSignCallbacks["onChainStepBlocked"];
 }) {
   const [isPending, setIsPending] = useState(false);
   // Store txDigest after sign so the readiness callback can include it in the patch.
@@ -959,6 +1050,23 @@ function TxPreviewCardWithSigning({
       // Tell balance views to refetch — the wallet balance changed on-chain.
       emitTxConfirmed();
 
+      // If this tx belongs to a chain step, notify the stepper so it can read the
+      // post-balance delta and resolve the next step's amount before the user clicks
+      // "Prepare Step N+1". The normal receipt flow still runs below — the step's
+      // receipt card will appear in the thread as usual.
+      if (chainContext && onChainStepConfirmed) {
+        // Extract touched object IDs from the balance deltas if available.
+        // The preview's balanceDeltas contain coin object mutations from the dry-run.
+        const touchedObjIds = extractTouchedObjectIds(pendingTx.preview.balanceDeltas);
+        onChainStepConfirmed(
+          chainContext.planId,
+          chainContext.stepIndex,
+          digest,
+          touchedObjIds,
+          chainContext.outputCoinType,
+        );
+      }
+
       // Stream the receipt pipeline (blob → memwal XP → profile → anchor) into the
       // inline progress panel below the card. The receipt card is committed to the
       // thread automatically once the pipeline finishes (commitReceipt).
@@ -981,6 +1089,12 @@ function TxPreviewCardWithSigning({
       });
     } catch (err) {
       if (err instanceof WysiwysError) {
+        // WYSIWYS: bytes changed since Guardian approval — block the chain step too.
+        if (chainContext && onChainStepBlocked) {
+          onChainStepBlocked(chainContext.planId, chainContext.stepIndex, [
+            "Transaction bytes changed since Guardian approval — blocked for safety.",
+          ]);
+        }
         onReplace({
           type: "wysiwys-error",
           wysiwysMessage:
@@ -989,6 +1103,10 @@ function TxPreviewCardWithSigning({
         });
       } else {
         const msg = friendlySignError(err instanceof Error ? err.message : String(err));
+        // Sign rejection (user cancelled wallet popup) → halt the chain.
+        if (chainContext && onChainStepBlocked) {
+          onChainStepBlocked(chainContext.planId, chainContext.stepIndex, [msg]);
+        }
         onReplace({ type: "wysiwys-error", wysiwysMessage: msg });
       }
     } finally {
@@ -998,6 +1116,12 @@ function TxPreviewCardWithSigning({
 
   function handleCancel() {
     receiptStream.reset();
+    // User explicitly cancelled — halt the chain at this step.
+    if (chainContext && onChainStepBlocked) {
+      onChainStepBlocked(chainContext.planId, chainContext.stepIndex, [
+        "Transaction cancelled by user.",
+      ]);
+    }
     onReplace({ type: "wysiwys-error", wysiwysMessage: "Transaction cancelled." });
   }
 
@@ -1020,4 +1144,32 @@ function TxPreviewCardWithSigning({
       {showProgress && <ReceiptProgressInline state={receiptStream.state} />}
     </>
   );
+}
+
+// ---------------------------------------------------------------------------
+// extractTouchedObjectIds — extract coin object IDs mutated by a tx.
+//
+// WHY: waitForObjectVersions (plan-stepper) needs the object IDs that were
+// consumed/created by step k so step k+1's builder doesn't pick stale versions.
+// The Guardian's dry-run balanceDeltas carry coin object IDs in their change
+// records. We extract them here so the chain stepper can wait for them.
+//
+// Falls back to [] when balanceDeltas is absent/unstructured — the stale-object
+// wait is best-effort; the worst outcome is a 0.5 s extra delay, not a failure.
+// ---------------------------------------------------------------------------
+
+function extractTouchedObjectIds(
+  balanceDeltas: unknown,
+): string[] {
+  if (!balanceDeltas || !Array.isArray(balanceDeltas)) return [];
+  const ids: string[] = [];
+  for (const delta of balanceDeltas) {
+    if (typeof delta === "object" && delta !== null) {
+      const d = delta as Record<string, unknown>;
+      // balanceDeltas entries may carry an objectId field from the dry-run effects.
+      if (typeof d.objectId === "string") ids.push(d.objectId);
+      if (typeof d.coinObjectId === "string") ids.push(d.coinObjectId);
+    }
+  }
+  return [...new Set(ids)]; // deduplicate
 }

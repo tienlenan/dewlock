@@ -17,7 +17,7 @@
  * wallet pill and the sidebar footer when a wallet is connected.
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Menu, Settings, LogOut, PanelLeftOpen, Users } from "lucide-react";
 import {
@@ -41,6 +41,8 @@ import { ConversationPanel } from "@/components/chat/conversation-panel";
 import { useConversations } from "@/lib/conversations/use-conversations";
 import { buildSuggestions } from "@/lib/suggestions";
 import { useCopilotChat } from "@/components/chat/use-copilot-chat";
+import { useChainPlanStepper } from "@/components/chat/use-chain-plan-stepper";
+import type { ChainSignCallbacks } from "@/components/chat/chat-thread";
 import { useContacts } from "@/lib/contacts/use-contacts";
 import { FriendListDialog } from "@/components/contacts/friend-list-dialog";
 import { UserDashboard, NetworkDashboard } from "@/components/dashboard/dashboard-client";
@@ -192,6 +194,7 @@ function ChatShell({
   convos,
   walletAddress,
   contacts,
+  chainCallbacks,
 }: {
   chat: ChatApi;
   // Conversation list + persistence are owned by AppPage (always mounted), passed in so a
@@ -200,6 +203,7 @@ function ChatShell({
   convos: ConvosApi;
   walletAddress: string;
   contacts: { name: string; address: string }[];
+  chainCallbacks: ChainSignCallbacks;
 }) {
   // Collapse = fully hide the panel (persisted). When hidden, an expand button
   // appears at the top-left of the chat column.
@@ -300,7 +304,7 @@ function ChatShell({
             error={convos.decryptError}
           />
         ) : (
-          <ChatThread messages={chat.messages} onReplaceCard={chat.onReplaceCard} walletAddress={walletAddress} onSend={(t) => void chat.sendMessage(t)} />
+          <ChatThread messages={chat.messages} onReplaceCard={chat.onReplaceCard} walletAddress={walletAddress} onSend={(t) => void chat.sendMessage(t)} chainCallbacks={chainCallbacks} />
         )}
         <ChatInput
           onSendText={(t) => void chat.sendMessage(t)}
@@ -337,6 +341,65 @@ export default function AppPage() {
   // Chat thread is the single source for the chat column. Conversation history
   // (list + persistence) is self-contained in AppSidebar, bound via the chat callbacks.
   const chat = useCopilotChat(account?.address ?? "", contactsApi.contacts);
+
+  // Sequential chain plan stepper — drives the prepare→sign→confirm→resolve-next loop.
+  // Lives here (at page level) alongside chat so both share the same wallet address and
+  // the chain stepper can call chat.sendMessage + chat.setPendingChainContext.
+  const chainStepper = useChainPlanStepper();
+
+  // updatePlan: patches a chain-plan card in the thread when step status changes.
+  // Finds the chain-plan card by planId (= originalText) and replaces it in-place.
+  const updatePlan = useCallback(
+    (
+      planId: string,
+      updater: (prev: import("@/components/chat/chain-plan-card").ChainPlanData) => import("@/components/chat/chain-plan-card").ChainPlanData,
+    ) => {
+      // Walk messages to find the chain-plan card with this planId.
+      for (const msg of chat.messages) {
+        for (let i = 0; i < (msg.cards?.length ?? 0); i++) {
+          const card = msg.cards[i];
+          if (card?.type === "chain-plan" && card.plan.originalText === planId) {
+            chat.onReplaceCard(msg.id, i, { type: "chain-plan", plan: updater(card.plan) });
+            return;
+          }
+        }
+      }
+      // Not found: plan card not yet in thread or already replaced — no-op.
+    },
+    // Recreated whenever messages change so planId lookups always see the latest card state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chat.messages, chat.onReplaceCard],
+  );
+
+  // chainCallbacks: the interface ChatThread passes to ChainPlanCard + TxPreviewCardWithSigning.
+  const chainCallbacks: ChainSignCallbacks = {
+    onStartChainStep: (planId, stepIndex, plan) => {
+      // Register the plan on first use (idempotent for subsequent steps).
+      chainStepper.registerPlan(planId, plan, account?.address ?? "");
+
+      // Stamp the NEXT tx-preview card produced by the stream with this chain context.
+      // The outputCoinType is not yet known (Guardian hasn't run); the stream parser fills it.
+      chat.setPendingChainContext({ planId, stepIndex, outputCoinType: null });
+
+      // Compose + submit the command. The stepper waits for stale objects, composes the
+      // command, then calls sendMessage. The resulting tx-preview is auto-tagged above.
+      void chainStepper.onStartStep(planId, stepIndex, plan, (cmd) => void chat.sendMessage(cmd), updatePlan);
+    },
+    onChainStepConfirmed: (planId, stepIndex, txDigest, touchedObjIds, outputCoinType) => {
+      void chainStepper.onStepConfirmed(
+        planId,
+        stepIndex,
+        txDigest,
+        touchedObjIds,
+        outputCoinType,
+        account?.address ?? "",
+        updatePlan,
+      );
+    },
+    onChainStepBlocked: (planId, stepIndex, reasons) => {
+      chainStepper.onStepBlocked(planId, stepIndex, reasons, updatePlan);
+    },
+  };
 
   // Conversation list + persistence live at the PAGE level — the SAME level as `chat`, which
   // is always mounted. Switching views unmounts only the body (ChatShell), so keeping the
@@ -620,7 +683,7 @@ export default function AppPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
         >
           {view === "chat" ? (
-            account ? <ChatShell chat={chat} convos={convos} walletAddress={account.address} contacts={contactsApi.contacts} /> : <ConnectGate />
+            account ? <ChatShell chat={chat} convos={convos} walletAddress={account.address} contacts={contactsApi.contacts} chainCallbacks={chainCallbacks} /> : <ConnectGate />
           ) : (
             <div
               className="flex-1 overflow-y-auto"

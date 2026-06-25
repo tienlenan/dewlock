@@ -23,7 +23,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { ChatMessage, ToolCard, PendingTx } from "./chat-thread";
+import type { ChatMessage, ToolCard, PendingTx, ChainStepContext } from "./chat-thread";
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
 import type { ApiResponse as ProtocolsData } from "@/components/protocols/protocol-list";
@@ -266,6 +266,13 @@ export function useCopilotChat(
   const abortRef = useRef<AbortController | null>(null);
   const prevWalletRef = useRef(walletAddress);
 
+  // Chain step context to stamp onto the NEXT tx-preview card produced by the stream.
+  // Set by setPendingChainContext BEFORE sendMessage is called for a chain step,
+  // consumed (and cleared) when the resulting tx-preview card is built.
+  // This is the bridge between the chain stepper's onStartStep callback and the
+  // stream parser that builds the tx-preview card.
+  const pendingChainContextRef = useRef<ChainStepContext | null>(null);
+
   // Wallet switch → abort any in-flight agent stream (the thread reset itself is driven by
   // useConversations.onReset). Fires only on a genuine change, never initial mount.
   useEffect(() => {
@@ -423,7 +430,24 @@ export function useCopilotChat(
                 // Stamp the raw command (with its binding marker) so a reloaded conversation
                 // can offer a "re-build" affordance — the signable bytes are never persisted,
                 // only this command, which re-runs the full pipeline for a fresh preview.
-                if (card.type === "tx-preview") card.rebuildCommand = text;
+                if (card.type === "tx-preview") {
+                  card.rebuildCommand = text;
+                  // If this stream was triggered by a chain step (via onStartChainStep →
+                  // sendMessage), consume the pending chain context and stamp it onto the
+                  // tx-preview card. This is what routes the sign-result callback back into
+                  // the chain stepper rather than just showing a standalone receipt.
+                  const ctx = pendingChainContextRef.current;
+                  if (ctx) {
+                    // Propagate the output coin type from the Guardian preview into the
+                    // context so the stepper can read the post-confirm balance for that coin.
+                    card.chainContext = {
+                      ...ctx,
+                      outputCoinType: ctx.outputCoinType ?? (card.pendingTx.preview.coinTypeOut ?? null),
+                    };
+                    // Consume: clear so the next (non-chain) tx-preview is not stamped.
+                    pendingChainContextRef.current = null;
+                  }
+                }
                 appendCard(card);
               }
             } else if (parsed.type === "error") {
@@ -474,5 +498,31 @@ export function useCopilotChat(
     setThreadWallet(null);
   }, []);
 
-  return { messages, isStreaming, threadWallet, sendMessage, onReplaceCard, loadMessages, reset };
+  /**
+   * Stamp the next tx-preview card produced by the stream with a chain step context.
+   * Call this BEFORE calling sendMessage for a chain step so the resulting tx-preview
+   * is tagged and the sign handler can call back into the chain stepper on confirm.
+   * The context is consumed (cleared) automatically when the tx-preview card is built.
+   *
+   * Safe to call from useChainPlanStepper.onStartStep:
+   *   setPendingChainContext({ planId, stepIndex, outputCoinType: null });
+   *   sendMessage(composedCommand);
+   *
+   * The outputCoinType field is null here because it is not known until the Guardian
+   * runs and returns the tx-preview; the stream parser fills it from coinTypeOut.
+   */
+  const setPendingChainContext = useCallback((ctx: ChainStepContext | null) => {
+    pendingChainContextRef.current = ctx;
+  }, []);
+
+  return {
+    messages,
+    isStreaming,
+    threadWallet,
+    sendMessage,
+    onReplaceCard,
+    loadMessages,
+    reset,
+    setPendingChainContext,
+  };
 }

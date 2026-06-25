@@ -83,6 +83,7 @@ export default defineConfig({
       { find: "@dewlock/walrus/receipt", replacement: src("walrus", "receipt.ts") },
 
       // @dewlock/agent sub-paths (pure modules come first for priority)
+      { find: "@dewlock/agent/chaining/plan-stepper", replacement: src("agent", "chaining/plan-stepper.ts") },
       { find: "@dewlock/agent/allowlist", replacement: src("agent", "allowlist.ts") },
       { find: "@dewlock/agent/guardian-gates", replacement: src("agent", "guardian-gates.ts") },
       { find: "@dewlock/agent/guardian-bridge", replacement: src("agent", "guardian-bridge.ts") },
