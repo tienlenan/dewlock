@@ -22,6 +22,7 @@ import { getDefiPositions } from "./tools/get-defi-positions";
 import { listProtocols } from "./tools/list-protocols";
 import { getSwapOptions } from "./tools/get-swap-options";
 import { getLendOptions } from "./tools/get-lend-options";
+import { getStakeOptions } from "./tools/get-stake-options";
 import { getSwapForm } from "./tools/get-swap-form";
 import { getLimitOrderForm } from "./tools/get-limit-order-form";
 import { getReceiveInfo } from "./tools/get-receive-info";
@@ -53,6 +54,7 @@ export const copilot = new Agent({
     listProtocols,
     getSwapOptions,
     getLendOptions,
+    getStakeOptions,
     getSwapForm,
     getLimitOrderForm,
     getReceiveInfo,

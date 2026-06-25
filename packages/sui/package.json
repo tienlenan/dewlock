@@ -17,6 +17,7 @@
     "./price-oracle": "./dist/price-oracle.js",
     "./build-aggregator-swap": "./dist/build-aggregator-swap.js",
     "./build-lend": "./dist/build-lend.js",
+    "./build-stake": "./dist/build-stake.js",
     "./lending-positions": "./dist/lending-positions.js",
     "./navi-hf-simulation": "./dist/navi-hf-simulation.js",
     "./wormhole-vaa": "./dist/wormhole/vaa.js",

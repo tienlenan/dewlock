@@ -180,6 +180,21 @@ export function getTrustedUsdPrice(coinTypeRaw: string): number | undefined {
     const floor = process.env.WBTC_USD_PRICE_FLOOR ? parseFloat(process.env.WBTC_USD_PRICE_FLOOR) : 15000;
     return Math.max(livePrice(coinType) ?? 0, floor);
   }
+  // afSUI (Aftermath LST): priced as SUI × exchange-rate floor (≥ 1.0 SUI per afSUI).
+  // WHY independent of Aftermath's own exchange-rate: the Guardian outflow cap must not
+  // be gameable by inflating an Aftermath-provided exchange-rate. We derive afSUI price
+  // from the same SUI/USD floor used for SUI, multiplied by a conservative LST exchange
+  // rate floor (afSUI accrues staking rewards → always ≥ 1 SUI). This is intentionally
+  // conservative (under-prices afSUI relative to true value) so the cap is TIGHTER.
+  if (coinType === COIN_TYPES.AFSUI) {
+    const suiFloor = process.env.SUI_USD_PRICE_FLOOR ? parseFloat(process.env.SUI_USD_PRICE_FLOOR) : 3.0;
+    // Exchange-rate floor: 1 afSUI ≥ 1 SUI (it only grows; using 1.0 is safe-conservative).
+    // If a live rate is registered it takes precedence only if > floor (max → tighter cap).
+    const rateFallback = process.env.AFSUI_SUI_RATE_FLOOR ? parseFloat(process.env.AFSUI_SUI_RATE_FLOOR) : 1.0;
+    const liveAfSuiUsd = livePrice(coinType);
+    const derivedFloor = suiFloor * rateFallback;
+    return Math.max(liveAfSuiUsd ?? 0, derivedFloor);
+  }
   // Any other coin: a live feed if one exists (future coins), else unknown → block.
   return livePrice(coinType);
 }
@@ -275,6 +290,18 @@ export const AFTERMATH_ROUTER_UTILS_PACKAGE =
  */
 export const AFTERMATH_AMM_PACKAGE =
   "0xc4049b2d1cc0f6e017fda8260e4377cecd236bd7f56a54fee120816e72e2e0dd";
+
+/**
+ * Aftermath LSD (Liquid Staking Derivatives) package — the staked_sui_vault module.
+ * Emitted by getStakeTransaction (request_stake_and_keep) and getUnstakeTransaction
+ * (request_unstake_atomic_and_keep). Verified at runtime:
+ *   const sapi = (await Aftermath.create({network:'MAINNET'})).Staking().stakingApi();
+ *   sapi.addresses.packages.lsd
+ * → "0x1575034d2729907aefca1ac757d6ccfcd3fc7e9e77927523c06007d8353ad836"
+ * [needs live-env] re-verify if Aftermath upgrades the LSD package.
+ */
+export const AFTERMATH_LSD_PACKAGE =
+  "0x1575034d2729907aefca1ac757d6ccfcd3fc7e9e77927523c06007d8353ad836";
 
 /**
  * Aftermath router MoveCall families (bare "module::function", NO package).

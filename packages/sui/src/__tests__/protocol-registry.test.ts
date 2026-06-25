@@ -46,8 +46,8 @@ describe("protocol registry — posture", () => {
 
   it("only active+built protocols contribute Move targets", () => {
     const built = getBuiltProtocols().map((p) => p.id).sort();
-    // Built adapters: Aftermath (aggregator) + Cetus + DeepBook + Cetus aggregator (swap) + NAVI/Suilend (lending) + Wormhole (bridge).
-    expect(built).toEqual(["aftermath", "cetus", "cetus-aggregator", "deepbook", "navi", "suilend", "wormhole"]);
+    // Built adapters: Aftermath (aggregator) + Aftermath LST (afSUI staking) + Cetus + DeepBook + Cetus aggregator (swap) + NAVI/Suilend (lending) + Wormhole (bridge).
+    expect(built).toEqual(["aftermath", "aftermath-staking", "cetus", "cetus-aggregator", "deepbook", "navi", "suilend", "wormhole"]);
     // NAVI now has all four lending verbs: deposit, repay, borrow, withdraw.
     // The action-shape gate (not the allowlist) is what separates borrow from deposit.
     expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("entry_deposit"))).toBe(true);
@@ -72,9 +72,10 @@ describe("protocol registry — single-authored allowlist", () => {
     // pkg and the default pkg + deepbookv3::swap) + 7 NAVI (entry_deposit, entry_repay,
     // pool::refresh_stake, borrow, borrow_v2, withdraw, withdraw_v2) + 5 Suilend
     // (create_obligation, deposit×2, rebalance_staker, repay) + 1 Wormhole
-    // (complete_transfer) + 3 Aftermath (swap_cap::obtain_router_cap, initiate_path,
-    // return_router_cap_already_payed_fee) = 43.
-    expect(ALLOWED_MOVE_TARGETS.size).toBe(43);
+    // (complete_transfer) + 3 Aftermath swap (swap_cap::obtain_router_cap, initiate_path,
+    // return_router_cap_already_payed_fee) + 2 Aftermath LST staking
+    // (staked_sui_vault::request_stake_and_keep, request_unstake_atomic_and_keep) = 45.
+    expect(ALLOWED_MOVE_TARGETS.size).toBe(45);
   });
 
   it("isTargetActive: active Cetus/DeepBook targets + core targets are active", () => {

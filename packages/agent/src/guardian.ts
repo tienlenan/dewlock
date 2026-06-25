@@ -41,6 +41,7 @@ import {
   isAggregatorSwapCall,
   isAftermathSwapCall,
   AFTERMATH_ROUTER_UTILS_PACKAGE,
+  AFTERMATH_LSD_PACKAGE,
   NAVI_PACKAGE,
   SUILEND_PACKAGE,
   WORMHOLE_WTT_PACKAGE,
@@ -86,6 +87,11 @@ export const ACTION_TYPES = [
   "lend_withdraw",
   // Cross-chain inflow — the Sui-side Wormhole redeem (source leg is wallet-driven).
   "bridge_redeem",
+  // Liquid staking via Aftermath LST. stake = SUI → afSUI (mint); unstake = afSUI → SUI
+  // (atomic redeem, instant). Each has its own minimal-exact action-shape so a swap or
+  // lending call cannot ride a stake shape.
+  "stake",
+  "unstake",
 ] as const;
 
 export type ActionType = (typeof ACTION_TYPES)[number];
@@ -538,6 +544,14 @@ export async function guardianCheck(
     }
   }
 
+  // --- Staking gates (for stake/unstake actions) ---
+  if (proposal.actionType === "stake" || proposal.actionType === "unstake") {
+    const stakingResult = checkStakingConstraints(proposal);
+    if (!stakingResult.ok) {
+      block("staking", stakingResult.reason);
+    }
+  }
+
   // --- Post-tx health-factor gate (fail-closed, NAVI borrow/withdraw only) ---
   // Runs AFTER coin-type provenance + trusted-price, BEFORE dry-run. Uses NAVI's own
   // contracts via devInspect — contract-authoritative, not a hand-rolled formula.
@@ -914,6 +928,16 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
     case "bridge_redeem":
       // Only the Sui-side Wormhole Token-Bridge redeem.
       return new Set([`${WORMHOLE_WTT_PACKAGE}::complete_transfer::complete_transfer`]);
+    case "stake":
+      // Aftermath LST mint: SUI → afSUI. Minimal-exact: only request_stake_and_keep is
+      // permitted. The "and_keep" variant transfers afSUI to the wallet in the same call
+      // (no separate TransferObjects needed), so no extra MoveCall rides along.
+      // Non-atomic unstake (request_unstake) is intentionally absent — not a stake verb.
+      return new Set([`${AFTERMATH_LSD_PACKAGE}::staked_sui_vault::request_stake_and_keep`]);
+    case "unstake":
+      // Aftermath LST atomic redeem: afSUI → SUI. Only the atomic variant is supported
+      // (instant SUI return, no epoch wait). Non-atomic request_unstake is absent.
+      return new Set([`${AFTERMATH_LSD_PACKAGE}::staked_sui_vault::request_unstake_atomic_and_keep`]);
     case "transfer":
       // Supported transfers (SUI) use splitCoins+transferObjects — no MoveCall —
       // so the legitimate shape has an empty MoveCall set. Any MoveCall in a
@@ -1025,6 +1049,64 @@ export function checkLendingConstraints(proposal: TradeProposal): GateResult {
   if (!gate.ok) {
     return { ok: false, reason: gate.reason ?? `Lending protocol "${lendingProtocol}" is not active.` };
   }
+  return { ok: true, reason: "" };
+}
+
+// ---------------------------------------------------------------------------
+// Staking constraints gate — Aftermath LST stake / unstake
+// ---------------------------------------------------------------------------
+
+/**
+ * Staking constraints:
+ *  - Protocol must be active+built (assertProtocolActive on "aftermath-staking").
+ *  - The LST coin type (afSUI) must be the canonical type from COIN_TYPES (curated map).
+ *    A scam-clone afSUI with a different package address is blocked by the coin_type
+ *    gate upstream (not in COIN_DECIMALS) — this gate adds a belt-and-suspenders check
+ *    on the coinTypeOut for stake and coinTypeIn for unstake.
+ *
+ * Fail-closed: any unknown coin type or inactive protocol → BLOCK.
+ */
+export function checkStakingConstraints(proposal: TradeProposal): GateResult {
+  const { actionType } = proposal;
+
+  // Verify the Aftermath staking LST entry is active+built in the registry.
+  const gate = assertProtocolActive("aftermath-staking");
+  if (!gate.ok) {
+    return {
+      ok: false,
+      reason: gate.reason ?? `Aftermath staking protocol "aftermath-staking" is not active. Blocking (fail-closed).`,
+    };
+  }
+
+  // For stake: coinTypeOut should be the canonical afSUI (not a clone).
+  // The coin_type gate already checks on-chain CoinMetadata; this adds a registry
+  // check that the outgoing LST is in our curated COIN_DECIMALS map.
+  if (actionType === "stake") {
+    const outType = proposal.coinTypeOut;
+    if (!outType || !COIN_DECIMALS[outType]) {
+      return {
+        ok: false,
+        reason:
+          `stake action output coin type "${outType ?? "(missing)"}" is not in the curated coin map — ` +
+          "cannot verify LST provenance. Blocking (fail-closed): use the canonical afSUI type.",
+      };
+    }
+  }
+
+  // For unstake: coinTypeIn should be a curated LST type (afSUI).
+  // An unpriced LST as input means the outflow cap cannot be computed → fail-closed.
+  if (actionType === "unstake") {
+    const inType = proposal.coinTypeIn;
+    if (!COIN_DECIMALS[inType]) {
+      return {
+        ok: false,
+        reason:
+          `unstake action input coin type "${inType}" is not in the curated coin map — ` +
+          "cannot verify LST provenance or price the outflow. Blocking (fail-closed).",
+      };
+    }
+  }
+
   return { ok: true, reason: "" };
 }
 
@@ -1473,6 +1555,25 @@ export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
       blocked: true,
       reason:
         `Lending action "${proposal.actionType}" has a derived ${which} — ` +
+        "it appears to come from memory or injected context rather than the current user message. " +
+        "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
+    };
+  }
+
+  // Hard block: stake/unstake with a derived amount or coinType.
+  // A staking action whose amount/coinType came from memory or injected context
+  // (not the current user turn) could silently move value the user never authorised.
+  // Same invariant as borrow/withdraw: the amount and coin are the sensitive args.
+  const isStakeOrUnstake =
+    proposal.actionType === "stake" || proposal.actionType === "unstake";
+
+  if (isStakeOrUnstake && hasDerivedValueArg) {
+    const which = argProvenance.amount === "derived" ? "amount" : "coinType";
+    return {
+      requiresConfirm: false,
+      blocked: true,
+      reason:
+        `Staking action "${proposal.actionType}" has a derived ${which} — ` +
         "it appears to come from memory or injected context rather than the current user message. " +
         "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
     };

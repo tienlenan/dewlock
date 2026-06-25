@@ -25,10 +25,11 @@ import {
   SUILEND_PACKAGE,
   WORMHOLE_WTT_PACKAGE,
   AFTERMATH_ROUTER_UTILS_PACKAGE,
+  AFTERMATH_LSD_PACKAGE,
 } from "./protocol-constants";
 import type { ProtocolEntry } from "./protocol-registry";
 
-const { SUI, USDC, USDT, WETH, wBTC, DEEP } = COIN_TYPES;
+const { SUI, USDC, USDT, WETH, wBTC, DEEP, AFSUI } = COIN_TYPES;
 
 export const PROTOCOLS: ProtocolEntry[] = [
   // -------------------------------------------------------------------------
@@ -221,6 +222,32 @@ export const PROTOCOLS: ProtocolEntry[] = [
     coinTypes: [SUI, USDC],
     guardianNotes:
       "Spot/aggregation only (PERP excluded). Static utils targets exact-package; per-DEX router calls matched by module::function (isAftermathSwapCall). Verified via 3 live swap txns. [needs live-env] confirm round-trip with funded wallet.",
+  },
+  {
+    id: "aftermath-staking",
+    name: "Aftermath LST (afSUI)",
+    category: "lst",
+    sdkPackage: "aftermath-ts-sdk",
+    status: "active",
+    buildState: "built",
+    // Exact Move targets emitted by the Aftermath LSD SDK (verified by runtime inspection
+    // of sdk-bundles/aftermath.cjs: StakingApi.stakeTx / atomicUnstakeTx):
+    //   stake:   {lsd}::staked_sui_vault::request_stake_and_keep
+    //   unstake: {lsd}::staked_sui_vault::request_unstake_atomic_and_keep
+    // "and_keep" variants transfer the output coin to the wallet (no separate TransferObjects).
+    // The non-atomic "request_unstake" is intentionally absent — only instant redemption
+    // (atomic) is supported (no epoch delay). Exact-package allowlist; the LSD package is
+    // stable (not a per-route integration package), so no signature-match carve-out is needed.
+    allowlistedTargets: [
+      `${AFTERMATH_LSD_PACKAGE}::staked_sui_vault::request_stake_and_keep`,
+      `${AFTERMATH_LSD_PACKAGE}::staked_sui_vault::request_unstake_atomic_and_keep`,
+    ],
+    coinTypes: [SUI, AFSUI],
+    guardianNotes:
+      "Liquid staking only (LST, instant atomic unstake). afSUI coin-type provenance checked on-chain. " +
+      "afSUI outflow cap uses SUI_price × afSUI/SUI exchange-rate floor (independent of Aftermath's own rate display). " +
+      "Scam-clone afSUI blocked by coin_type gate (not in curated COIN_DECIMALS). " +
+      "[needs live-env] re-verify LSD package if Aftermath upgrades.",
   },
   {
     id: "scallop",

@@ -225,7 +225,10 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         // (per-DEX router calls matched dynamically via isAftermathSwapCall module::function)
         t.includes("::swap_cap::obtain_router_cap") ||
         t.includes("::swap_cap::initiate_path") ||
-        t.includes("::swap_cap::return_router_cap_already_payed_fee");
+        t.includes("::swap_cap::return_router_cap_already_payed_fee") ||
+        // Aftermath LST (afSUI) liquid staking — mint (stake) + atomic redeem (unstake)
+        t.includes("::staked_sui_vault::request_stake_and_keep") ||
+        t.includes("::staked_sui_vault::request_unstake_atomic_and_keep");
       expect(isAllowed).toBe(true);
     }
   });

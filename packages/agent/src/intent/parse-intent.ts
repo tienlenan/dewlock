@@ -50,6 +50,8 @@ export type Intent =
   // Lend fully parses amount/coin/protocol so a complete command builds directly
   // and the UI only ever asks for what is genuinely missing (no re-ask loop).
   | { action: "lend"; verb: "deposit" | "repay"; amount: IntentAmount; coinType?: string; protocol?: LendProtocol }
+  // Liquid staking via Aftermath Finance (afSUI). verb "stake" = SUI→afSUI, "unstake" = afSUI→SUI.
+  | { action: "stake"; verb: "stake" | "unstake"; amount: IntentAmount; coinType?: string }
   | { action: "portfolio" }
   | { action: "protocols" }
   | { action: "stats" }
@@ -243,6 +245,26 @@ export function parseIntent(text: string): Intent | null {
   if (lendMatch) {
     const verb: "deposit" | "repay" = /^repay$/i.test(lendMatch[1]) ? "repay" : "deposit";
     return { action: "lend", verb, ...parseLendArgs(lendMatch[2]) };
+  }
+
+  // Liquid staking / unstaking — "stake X SUI", "unstake X afSUI", "liquid stake 5 SUI".
+  // Coin is always SUI (stake) or afSUI (unstake); amount is optional (missing → form).
+  const stakeMatch = /^(stake|liquid\s+stake|unstake|liquid\s+unstake)\b\s*(.*)$/i.exec(raw);
+  if (stakeMatch) {
+    const verb: "stake" | "unstake" = /^unstake|^liquid\s+unstake/i.test(stakeMatch[1]) ? "unstake" : "stake";
+    // Parse amount and optional coin symbol from the tail (same pattern as parseLendArgs).
+    let tokens = stakeMatch[2].trim().split(/\s+/).filter(Boolean);
+    let amount: IntentAmount = { kind: "none" };
+    if (tokens[0] && isAmountToken(tokens[0])) {
+      amount = parseAmount(tokens[0]);
+      tokens = tokens.slice(1);
+    }
+    let coinType: string | undefined;
+    for (const t of tokens) {
+      const tok = resolveSymbol(t);
+      if (tok) { coinType = tok.coinType; break; }
+    }
+    return { action: "stake", verb, amount, coinType };
   }
 
   // Bare "swap" with no args → interactive form.

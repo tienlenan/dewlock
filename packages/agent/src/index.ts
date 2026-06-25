@@ -46,6 +46,7 @@ export { getPortfolio } from "./tools/get-portfolio";
 export { listProtocols } from "./tools/list-protocols";
 export { getSwapOptions } from "./tools/get-swap-options";
 export { getLendOptions } from "./tools/get-lend-options";
+export { getStakeOptions } from "./tools/get-stake-options";
 export { getSwapForm } from "./tools/get-swap-form";
 export { getReceiveInfo } from "./tools/get-receive-info";
 export { getUserStats } from "./tools/get-user-stats";

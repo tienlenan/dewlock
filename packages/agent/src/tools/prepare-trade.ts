@@ -19,6 +19,7 @@ import { buildAftermathSwap } from "@dewlock/sui/build-aftermath-swap";
 // build-limit-order imports DeepBook SDK — use subpath for the same isolation rationale
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
+import { buildStake, buildUnstake } from "@dewlock/sui/build-stake";
 // DeepBook order-lifecycle builders + BM resolver (DeepBook SDK lazy-imported inside).
 import {
   buildCreateBalanceManager,
@@ -50,6 +51,9 @@ const TOOL_ACTION_TYPES = [
   "lend_repay",
   "lend_borrow",
   "lend_withdraw",
+  // Liquid staking via Aftermath Finance (afSUI).
+  "stake",
+  "unstake",
 ] as const satisfies readonly ActionType[];
 
 /** Actions that operate on the wallet's BalanceManager (require server-side BM resolution). */
@@ -569,6 +573,20 @@ export const prepareTrade = createTool({
           poolKeys: poolsWithSettled,
         });
         txBytes = claimResult.txBytes;
+      } else if (actionType === "stake") {
+        // Liquid staking: SUI → afSUI via Aftermath Finance.
+        const stakeResult = await buildStake(suiClient, {
+          senderAddress: walletAddress,
+          amountNative: amountInNative,
+        });
+        txBytes = stakeResult.txBytes;
+      } else if (actionType === "unstake") {
+        // Liquid unstaking: afSUI → SUI via Aftermath Finance (atomic, same tx).
+        const unstakeResult = await buildUnstake(suiClient, {
+          senderAddress: walletAddress,
+          afSuiAmountNative: amountInNative,
+        });
+        txBytes = unstakeResult.txBytes;
       } else if (
         actionType === "lend_borrow" ||
         actionType === "lend_withdraw" ||

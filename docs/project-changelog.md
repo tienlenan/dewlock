@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-06-25 — Liquid staking (afSUI via Aftermath)
+
+### Added
+- **`stake` / `unstake` value-moves** — SUI ⇆ afSUI liquid staking via Aftermath, on the fail-closed Guardian spine. `stake` mints afSUI (`staked_sui_vault::request_stake_and_keep`); `unstake` is the instant atomic redeem (`request_unstake_atomic_and_keep`, no epoch delay). New `@dewlock/sui/build-stake` builder (Aftermath SDK loaded from the prebundled CJS, in `@dewlock/sui`).
+- **`checkStakingConstraints` gate** — LST coin-type provenance against the curated map (a scam-clone afSUI is not in `COIN_DECIMALS` → BLOCK), plus a minimal-exact per-verb action-shape allowlist (a swap/lend/deposit call cannot ride a stake shape; stake and unstake targets can't be swapped). Provenance hard-block extended to stake/unstake derived amount/coinType.
+- **afSUI outflow pricing** for the unstake cap — `max(live price, SUI_USD_floor × afSUI/SUI floor)`, derived from the SUI floor and **independent of Aftermath's own exchange-rate** (no circular trust). An unpriced LST outflow → BLOCK (fail-closed).
+- **`get-stake-options` tool** + staking picker card + intent routing (`stake`/`unstake` verbs). Protocol registry adds an `aftermath-staking` (afSUI) entry (allowlist 43 → 45 targets).
+- Tests: staking gate (pass/scam-clone BLOCK via the staking gate/unpriced-LST BLOCK/shape-smuggle BLOCK/derived-amount BLOCK), builder shape, registry snapshot.
+
+### Notes
+- The Aftermath stake call emits the validator as a real Move-call arg (no default) — the builder reads the protocol validator from the SDK addresses and fail-closes if unavailable (passing the user's own address would abort on-chain).
+- Tests: 863/863 pass; typecheck clean.
+
 ## 2026-06-25 — NAVI borrow/withdraw with fail-closed post-tx health-factor gate
 
 ### Added

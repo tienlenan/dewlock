@@ -93,6 +93,25 @@ export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
     };
   }
 
+  // Hard block: stake/unstake with a derived amount or coinType.
+  // A staking action whose amount/coinType came from memory or injected context
+  // (not the current user turn) could silently move value the user never authorised.
+  // Same invariant as borrow/withdraw: the amount and coin are the sensitive args.
+  const isStakeOrUnstake =
+    proposal.actionType === "stake" || proposal.actionType === "unstake";
+
+  if (isStakeOrUnstake && hasDerivedValueArg) {
+    const which = argProvenance.amount === "derived" ? "amount" : "coinType";
+    return {
+      requiresConfirm: false,
+      blocked: true,
+      reason:
+        `Staking action "${proposal.actionType}" has a derived ${which} — ` +
+        "it appears to come from memory or injected context rather than the current user message. " +
+        "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
+    };
+  }
+
   return {
     requiresConfirm: hasDerivedArg,
     blocked: false,

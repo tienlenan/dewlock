@@ -169,6 +169,67 @@ export async function buildIntentDirective(
       ].filter(Boolean).join("\n");
     }
 
+    case "stake": {
+      // Liquid staking: "stake X SUI" → SUI → afSUI via Aftermath Finance.
+      // "unstake X afSUI" → afSUI → SUI via Aftermath Finance (atomic, same tx).
+      // Route by what the user already gave, same pattern as "lend".
+      const isUnstake = intent.verb === "unstake";
+      const stakeCoinType = isUnstake ? COIN_TYPES.AFSUI : COIN_TYPES.SUI;
+      const stakeSym = isUnstake ? "afSUI" : "SUI";
+      const stakeActionType = isUnstake ? "unstake" : "stake";
+      const amountToken = intent.amount?.kind === "exact" ? intent.amount.human : null;
+      const hasAmount = amountToken !== null;
+      const hasCoin = !!intent.coinType && ALLOWLISTED_TYPES.has(intent.coinType);
+
+      // Complete: amount + coin given (coin is always SUI or afSUI for staking).
+      // The protocol is always "aftermath-staking" — no picker needed for staking
+      // (only one LST per verb right now; picker surfaced via getStakeOptions if needed).
+      if (hasAmount && walletAddress) {
+        const coinForNative = intent.coinType ?? stakeCoinType;
+        const native = await resolveNativeAmount(
+          intent.amount!,
+          coinForNative,
+          walletAddress,
+        );
+        if (native) {
+          return [
+            `## Deterministic intent (high confidence)`,
+            `Call \`prepareTrade\` with EXACTLY these arguments and no other tool:`,
+            `- actionType: "${stakeActionType}"`,
+            walletAddress ? `- walletAddress: "${walletAddress}"` : ``,
+            `- coinTypeIn: "${coinForNative}"`,
+            `- amountInNative: "${native}"`,
+            `- argProvenance: { "amount": "user_turn", "coinType": "user_turn" }`,
+            `Then present the returned preview card. Do NOT call getPortfolio or any other tool.`,
+          ].filter(Boolean).join("\n");
+        }
+      }
+
+      // Amount known but can't fully dispatch (no wallet / resolve failed), or
+      // amount + coin known but no full resolution → show the picker so user can
+      // see protocol details (live APY) before confirming.
+      if (hasAmount && hasCoin) {
+        return [
+          `## Deterministic intent (high confidence)`,
+          `The user wants to ${intent.verb} ${amountToken} ${stakeSym} but the protocol needs confirmation.`,
+          `Call ONLY \`getStakeOptions\` (do NOT ask in prose, do NOT call prepareTrade or requestActionForm):`,
+          `- coinType: "${stakeCoinType}"`,
+          amountToken ? `- amountHuman: "${amountToken}"` : ``,
+          `- verb: "${stakeActionType}"`,
+        ].filter(Boolean).join("\n");
+      }
+
+      // Missing amount → render a minimal form for just the amount field.
+      return [
+        `## Deterministic intent (high confidence)`,
+        `The user wants to ${intent.verb} ${stakeSym} — a value move, NOT a balance query.`,
+        `Call ONLY \`requestActionForm\` (do NOT ask in prose, do NOT call getPortfolio or prepareTrade):`,
+        `- formAction: "${stakeActionType}"`,
+        intent.coinType ? `- coinTypeIn: "${intent.coinType}"` : ``,
+        `- needs: ["amount"]`,
+      ].filter(Boolean).join("\n");
+    }
+
     case "swap_form":
       // Bare "swap" → render the from→to swap picker (with logos + live quote),
       // NOT a prose question.
