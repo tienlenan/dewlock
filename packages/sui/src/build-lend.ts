@@ -1,14 +1,15 @@
 /**
- * Build an unsigned lending PTB (deposit / repay) for NAVI or Suilend.
+ * Build an unsigned lending PTB (deposit / repay / borrow / withdraw) for NAVI or Suilend.
  *
- * Scope: only the health-IMPROVING verbs are buildable here — deposit (adds
- * collateral) and repay (reduces debt). Borrow/withdraw are health-REDUCING and
- * are gated OFF in the Guardian (checkLendingConstraints) until a guarded
- * post-tx health-factor follow-up.
+ * Deposit/repay are health-IMPROVING: coin leaves the wallet → the Guardian's
+ * dry-run net-outflow cap bounds the USD value automatically, and the trusted-price
+ * gate blocks an unpriced collateral coin.
  *
- * WHY the value is safe without a bespoke cap here: deposit/repay move coin OUT
- * of the wallet, so the Guardian's dry-run net-outflow cap bounds the USD value
- * automatically, and the trusted-price gate blocks an unpriced collateral coin.
+ * Borrow/withdraw are health-REDUCING: the Guardian runs a fail-closed post-tx
+ * health-factor gate (checkPostTxHealthFactor) and a dedicated borrow-inflow value
+ * cap BEFORE this builder's result reaches the user. A borrow is an inflow to the
+ * wallet, so the net-outflow cap structurally cannot see it — the borrow cap
+ * in guardian.ts is the sole backstop for borrow value.
  *
  * WHY prebundled CJS via static require: the NAVI/Suilend SDKs are ESM-only (Suilend is
  * even bundler-only — directory imports that load as an empty module under raw Node) and
@@ -27,7 +28,7 @@ import { pinSuiGasPayment } from "./sui-gas-payment";
 type SuiClient = SuiJsonRpcClient;
 
 export type LendProtocol = "navi" | "suilend";
-export type LendAction = "deposit" | "repay";
+export type LendAction = "deposit" | "repay" | "borrow" | "withdraw";
 
 export interface LendSpec {
   senderAddress: string;
@@ -67,8 +68,8 @@ function isFixtureMode(): boolean {
 // them and they ship in the function (a bare/dynamic import would not resolve at runtime).
 
 /**
- * Build an unsigned deposit/repay PTB. Throws LendBuildError on any error —
- * callers (Guardian) treat a throw as BLOCK.
+ * Build an unsigned deposit/repay/borrow/withdraw PTB. Throws LendBuildError on
+ * any error — callers (Guardian) treat a throw as BLOCK.
  */
 export async function buildLend(client: SuiClient, spec: LendSpec): Promise<LendBuildResult> {
   const { senderAddress, coinType, amountNative, action } = spec;
@@ -77,23 +78,34 @@ export async function buildLend(client: SuiClient, spec: LendSpec): Promise<Lend
     throw new LendBuildError(`Unknown coin type "${coinType}" — only canonical types are permitted.`);
   }
   if (amountNative <= 0n) throw new LendBuildError("Lending amount must be positive.");
-  if (action !== "deposit" && action !== "repay") {
-    throw new LendBuildError(`Unsupported lend action "${action}" — only deposit/repay are buildable.`);
+  if (action !== "deposit" && action !== "repay" && action !== "borrow" && action !== "withdraw") {
+    throw new LendBuildError(`Unsupported lend action "${action}" — only deposit/repay/borrow/withdraw are buildable.`);
+  }
+  // Borrow/withdraw are NAVI-only (the Guardian's post-tx health-factor gate is
+  // NAVI-specific; Suilend has no borrow/withdraw builder). Reject as a validation
+  // guard — before fixture mode and the Suilend branch — so a borrow/withdraw can
+  // never fall into Suilend's deposit/repay path in any mode.
+  if ((action === "borrow" || action === "withdraw") && spec.protocol !== "navi") {
+    throw new LendBuildError(
+      `"${action}" is only buildable on NAVI — "${spec.protocol}" supports deposit/repay only.`,
+    );
   }
 
   if (isFixtureMode()) {
     // Placeholder PTB for demo — no real Move calls; UI shows the DEMO FIXTURE badge.
+    // Build as TransactionKind (no gas/sender resolution) so no live client is needed —
+    // unit tests pass a stub client and the Vercel demo path has no chain connection.
     const tx = new Transaction();
-    tx.setSender(senderAddress);
-    const [coin] = tx.splitCoins(tx.gas, [0n]);
-    tx.mergeCoins(tx.gas, [coin]);
-    const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
+    const bytes = await tx.build({ onlyTransactionKind: true });
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: true };
   }
 
-  return spec.protocol === "navi"
-    ? buildNaviLend(client, spec)
-    : buildSuilendLend(client, spec);
+  if (spec.protocol === "navi") {
+    if (action === "borrow") return buildNaviBorrow(client, spec);
+    if (action === "withdraw") return buildNaviWithdraw(client, spec);
+    return buildNaviLend(client, spec);
+  }
+  return buildSuilendLend(client, spec);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +152,81 @@ async function buildNaviLend(client: SuiClient, spec: LendSpec): Promise<LendBui
     return { txBytes: Buffer.from(bytes).toString("base64"), healthBefore, isFixture: false };
   } catch (err) {
     throw new LendBuildError(`NAVI ${action} PTB construction failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// NAVI borrow path — borrowCoinPTB emits incentive_v3::borrow_v2 (v2 protocol).
+// The borrowed coin is an inflow to the wallet; the Guardian's borrow-inflow value
+// cap and post-tx HF gate run BEFORE this builder is called. [needs live-env]
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an unsigned NAVI borrow PTB. The borrowed coin lands in the signer's wallet.
+ * For native SUI: borrowCoinPTB returns a Balance — we wrap it to a Coin and transfer
+ * to the sender, then pin gas so there is enough coverage. [needs live-env]
+ */
+async function buildNaviBorrow(client: SuiClient, spec: LendSpec): Promise<LendBuildResult> {
+  const { senderAddress, coinType, amountNative } = spec;
+  let navi: typeof import("@naviprotocol/lending");
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    navi = require("../sdk-bundles/navi.cjs") as typeof import("@naviprotocol/lending");
+  } catch (err) {
+    throw new LendBuildError(`Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    const tx = new Transaction();
+    tx.setSender(senderAddress);
+    const options = { account: senderAddress, amount: Number(amountNative) } as never;
+    // borrowCoinPTB returns a Coin object containing the borrowed funds. Transfer it to
+    // the signer so the borrowed coin materialises in their wallet after execution.
+    const borrowedCoin = await navi.borrowCoinPTB(tx, coinType, amountNative as never, options);
+    tx.transferObjects([borrowedCoin as never], senderAddress);
+    // Native SUI borrows come back via the gas-coin budget; pin gas to cover borrow + fees.
+    const isSui = coinType === COIN_TYPES.SUI;
+    if (isSui) await pinSuiGasPayment(client, tx, senderAddress, amountNative);
+    const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
+    return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
+  } catch (err) {
+    throw new LendBuildError(`NAVI borrow PTB construction failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// NAVI withdraw path — withdrawCoinPTB emits incentive_v3::withdraw_v2 (v2 protocol).
+// The withdrawn coin is an inflow to the wallet from the NAVI pool. [needs live-env]
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an unsigned NAVI withdraw PTB. The withdrawn collateral returns to the signer's
+ * wallet. For native SUI: withdrawCoinPTB wraps the Balance to a Coin internally via
+ * 0x2::coin::from_balance; we transfer the result to the sender. [needs live-env]
+ */
+async function buildNaviWithdraw(client: SuiClient, spec: LendSpec): Promise<LendBuildResult> {
+  const { senderAddress, coinType, amountNative } = spec;
+  let navi: typeof import("@naviprotocol/lending");
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    navi = require("../sdk-bundles/navi.cjs") as typeof import("@naviprotocol/lending");
+  } catch (err) {
+    throw new LendBuildError(`Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    const tx = new Transaction();
+    tx.setSender(senderAddress);
+    const options = { account: senderAddress, amount: Number(amountNative) } as never;
+    // withdrawCoinPTB returns a Coin<T> (wraps Balance<T> internally via coin::from_balance).
+    // Transfer it to the signer so the collateral materialises in their wallet after execution.
+    const withdrawnCoin = await navi.withdrawCoinPTB(tx, coinType, amountNative as never, options);
+    tx.transferObjects([withdrawnCoin as never], senderAddress);
+    // SUI withdraws from NAVI return the gas coin indirectly; pin gas to cover fees.
+    const isSui = coinType === COIN_TYPES.SUI;
+    if (isSui) await pinSuiGasPayment(client, tx, senderAddress, 0n);
+    const bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
+    return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
+  } catch (err) {
+    throw new LendBuildError(`NAVI withdraw PTB construction failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

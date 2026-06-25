@@ -53,7 +53,7 @@ export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
     argProvenance.amount === "derived" ||
     argProvenance.coinType === "derived";
 
-  // Hard block: derived recipient on a value-moving transfer to a third party
+  // Hard block: derived recipient on a value-moving transfer to a third party.
   const untracedRecipientWithValue =
     proposal.actionType === "transfer" &&
     argProvenance.recipient === "derived" &&
@@ -68,6 +68,28 @@ export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
         `Transfer recipient "${recipientAddress}" was not provided in the current user message — ` +
         "it appears to come from memory or injected pool data. " +
         "Blocking: injection provenance gate. Please retype the recipient explicitly.",
+    };
+  }
+
+  // Hard block: borrow/withdraw with a derived amount or coinType.
+  // A borrow or withdraw whose amount/coinType came from memory or injected context
+  // (not the current user turn) could silently move value the user never authorised.
+  // Unlike a transfer where the recipient is the suspicious field, here the
+  // amount/coinType are the sensitive args — a derived value on either → hard block.
+  const isBorrowOrWithdraw =
+    proposal.actionType === "lend_borrow" || proposal.actionType === "lend_withdraw";
+  const hasDerivedValueArg =
+    argProvenance.amount === "derived" || argProvenance.coinType === "derived";
+
+  if (isBorrowOrWithdraw && hasDerivedValueArg) {
+    const which = argProvenance.amount === "derived" ? "amount" : "coinType";
+    return {
+      requiresConfirm: false,
+      blocked: true,
+      reason:
+        `Lending action "${proposal.actionType}" has a derived ${which} — ` +
+        "it appears to come from memory or injected context rather than the current user message. " +
+        "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
     };
   }
 

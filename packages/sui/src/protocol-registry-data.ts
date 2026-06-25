@@ -129,17 +129,28 @@ export const PROTOCOLS: ProtocolEntry[] = [
     sdkPackage: "@naviprotocol/lending",
     status: "active",
     buildState: "built",
-    // Only the health-IMPROVING verbs are allowlisted. borrow/withdraw
-    // (incentive_v3::borrow/withdraw) are deliberately absent → refused at the
-    // allowlist gate until a guarded post-tx health-factor follow-up.
+    // Health-IMPROVING verbs: entry_deposit / entry_repay (value leaves wallet).
+    // Health-REDUCING verbs: borrow/withdraw (value enters wallet from NAVI pool).
+    // Both sets are allowlisted here; the action-shape gate enforces a MINIMAL-EXACT
+    // per-action allowlist (lend_borrow → only borrow targets; lend_withdraw → only
+    // withdraw targets) so a smuggled deposit call inside a borrow PTB is refused.
+    // The post-tx health-factor gate and borrow-inflow cap in guardian.ts are the
+    // safety backstops for borrow/withdraw — they run before the dry-run gate.
     allowlistedTargets: [
       `${NAVI_PACKAGE}::incentive_v3::entry_deposit`,
       `${NAVI_PACKAGE}::incentive_v3::entry_repay`,
       // The SDK's deposit PTB also refreshes reward/stake state before depositing.
       `${NAVI_PACKAGE}::pool::refresh_stake`,
+      // Borrow targets: borrowCoinPTB emits one of these depending on pool protocol version.
+      // v1 protocol (no accountCap) and v2 protocol both emit the respective target.
+      `${NAVI_PACKAGE}::incentive_v3::borrow`,
+      `${NAVI_PACKAGE}::incentive_v3::borrow_v2`,
+      // Withdraw targets: withdrawCoinPTB emits one of these depending on pool protocol version.
+      `${NAVI_PACKAGE}::incentive_v3::withdraw`,
+      `${NAVI_PACKAGE}::incentive_v3::withdraw_v2`,
     ],
     coinTypes: [SUI, USDC, USDT, wBTC],
-    guardianNotes: "v2-native (@naviprotocol/lending 2.x, @mysten/sui v2). Deposit/repay only; borrow/withdraw gated off.",
+    guardianNotes: "v2-native (@naviprotocol/lending 2.x, @mysten/sui v2). All four lending verbs enabled; borrow/withdraw gated by post-tx HF simulation and borrow-inflow cap in guardian.",
   },
   {
     id: "suilend",

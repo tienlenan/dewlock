@@ -569,23 +569,23 @@ export const prepareTrade = createTool({
           poolKeys: poolsWithSettled,
         });
         txBytes = claimResult.txBytes;
-      } else if (actionType === "lend_borrow" || actionType === "lend_withdraw") {
-        // Health-reducing verbs are gated off — surface immediately, build nothing.
-        return {
-          ok: false as const,
-          reasons: [
-            `Lending action "${actionType}" is guarded and not yet enabled — only deposit and repay are permitted.`,
-          ],
-          gates: ["lending"],
-        };
-      } else if (actionType === "lend_deposit" || actionType === "lend_repay") {
+      } else if (
+        actionType === "lend_borrow" ||
+        actionType === "lend_withdraw" ||
+        actionType === "lend_deposit" ||
+        actionType === "lend_repay"
+      ) {
         if (!lendingProtocol) {
           return { ok: false as const, reasons: ["lendingProtocol is required for lending actions"], gates: ["input_validation"] };
         }
+        const lendAction =
+          actionType === "lend_deposit" ? "deposit" :
+          actionType === "lend_repay" ? "repay" :
+          actionType === "lend_borrow" ? "borrow" : "withdraw";
         const lendResult = await buildLend(suiClient, {
           senderAddress: walletAddress,
           protocol: lendingProtocol as LendingProtocol,
-          action: actionType === "lend_deposit" ? "deposit" : "repay",
+          action: lendAction,
           coinType: coinTypeIn,
           amountNative: amountInNative,
           obligationId,

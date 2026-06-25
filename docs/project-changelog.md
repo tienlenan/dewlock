@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-06-25 — NAVI borrow/withdraw with fail-closed post-tx health-factor gate
+
+### Added
+- **NAVI borrow & withdraw value-moves** (health-REDUCING verbs, previously gated off), guarded by a deterministic **post-tx health-factor gate**. `checkPostTxHealthFactor` calls NAVI's own `getSimulatedHealthFactor` (contract-authoritative `devInspect`, not a hand-rolled formula) and BLOCKs when the projected HF would fall below the server-authoritative threshold (default 1.6) or a full-withdraw would leave outstanding debt.
+- **Fail-closed HF read** (`@dewlock/sui/navi-hf-simulation`): any throw, `undefined`, `NaN`, or non-finite simulation result is re-thrown → the gate treats it as BLOCK (never a silent pass). Does not inherit the best-effort `getHealthFactor` semantics.
+- **Borrow-inflow value cap** (`checkBorrowInflowCap`): a borrow is an inflow, so the net-outflow cap structurally can't see it. The new gate values the borrowed `coinTypeIn` via the trusted price (unpriced → BLOCK) and enforces a dedicated server-side borrow cap.
+- **Provenance hard-block extended** to `lend_borrow`/`lend_withdraw`: a derived (injection-sourced) amount/coinType now hard-BLOCKs (was `transfer`-only).
+- Tests: HF pass/block, first-borrow zero-debt, sim-throws/undefined/Infinity → BLOCK, `borrow_cap` isolation (high tx-cap can't mask it), shape-smuggle BLOCK, derived-amount BLOCK, NAVI-only builder guard.
+
+### Changed
+- Borrow/withdraw are **NAVI-only** at both the Guardian (`checkLendingConstraints`) and builder (`buildLend`) — a non-NAVI borrow/withdraw is rejected fail-closed (Suilend has no borrow/withdraw path + the HF gate is NAVI-specific; Suilend stays deposit/repay + deep-link).
+- Three coordinated unlock sites lifted in lockstep with a **minimal-exact** action-shape allowlist (`incentive_v3::borrow`/`borrow_v2`/`withdraw`/`withdraw_v2`) — the deposit allowlist set is NOT reused (would re-open call-smuggling).
+
+### Notes
+- NAVI SDK-loading code lives in `@dewlock/sui` (where `sdk-bundles/navi.cjs` + the `@naviprotocol/lending` dep resolve), re-exported to the agent — placing it in `@dewlock/agent` made the bundle require() resolve to a non-existent path.
+- Tests: 836/836 pass; no new type errors.
+
 ## 2026-06-22 — Gas-agnostic signing, pre-sign tx flow, wallet-switch isolation
 
 ### Changed

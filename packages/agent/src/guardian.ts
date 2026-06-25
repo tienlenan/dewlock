@@ -98,6 +98,12 @@ export type LendingProtocol = (typeof LENDING_PROTOCOLS)[number];
 export const SWAP_SOURCES = ["cetus", "aggregator", "aftermath"] as const;
 export type SwapSource = (typeof SWAP_SOURCES)[number];
 import { dryRunTransaction, DryRunFailedError, capObjectsForPreview, type DryRunResult } from "@dewlock/sui";
+import { simulateNaviHealthFactor } from "@dewlock/sui/navi-hf-simulation";
+// PoolOperator discriminant values mirrored from the NAVI bundle (stable numeric constants).
+// Defined here (not imported from navi-hf-simulation) so guardian.ts functions that use them
+// remain testable even when navi-hf-simulation is vi.mock'd (the mock replaces the whole module).
+const NAVI_OP_BORROW = 3;  // PoolOperator.Borrow
+const NAVI_OP_WITHDRAW = 2; // PoolOperator.Withdraw
 // Settled-balance reader for the withdraw_settled amount ceiling (lazy DeepBook SDK
 // inside — importing the module evaluates no SDK). Subpath keeps it off non-order paths.
 import { readSettledBalance } from "@dewlock/sui/account-orders";
@@ -254,6 +260,8 @@ export type GuardianResult = GuardianPass | GuardianBlock;
 /** Data needed to render the TxPreviewCard. */
 export interface TxPreview {
   actionLabel: string;
+  /** The action type that was approved — used by the preview card for conditional rendering. */
+  actionType: ActionType;
   coinTypeIn: string;
   coinTypeOut?: string;
   amountInNative: bigint;
@@ -530,6 +538,31 @@ export async function guardianCheck(
     }
   }
 
+  // --- Post-tx health-factor gate (fail-closed, NAVI borrow/withdraw only) ---
+  // Runs AFTER coin-type provenance + trusted-price, BEFORE dry-run. Uses NAVI's own
+  // contracts via devInspect — contract-authoritative, not a hand-rolled formula.
+  // undefined/NaN/Infinity from the simulation → BLOCK (never a silent pass).
+  if (
+    (proposal.actionType === "lend_borrow" || proposal.actionType === "lend_withdraw") &&
+    proposal.lendingProtocol === "navi"
+  ) {
+    const hfResult = await checkPostTxHealthFactor(proposal, suiClient);
+    if (!hfResult.ok) {
+      block("hf_gate", hfResult.reason);
+    }
+  }
+
+  // --- Borrow-inflow value cap (lend_borrow only) ---
+  // A borrow is a positive balance delta (inflow) so computeNetOutflowUsd structurally
+  // cannot cap it — it sums only negative deltas. This dedicated cap is the sole USD
+  // backstop for borrow value. Runs only when HF gate has not already blocked.
+  if (proposal.actionType === "lend_borrow" && !gates.includes("hf_gate")) {
+    const borrowCapResult = checkBorrowInflowCap(proposal, liveSuiUsd);
+    if (!borrowCapResult.ok) {
+      block("borrow_cap", borrowCapResult.reason);
+    }
+  }
+
   // --- Order-lifecycle gates (cancel_order / withdraw_settled) ---
   // cancel_order: a resting order id must be present + well-formed (the on-chain
   // owner-proof + the upstream server-authoritative BM resolution bound ownership;
@@ -662,6 +695,7 @@ export async function guardianCheck(
 
   const preview: TxPreview = {
     actionLabel: proposal.actionLabel,
+    actionType: proposal.actionType,
     coinTypeIn: proposal.coinTypeIn,
     coinTypeOut: proposal.coinTypeOut,
     amountInNative: proposal.amountInNative,
@@ -859,10 +893,24 @@ function allowedTargetsForAction(actionType: ActionType): Set<string> {
         `${SUILEND_PACKAGE}::lending_market::repay`,
       ]);
     case "lend_borrow":
+      // Minimal-exact allowlist for NAVI borrow (no accountCap path, v1 + v2 protocol).
+      // borrowCoinPTB emits exactly one of these targets depending on the pool's protocol
+      // version. No deposit/repay/withdraw targets are included — a smuggled deposit call
+      // inside a borrow shape is refused. The SDK also emits 0x2::coin::from_balance to
+      // wrap the returned Balance<T>; that target is in noValueFrameworkCalls (globally
+      // allowed inside any shape) and is therefore NOT listed here.
+      return new Set([
+        `${NAVI_PACKAGE}::incentive_v3::borrow`,    // v1 protocol, no accountCap
+        `${NAVI_PACKAGE}::incentive_v3::borrow_v2`, // v2 protocol, no accountCap
+      ]);
     case "lend_withdraw":
-      // Health-REDUCING verbs are gated off (checkLendingConstraints blocks them
-      // before build); no targets allowlisted, so any such PTB is also refused.
-      return new Set<string>();
+      // Minimal-exact allowlist for NAVI withdraw (no accountCap path, v1 + v2 protocol).
+      // withdrawCoinPTB emits exactly one of these targets depending on pool protocol version.
+      // 0x2::coin::from_balance (Balance→Coin wrap) is in noValueFrameworkCalls — not here.
+      return new Set([
+        `${NAVI_PACKAGE}::incentive_v3::withdraw`,    // v1 protocol, no accountCap
+        `${NAVI_PACKAGE}::incentive_v3::withdraw_v2`, // v2 protocol, no accountCap
+      ]);
     case "bridge_redeem":
       // Only the Sui-side Wormhole Token-Bridge redeem.
       return new Set([`${WORMHOLE_WTT_PACKAGE}::complete_transfer::complete_transfer`]);
@@ -943,25 +991,16 @@ export async function checkActionShape(proposal: TradeProposal): Promise<GateRes
 
 /**
  * Lending constraints (allowlist-before-build):
- *  - borrow/withdraw are health-REDUCING → gated OFF until a guarded follow-up
- *    that simulates the post-tx health factor.
- *  - deposit/repay are health-IMPROVING → permitted, but only to an active+built
- *    lending protocol. The USD value moved is bounded by the dry-run net-outflow
- *    cap (deposit/repay are outflows), and the deposited coin must be priced
- *    (the trusted-price gate blocks unpriced collateral).
+ *  - deposit/repay are health-IMPROVING → permitted when the protocol is active+built.
+ *    The USD value moved is bounded by the dry-run net-outflow cap, and the coin must
+ *    be priced (the trusted-price gate blocks unpriced collateral).
+ *  - borrow/withdraw are health-REDUCING → permitted here after the HF gate unlocked
+ *    them; the post-tx health-factor simulation (checkPostTxHealthFactor) and the
+ *    borrow-inflow value cap run in guardianCheck AFTER this function returns ok.
+ *    This function only validates the protocol field — not the HF itself.
  */
 export function checkLendingConstraints(proposal: TradeProposal): GateResult {
-  const { actionType, lendingProtocol } = proposal;
-
-  if (actionType === "lend_borrow" || actionType === "lend_withdraw") {
-    return {
-      ok: false,
-      reason:
-        `Lending action "${actionType}" is guarded and not yet enabled. ` +
-        "Borrow/withdraw create or increase debt and require a simulated post-tx " +
-        "health-factor check; only deposit and repay are currently permitted.",
-    };
-  }
+  const { lendingProtocol, actionType } = proposal;
 
   if (!lendingProtocol) {
     return {
@@ -969,9 +1008,148 @@ export function checkLendingConstraints(proposal: TradeProposal): GateResult {
       reason: "Lending action requires a lendingProtocol — none provided. Blocking (fail-closed).",
     };
   }
+  // Borrow/withdraw are NAVI-only: the post-tx health-factor gate (checkPostTxHealthFactor)
+  // is NAVI-specific, and the Suilend builder has no borrow/withdraw path. Allowing a
+  // non-NAVI borrow/withdraw would skip the HF check and mis-build the PTB. Suilend stays
+  // deposit/repay (deep-link for the rest). Fail-closed.
+  if (
+    (actionType === "lend_borrow" || actionType === "lend_withdraw") &&
+    lendingProtocol !== "navi"
+  ) {
+    return {
+      ok: false,
+      reason: `"${actionType}" is only supported on NAVI (health-factor gated); "${lendingProtocol}" is not. Blocking (fail-closed).`,
+    };
+  }
   const gate = assertProtocolActive(lendingProtocol);
   if (!gate.ok) {
     return { ok: false, reason: gate.reason ?? `Lending protocol "${lendingProtocol}" is not active.` };
+  }
+  return { ok: true, reason: "" };
+}
+
+// ---------------------------------------------------------------------------
+// Post-tx Health-Factor gate — NAVI borrow / withdraw (fail-closed)
+// ---------------------------------------------------------------------------
+
+/**
+ * Server-authoritative minimum post-tx health factor for NAVI borrow/withdraw.
+ * Never serialized to the client. The threshold is 1.6 (NAVI liquidates at ~1.0;
+ * 1.6 provides a meaningful safety buffer above the liquidation boundary).
+ */
+function getNaviHfThreshold(): number {
+  const raw = parseFloat(process.env.NAVI_HF_THRESHOLD ?? "1.6");
+  return isNaN(raw) || raw <= 0 ? 1.6 : raw;
+}
+
+/**
+ * Server-authoritative borrow cap in USD (borrow-specific, not net-outflow).
+ * A borrow is an inflow to the wallet — computeNetOutflowUsd sums only negative
+ * balance deltas and structurally cannot see it. This cap is the sole USD backstop
+ * for borrow value; it mirrors the per-tx cap style.
+ */
+function getNaviBorrowCap(): number {
+  const raw = parseFloat(process.env.NAVI_BORROW_USD_CAP ?? "5000");
+  return isNaN(raw) || raw <= 0 ? 5000 : raw;
+}
+
+interface HfGateResult {
+  ok: boolean;
+  reason: string;
+}
+
+/**
+ * Simulate the post-tx health factor via NAVI's own contracts and block when it
+ * would fall below the threshold. Fail-closed: any unreadable/missing/invalid
+ * simulation result is treated as BLOCK, never a pass.
+ *
+ * Called for lend_borrow and lend_withdraw AFTER coin-type provenance + trusted-price,
+ * BEFORE the dry-run/WYSIWYS gate.
+ */
+export async function checkPostTxHealthFactor(
+  proposal: TradeProposal,
+  suiClient: SuiClient,
+): Promise<HfGateResult> {
+  const { walletAddress, coinTypeIn, amountInNative, actionType } = proposal;
+  const isBorrow = actionType === "lend_borrow";
+  const opType = isBorrow ? NAVI_OP_BORROW : NAVI_OP_WITHDRAW;
+  const threshold = getNaviHfThreshold();
+
+  let hf: number;
+  try {
+    hf = await simulateNaviHealthFactor(
+      walletAddress,
+      coinTypeIn,
+      { type: opType, amount: Number(amountInNative) },
+      suiClient,
+    );
+  } catch (err) {
+    // simulateNaviHealthFactor always throws on failure (fail-closed design).
+    return {
+      ok: false,
+      reason:
+        `Post-tx health factor check failed — blocking (fail-closed): ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Second-level validation: the simulation result must be a finite positive number.
+  // undefined/null/NaN/Infinity are all unverified states — treat as BLOCK (fail-closed).
+  // navi-hf-simulation.ts already throws on these, but this guard defends against a caller
+  // swapping out simulateNaviHealthFactor for a mock that returns invalid values directly.
+  if (hf === undefined || hf === null || !isFinite(hf) || isNaN(hf)) {
+    return {
+      ok: false,
+      reason:
+        `Post-tx health factor simulation returned an unverifiable value (${hf}) — ` +
+        `cannot confirm post-tx safety. Blocking (fail-closed).`,
+    };
+  }
+
+  if (hf < threshold) {
+    return {
+      ok: false,
+      reason:
+        `Post-tx health factor ${hf.toFixed(4)} would be below the safety threshold of ${threshold}. ` +
+        `${isBorrow ? "Borrow" : "Withdraw"} refused to protect your collateral from liquidation.`,
+    };
+  }
+
+  return { ok: true, reason: "" };
+}
+
+/**
+ * Borrow-inflow value gate: a borrow is a positive balance delta (inflow) so
+ * computeNetOutflowUsd structurally cannot cap it. This gate independently
+ * values the borrow amount and enforces a server-authoritative borrow cap.
+ *
+ * Runs only for lend_borrow. Fail-closed: unpriced coin → BLOCK.
+ */
+function checkBorrowInflowCap(
+  proposal: TradeProposal,
+  liveSuiUsd: number | undefined,
+): HfGateResult {
+  const { coinTypeIn, amountInNative } = proposal;
+  const price = resolveUsdPrice(coinTypeIn, liveSuiUsd);
+  if (price === undefined) {
+    return {
+      ok: false,
+      reason:
+        `Cannot value the borrow amount in "${coinTypeIn}" — no trusted USD price available. ` +
+        `Blocking (fail-closed): unpriced borrow is unbounded.`,
+    };
+  }
+  const decimals = COIN_DECIMALS[coinTypeIn] ?? 9;
+  const usd = (Number(amountInNative) / 10 ** decimals) * price;
+  const cap = getNaviBorrowCap();
+  if (usd > cap) {
+    return {
+      ok: false,
+      reason:
+        `Borrow value ~$${usd.toFixed(2)} exceeds the per-tx borrow cap of $${cap}. ` +
+        `A borrow is an inflow so it is not visible to the standard outflow cap — ` +
+        `this dedicated borrow cap is the value backstop.`,
+    };
   }
   return { ok: true, reason: "" };
 }
@@ -1275,6 +1453,28 @@ export function checkProvenance(proposal: TradeProposal): ProvenanceResult {
         `Transfer recipient "${recipientAddress}" was not provided in the current user message — ` +
         "it appears to come from memory or injected pool data. " +
         "Blocking: injection provenance gate. Please retype the recipient explicitly.",
+    };
+  }
+
+  // Hard block: borrow/withdraw with a derived amount or coinType.
+  // A borrow or withdraw whose amount/coinType came from memory or injected context
+  // (not the current user turn) could silently move value the user never authorised.
+  // Unlike a transfer where the recipient is the suspicious field, here the
+  // amount/coinType are the sensitive args — a derived value on either → hard block.
+  const isBorrowOrWithdraw =
+    proposal.actionType === "lend_borrow" || proposal.actionType === "lend_withdraw";
+  const hasDerivedValueArg =
+    argProvenance.amount === "derived" || argProvenance.coinType === "derived";
+
+  if (isBorrowOrWithdraw && hasDerivedValueArg) {
+    const which = argProvenance.amount === "derived" ? "amount" : "coinType";
+    return {
+      requiresConfirm: false,
+      blocked: true,
+      reason:
+        `Lending action "${proposal.actionType}" has a derived ${which} — ` +
+        "it appears to come from memory or injected context rather than the current user message. " +
+        "Blocking: injection provenance gate. Please retype the amount and coin explicitly.",
     };
   }
 

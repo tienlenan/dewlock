@@ -35,9 +35,11 @@ describe("buildLend validation", () => {
     await expect(buildLend(client, spec({ coinType: "0xdeadbeef::scam::SCAM" }))).rejects.toThrow(/Unknown coin type/);
   });
 
-  it("rejects an unsupported action", async () => {
+  it("rejects a truly unsupported action (not in deposit/repay/borrow/withdraw)", async () => {
+    // "borrow" and "withdraw" are now valid LendActions. Only actions outside the four
+    // supported verbs throw "Unsupported lend action".
     await expect(
-      buildLend(client, spec({ action: "borrow" as unknown as LendSpec["action"] })),
+      buildLend(client, spec({ action: "liquidate" as unknown as LendSpec["action"] })),
     ).rejects.toThrow(/Unsupported lend action/);
   });
 });

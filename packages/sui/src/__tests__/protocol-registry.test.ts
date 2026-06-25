@@ -48,9 +48,11 @@ describe("protocol registry — posture", () => {
     const built = getBuiltProtocols().map((p) => p.id).sort();
     // Built adapters: Aftermath (aggregator) + Cetus + DeepBook + Cetus aggregator (swap) + NAVI/Suilend (lending) + Wormhole (bridge).
     expect(built).toEqual(["aftermath", "cetus", "cetus-aggregator", "deepbook", "navi", "suilend", "wormhole"]);
-    // NAVI is built with deposit/repay targets; borrow/withdraw are NOT allowlisted.
+    // NAVI now has all four lending verbs: deposit, repay, borrow, withdraw.
+    // The action-shape gate (not the allowlist) is what separates borrow from deposit.
     expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("entry_deposit"))).toBe(true);
-    expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("borrow"))).toBe(false);
+    expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("borrow"))).toBe(true);
+    expect(getProtocol("navi")?.allowlistedTargets.some((t) => t.includes("withdraw"))).toBe(true);
     // A deferred-but-active protocol (e.g. Scallop) still contributes no targets.
     expect(getProtocol("scallop")?.status).toBe("active");
     expect(getProtocol("scallop")?.allowlistedTargets).toEqual([]);
@@ -67,11 +69,12 @@ describe("protocol registry — single-authored allowlist", () => {
     // (place_limit_order, cancel_order, proof_as_owner, proof_as_trader, bm::new,
     // bm::deposit, bm::withdraw, bm::withdraw_all, pool::withdraw_settled_amounts) + 6
     // aggregator (3 router scaffolding calls + cetus::swap under the verified integration
-    // pkg and the default pkg + deepbookv3::swap) + 3 NAVI (entry_deposit, entry_repay,
-    // pool::refresh_stake) + 5 Suilend (create_obligation, deposit×2, rebalance_staker,
-    // repay) + 1 Wormhole (complete_transfer) + 3 Aftermath (swap_cap::obtain_router_cap,
-    // initiate_path, return_router_cap_already_payed_fee) = 39.
-    expect(ALLOWED_MOVE_TARGETS.size).toBe(39);
+    // pkg and the default pkg + deepbookv3::swap) + 7 NAVI (entry_deposit, entry_repay,
+    // pool::refresh_stake, borrow, borrow_v2, withdraw, withdraw_v2) + 5 Suilend
+    // (create_obligation, deposit×2, rebalance_staker, repay) + 1 Wormhole
+    // (complete_transfer) + 3 Aftermath (swap_cap::obtain_router_cap, initiate_path,
+    // return_router_cap_already_payed_fee) = 43.
+    expect(ALLOWED_MOVE_TARGETS.size).toBe(43);
   });
 
   it("isTargetActive: active Cetus/DeepBook targets + core targets are active", () => {

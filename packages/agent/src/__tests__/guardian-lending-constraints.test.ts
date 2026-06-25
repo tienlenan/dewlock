@@ -2,10 +2,12 @@
  * Tests: lending gate (NAVI + Suilend) — verb safety + value capping via outflow.
  *
  * Proves:
- *  1. borrow/withdraw (health-REDUCING) are gated OFF — blocked before build.
+ *  1. borrow/withdraw (health-REDUCING) now PASS checkLendingConstraints — the HF
+ *     gate (checkPostTxHealthFactor) is their post-tx safety backstop.
  *  2. deposit/repay (health-IMPROVING) require an active+built lending protocol.
- *  3. The shape gate + allowlist permit only deposit/repay targets; a borrow
- *     target (even on an active lender) is refused.
+ *  3. The action-shape gate enforces a MINIMAL-EXACT per-action allowlist:
+ *     a NAVI borrow target passes the global allowlist but is refused inside the
+ *     lend_deposit action-shape (only deposit targets allowed in that shape).
  *  4. Deposit value is bounded by the dry-run net-outflow cap (over-cap BLOCKs).
  */
 
@@ -63,16 +65,16 @@ function lendProposal(over: Partial<TradeProposal>): TradeProposal {
 }
 
 describe("checkLendingConstraints", () => {
-  it("BLOCKs borrow (health-reducing, gated off)", () => {
+  // borrow/withdraw now pass checkLendingConstraints — their HF gate runs separately
+  // in guardianCheck (checkPostTxHealthFactor + checkBorrowInflowCap).
+  it("permits lend_borrow on an active lender (HF gate is the backstop, not this function)", () => {
     const r = checkLendingConstraints(lendProposal({ actionType: "lend_borrow" }));
-    expect(r.ok).toBe(false);
-    expect(r.reason).toContain("guarded");
+    expect(r.ok).toBe(true);
   });
 
-  it("BLOCKs withdraw (health-reducing, gated off)", () => {
+  it("permits lend_withdraw on an active lender (HF gate is the backstop, not this function)", () => {
     const r = checkLendingConstraints(lendProposal({ actionType: "lend_withdraw" }));
-    expect(r.ok).toBe(false);
-    expect(r.reason).toContain("guarded");
+    expect(r.ok).toBe(true);
   });
 
   it("permits deposit/repay on an active+built lender (NAVI, Suilend)", () => {
@@ -96,11 +98,17 @@ describe("lending shape + allowlist", () => {
     expect((await checkActionShape(lendProposal({ txBytes, actionType: "lend_deposit" }))).ok).toBe(true);
   });
 
-  it("a NAVI BORROW target is refused at allowlist AND lend_deposit shape", async () => {
+  it("a NAVI BORROW target passes the global allowlist but is refused inside the lend_deposit action-shape", async () => {
+    // The allowlist now includes borrow targets (they are part of the NAVI protocol).
+    // What prevents a smuggled borrow inside a deposit PTB is the action-shape gate,
+    // which enforces a MINIMAL-EXACT allowlist per action: lend_deposit only allows
+    // entry_deposit/entry_repay/refresh_stake, not borrow targets.
     const txBytes = await realBytes((tx) =>
       tx.moveCall({ target: `${NAVI_PACKAGE}::incentive_v3::borrow`, typeArguments: [COIN_TYPES.USDC], arguments: [] }),
     );
-    expect((await checkAllowlist(txBytes)).ok).toBe(false);
+    // Global allowlist now passes borrow (it is in the NAVI protocol's targets)
+    expect((await checkAllowlist(txBytes)).ok).toBe(true);
+    // But a borrow call inside a lend_deposit shape is refused by the action-shape gate
     expect((await checkActionShape(lendProposal({ txBytes, actionType: "lend_deposit" }))).ok).toBe(false);
   });
 
@@ -120,11 +128,12 @@ describe("guardianCheck — lending end-to-end", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("BLOCKs a borrow before build (gate: lending)", async () => {
-    const txBytes = await realBytes();
-    const res = await guardianCheck(lendProposal({ txBytes, actionType: "lend_borrow" }), stubClient);
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.gates).toContain("lending");
+  it("passes lend_borrow through the lending gate (HF gate is the backstop — tested in guardian-hf-gate.test.ts)", async () => {
+    // lend_borrow no longer hard-blocks at checkLendingConstraints.
+    // The HF gate (checkPostTxHealthFactor) and borrow-inflow cap block unsafe borrows.
+    // A comprehensive lend_borrow integration test lives in guardian-hf-gate.test.ts.
+    const r = checkLendingConstraints(lendProposal({ actionType: "lend_borrow" }));
+    expect(r.ok).toBe(true);
   });
 
   it("passes an in-cap NAVI deposit and caps its value from the actual outflow", async () => {

@@ -167,7 +167,7 @@ describe("NDJSON line serialisation contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () => {
-  it("ALLOWED_MOVE_TARGETS contains only Cetus CLMM + Aggregator + SuiNS + native pay + DeepBook + Aftermath", () => {
+  it("ALLOWED_MOVE_TARGETS contains only Cetus CLMM + Aggregator + SuiNS + native pay + DeepBook + Aftermath + NAVI lending", () => {
     const targets = [...ALLOWED_MOVE_TARGETS];
     for (const t of targets) {
       const isAllowed =
@@ -181,9 +181,12 @@ describe("Cap-injection regression — allowlist gate blocks non-Cetus PTB", () 
         t.includes("::router::new_swap_context") ||
         t.includes("::router::confirm_swap") ||
         t.includes("::router::transfer_or_destroy_coin") ||
-        // Lending — NAVI (incentive_v3) + Suilend (lending_market) deposit/repay
+        // Lending — NAVI (incentive_v3) all four verbs + Suilend (lending_market) deposit/repay.
+        // The action-shape gate (not the allowlist) enforces minimal-exact per-action sets.
         t.includes("::incentive_v3::entry_deposit") ||
         t.includes("::incentive_v3::entry_repay") ||
+        t.includes("::incentive_v3::borrow") ||
+        t.includes("::incentive_v3::withdraw") ||
         // NAVI deposit also refreshes reward/stake accounting (moves no value)
         t.includes("::pool::refresh_stake") ||
         // Suilend first-deposit creates the obligation before depositing
