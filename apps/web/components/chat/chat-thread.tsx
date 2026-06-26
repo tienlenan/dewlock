@@ -1118,16 +1118,25 @@ function TxPreviewCardWithSigning({
         const msg = friendlySignError(raw);
         if (chainContext && isRetryableStaleSignError(raw) && onChainStepStale) {
           // TRANSIENT: the prepared bytes went stale because the prior step changed the
-          // coin objects (RPC lag). Do NOT halt the chain — reset the step to "pending"
-          // so the user can re-prepare it for a fresh build (the "Prepare Step N" button
-          // reappears). Re-submitting the SAME bytes would equivocate the coin, so the
-          // recovery is a fresh re-issue, which onStartChainStep does.
+          // coin objects (RPC lag). Do NOT halt the chain — the parent resets the step and
+          // AUTO-rebuilds it with FRESH bytes (the stale ones are never resent, so a coin is
+          // never equivocated). Show a calm, non-alarming note instead of the scary stale
+          // error; if the auto-rebuild gives up, the "Prepare Step N" button remains.
           onChainStepStale(chainContext.planId, chainContext.stepIndex);
+          onReplace({
+            type: "wysiwys-error",
+            wysiwysMessage:
+              "Balances moved after the previous step — rebuilding this step with fresh balances. " +
+              "A new confirmation should appear shortly; if it doesn't, click “Prepare Step " +
+              `${chainContext.stepIndex + 1}” on the plan above to rebuild it.`,
+          });
         } else if (chainContext && onChainStepBlocked) {
           // Terminal failure (e.g. user cancelled the wallet popup) → halt the chain.
           onChainStepBlocked(chainContext.planId, chainContext.stepIndex, [msg]);
+          onReplace({ type: "wysiwys-error", wysiwysMessage: msg });
+        } else {
+          onReplace({ type: "wysiwys-error", wysiwysMessage: msg });
         }
-        onReplace({ type: "wysiwys-error", wysiwysMessage: msg });
       }
     } finally {
       setIsPending(false);

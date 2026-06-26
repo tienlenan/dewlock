@@ -347,6 +347,12 @@ export default function AppPage() {
   // the chain stepper can call chat.sendMessage + chat.setPendingChainContext.
   const chainStepper = useChainPlanStepper();
 
+  // Bounded auto-retry budget for transient stale-object failures, keyed by "planId:stepIndex".
+  // A chain step can go stale when the server rebuilds it on an RPC node that briefly lags the
+  // prior step's on-chain effects. We auto-rebuild (fresh bytes — never resend the stale ones)
+  // a few times before falling back to a manual "Prepare Step N" re-click.
+  const staleRetriesRef = useRef<Map<string, number>>(new Map());
+
   // updatePlan: patches a chain-plan card in the thread when step status changes.
   // Finds the chain-plan card by planId (= originalText) and replaces it in-place.
   const updatePlan = useCallback(
@@ -372,20 +378,33 @@ export default function AppPage() {
   );
 
   // chainCallbacks: the interface ChatThread passes to ChainPlanCard + TxPreviewCardWithSigning.
+  // issueChainStep: register + tag chain context + compose/submit a step. Shared by the
+  // "Prepare Step N" click and the transient-stale auto-rebuild path so both go through the
+  // exact same fresh-build pipeline.
+  const issueChainStep = (
+    planId: string,
+    stepIndex: number,
+    plan: import("@/components/chat/chain-plan-card").ChainPlanData,
+  ) => {
+    // Register the plan on first use (idempotent for subsequent steps).
+    chainStepper.registerPlan(planId, plan, account?.address ?? "");
+    // Stamp the NEXT tx-preview card produced by the stream with this chain context.
+    // The outputCoinType is not yet known (Guardian hasn't run); the stream parser fills it.
+    chat.setPendingChainContext({ planId, stepIndex, outputCoinType: null });
+    // Compose + submit. The stepper waits for stale objects, composes the command, then
+    // calls sendMessage. The resulting tx-preview is auto-tagged with the chain context above.
+    void chainStepper.onStartStep(planId, stepIndex, plan, (cmd) => void chat.sendMessage(cmd), updatePlan);
+  };
+
   const chainCallbacks: ChainSignCallbacks = {
     onStartChainStep: (planId, stepIndex, plan) => {
-      // Register the plan on first use (idempotent for subsequent steps).
-      chainStepper.registerPlan(planId, plan, account?.address ?? "");
-
-      // Stamp the NEXT tx-preview card produced by the stream with this chain context.
-      // The outputCoinType is not yet known (Guardian hasn't run); the stream parser fills it.
-      chat.setPendingChainContext({ planId, stepIndex, outputCoinType: null });
-
-      // Compose + submit the command. The stepper waits for stale objects, composes the
-      // command, then calls sendMessage. The resulting tx-preview is auto-tagged above.
-      void chainStepper.onStartStep(planId, stepIndex, plan, (cmd) => void chat.sendMessage(cmd), updatePlan);
+      // A manual (re-)issue clears any prior stale-retry budget for this step.
+      staleRetriesRef.current.delete(`${planId}:${stepIndex}`);
+      issueChainStep(planId, stepIndex, plan);
     },
     onChainStepConfirmed: (planId, stepIndex, txDigest, touchedObjIds, outputCoinType) => {
+      // Step landed → clear its stale-retry budget so any later stale starts fresh.
+      staleRetriesRef.current.delete(`${planId}:${stepIndex}`);
       void chainStepper.onStepConfirmed(
         planId,
         stepIndex,
@@ -402,6 +421,31 @@ export default function AppPage() {
     onChainStepStale: (planId, stepIndex) => {
       // Transient stale-object failure → reset the step to re-preparable (no halt).
       chainStepper.onStepStale(planId, stepIndex, updatePlan);
+
+      // Auto-rebuild with fresh balances, bounded to 2 attempts. The rebuild re-reads chain
+      // state server-side, so a brief RPC lag behind the prior step resolves on its own. Each
+      // rebuild produces NEW bytes — the stale ones are never resent, so no coin is equivocated.
+      const key = `${planId}:${stepIndex}`;
+      const attempts = staleRetriesRef.current.get(key) ?? 0;
+      if (attempts >= 2) return; // give up → user re-clicks "Prepare Step N" on the plan card
+      staleRetriesRef.current.set(key, attempts + 1);
+
+      // Find the current plan card so we can re-issue this step.
+      let plan: import("@/components/chat/chain-plan-card").ChainPlanData | null = null;
+      for (const msg of chat.messages) {
+        for (let i = 0; i < (msg.cards?.length ?? 0); i++) {
+          const card = msg.cards[i];
+          if (card?.type === "chain-plan" && card.plan.originalText === planId) {
+            plan = card.plan;
+            break;
+          }
+        }
+        if (plan) break;
+      }
+      if (!plan) return;
+      const planToIssue = plan;
+      // Back off a little (longer each attempt) to let the build RPC catch up.
+      setTimeout(() => issueChainStep(planId, stepIndex, planToIssue), 1800 + attempts * 1500);
     },
   };
 
