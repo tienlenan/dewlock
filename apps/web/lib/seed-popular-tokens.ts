@@ -12,7 +12,7 @@
  */
 
 import { popularTokenMemwalLines } from "@dewlock/sui/popular-tokens";
-import { memNamespace, remember, isMemoryEnabled } from "@dewlock/walrus";
+import { memNamespace, rememberBulk, isMemoryEnabled } from "@dewlock/walrus";
 
 const seededWallets = new Set<string>();
 
@@ -20,10 +20,11 @@ export async function seedPopularTokens(wallet: string | undefined): Promise<voi
   if (!wallet || seededWallets.has(wallet) || !isMemoryEnabled()) return;
   seededWallets.add(wallet); // mark before awaiting so concurrent calls don't double-write
   try {
-    const ns = memNamespace(wallet);
-    for (const line of popularTokenMemwalLines()) {
-      await remember(ns, line).catch(() => undefined);
-    }
+    // ONE bulk write, not a per-token loop: seeding ~15 tokens as 15 separate writes
+    // bursts straight past the relayer's per-minute rate limit (429). rememberBulk
+    // collapses them into a single batched request and is fail-soft.
+    const lines = popularTokenMemwalLines();
+    if (lines.length) await rememberBulk(memNamespace(wallet), lines);
   } catch {
     // memwal unavailable — drop the guard so a later call can retry.
     seededWallets.delete(wallet);

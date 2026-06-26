@@ -60,6 +60,34 @@ interface RecallItemLike {
  */
 const REMEMBER_WAIT_MS = 12_000;
 
+// ---------------------------------------------------------------------------
+// Rate-limit circuit-breaker
+//
+// The memwal relayer rate-limits the (shared) delegate key — e.g. "30 weighted-
+// requests/min" → HTTP 429 with a retry_after. Without a breaker, every subsequent
+// write keeps hitting the relayer and failing (log spam) and the burst never lets the
+// window recover. On a 429 we pause ALL writes process-wide until the retry window
+// passes; during the pause remember/rememberBulk are immediate fail-soft no-ops.
+// (memwal is the MUTABLE best-effort layer — durability lives in the Walrus blob + Sui
+// pointer — so dropping writes during a cooldown is safe.)
+// ---------------------------------------------------------------------------
+let memwalCooldownUntil = 0;
+
+function isCoolingDown(): boolean {
+  return Date.now() < memwalCooldownUntil;
+}
+
+/** Trip the breaker on a rate-limit error. Returns true when it was a 429/rate-limit. */
+function maybeTripBreaker(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!/\b429\b|rate limit|weighted-request|too many requests/i.test(msg)) return false;
+  const m = msg.match(/retry[_-]?after(?:_seconds)?"?\s*[:=]\s*(\d+)/i);
+  const retryS = m ? Number(m[1]) : 60;
+  memwalCooldownUntil = Date.now() + Math.max(retryS, 1) * 1000;
+  console.warn(`[memwal] rate-limited (429) — pausing writes ~${retryS}s (fail-soft).`);
+  return true;
+}
+
 /**
  * Write one memory entry. Best-effort + fail-soft + bounded: never blocks the caller past
  * REMEMBER_WAIT_MS and never throws on a slow/failed relayer (memwal is the MUTABLE,
@@ -71,13 +99,16 @@ export async function remember(
   namespace: string,
   text: string,
 ): Promise<void> {
-  if (!isMemoryEnabled() || !text.trim()) return;
+  if (!isMemoryEnabled() || !text.trim() || isCoolingDown()) return;
   // .catch on the underlying write so a late rejection (after we stop waiting) is handled,
-  // never an unhandled rejection; log so a real relayer outage is still visible in logs.
+  // never an unhandled rejection. On a 429 we trip the breaker (and skip the generic log to
+  // avoid spam); any other failure is logged so a real relayer outage stays visible.
   const write = clientFor(namespace)
     .rememberAndWait(text)
     .catch((err: unknown) => {
-      console.warn("[memwal] remember failed (fail-soft):", err instanceof Error ? err.message : String(err));
+      if (!maybeTripBreaker(err)) {
+        console.warn("[memwal] remember failed (fail-soft):", err instanceof Error ? err.message : String(err));
+      }
     });
   await Promise.race([write, new Promise<void>((resolve) => setTimeout(resolve, REMEMBER_WAIT_MS))]);
 }
@@ -91,13 +122,21 @@ export async function rememberBulk(
   texts: string[],
 ): Promise<{ jobIds: string[]; total: number }> {
   const clean = texts.map((t) => t.trim()).filter(Boolean);
-  if (!isMemoryEnabled() || clean.length === 0) return { jobIds: [], total: 0 };
+  if (!isMemoryEnabled() || clean.length === 0 || isCoolingDown()) return { jobIds: [], total: 0 };
   const jobIds: string[] = [];
-  for (let i = 0; i < clean.length; i += 20) {
-    const accepted = await clientFor(namespace).rememberBulk(
-      clean.slice(i, i + 20).map((text) => ({ text, namespace })),
-    );
-    jobIds.push(...accepted.job_ids);
+  // Fail-soft + breaker-aware: a 429 mid-batch trips the breaker and returns what was
+  // accepted so far, instead of throwing the rate-limit error into the caller's flow.
+  try {
+    for (let i = 0; i < clean.length; i += 20) {
+      const accepted = await clientFor(namespace).rememberBulk(
+        clean.slice(i, i + 20).map((text) => ({ text, namespace })),
+      );
+      jobIds.push(...accepted.job_ids);
+    }
+  } catch (err) {
+    if (!maybeTripBreaker(err)) {
+      console.warn("[memwal] rememberBulk failed (fail-soft):", err instanceof Error ? err.message : String(err));
+    }
   }
   return { jobIds, total: clean.length };
 }
