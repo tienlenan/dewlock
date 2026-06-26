@@ -332,6 +332,9 @@ export const prepareTrade = createTool({
               coinTypeOut: z.string().optional(),
               amountInNative: z.string(),
               lendingProtocol: z.string().optional(),
+              // Swap-leg estimate (native units of coinTypeOut) so the node can show its output.
+              estimatedOutNative: z.string().optional(),
+              minOutNative: z.string().optional(),
             }),
           )
           .optional(),
@@ -501,6 +504,10 @@ export const prepareTrade = createTool({
     let minAmountOutNative: bigint | undefined;
     let chosenSwapSource: SwapSource | undefined;
     let swapRouteProviders: string[] | undefined;
+    // Composite swap-leg estimate (native units of the swap's coinTypeOut) — surfaced on the
+    // flow preview so the swap node can show its estimated output amount.
+    let compositeSwapEstimatedOut: string | undefined;
+    let compositeSwapMinOut: string | undefined;
     let lendHealthBefore: number | undefined;
     // Limit-order extra context for Guardian proposal
     let limitOrderBookParams: { tickSize: number; lotSize: number; minSize: number } | undefined;
@@ -720,6 +727,8 @@ export const prepareTrade = createTool({
           legs: parsedLegs as Parameters<typeof buildComposite>[1]["legs"],
         });
         txBytes = compositeResult.txBytes;
+        compositeSwapEstimatedOut = compositeResult.swapEstimatedOutNative;
+        compositeSwapMinOut = compositeResult.swapMinOutNative;
       } else {
         // swap
         if (!coinTypeOut) {
@@ -874,6 +883,9 @@ export const prepareTrade = createTool({
                 coinTypeOut: leg.coinTypeOut,
                 amountInNative: String(leg.amountInNative),
                 lendingProtocol: leg.lendingProtocol,
+                // The swap leg carries the live route estimate so its node shows the output amount.
+                estimatedOutNative: leg.actionType === "swap" ? compositeSwapEstimatedOut : undefined,
+                minOutNative: leg.actionType === "swap" ? compositeSwapMinOut : undefined,
               }))
             : undefined,
       },

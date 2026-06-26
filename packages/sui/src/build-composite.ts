@@ -61,6 +61,10 @@ export interface CompositeBuildResult {
   txBytes: string;
   /** True when built in fixture/demo mode (no real Move calls). */
   isFixture: boolean;
+  /** Estimated swap-leg output (native units of the swap's coinTypeOut), for the flow preview. */
+  swapEstimatedOutNative?: string;
+  /** Guaranteed-minimum swap-leg output (native units), the slippage floor. */
+  swapMinOutNative?: string;
 }
 
 export class CompositeBuildError extends Error {
@@ -283,7 +287,12 @@ async function buildLiveSwapLendPtb(
     // the proven normal-swap path. Adding the NAVI deposit + transfer only raises the gas
     // budget; it does not change how the swap's gas/input coins are selected.
     const bytes = await agg.buildTransactionBytes(tx);
-    return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
+    return {
+      txBytes: Buffer.from(bytes).toString("base64"),
+      isFixture: false,
+      swapEstimatedOutNative: estimatedAmountOut.toString(),
+      swapMinOutNative: minAmountOut.toString(),
+    };
   } catch (err) {
     if (err instanceof CompositeBuildError) throw err;
     const msg = err instanceof Error ? err.message : String(err);

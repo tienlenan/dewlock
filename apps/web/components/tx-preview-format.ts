@@ -118,6 +118,10 @@ export interface CompositeFlowLeg {
   coinTypeOut?: string;
   amountInNative: string;
   lendingProtocol?: string;
+  /** Swap leg: estimated output in native units of coinTypeOut (live route estimate). */
+  estimatedOutNative?: string;
+  /** Swap leg: guaranteed-minimum output in native units (slippage floor). */
+  minOutNative?: string;
 }
 
 export interface FlowPreviewInput {
@@ -155,23 +159,36 @@ export function deriveCompositeFlow(
   legs: CompositeFlowLeg[],
   coinDecimals?: Record<string, number>,
 ): CompositeFlowStep[] {
+  // Format a leg's estimated output as "≈ <amt> <TICKER>" (or the bare ticker when no estimate).
+  const outLabel = (leg: CompositeFlowLeg): string | null => {
+    if (!leg.coinTypeOut) return null;
+    const ticker = shortCoinType(leg.coinTypeOut);
+    return leg.estimatedOutNative
+      ? `≈ ${formatNative(leg.estimatedOutNative, leg.coinTypeOut, coinDecimals)} ${ticker}`
+      : ticker;
+  };
+
   return legs.map((leg, i) => {
     if (leg.actionType === "swap") {
-      const amt = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
+      const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
+      const out = outLabel(leg);
       return {
         nodeLabel: "Cetus Aggregator",
-        nodeSub: leg.coinTypeOut ? `Swap → ${shortCoinType(leg.coinTypeOut)}` : "Swap",
-        edgeLabel: `${amt} ${shortCoinType(leg.coinTypeIn)}`,
+        // Show the swap's estimated OUTPUT on the node (in = the incoming edge below).
+        nodeSub: out ? `Swap → ${out}` : "Swap",
+        edgeLabel: `${amtIn} ${shortCoinType(leg.coinTypeIn)}`,
         isOutflow: i === 0,
         logoId: "cetus-aggregator",
       };
     }
     if (leg.actionType === "lend_deposit") {
+      // The deposited coin = this leg's input = the prior (swap) leg's estimated output.
+      const prev = legs[i - 1];
+      const incoming = prev ? outLabel(prev) : null;
       return {
         nodeLabel: (leg.lendingProtocol ?? "lending").toUpperCase(),
         nodeSub: "Lending · deposit",
-        // The deposited coin = this leg's input = the prior leg's output coin.
-        edgeLabel: shortCoinType(leg.coinTypeIn),
+        edgeLabel: incoming ?? shortCoinType(leg.coinTypeIn),
         isOutflow: false,
         logoId: leg.lendingProtocol, // "navi" | "suilend"
       };

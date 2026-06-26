@@ -197,6 +197,22 @@ describe("deriveCompositeFlow", () => {
     expect(steps[1].logoId).toBe("navi");
   });
 
+  it("shows the swap's estimated OUTPUT on the node and the lend-in edge", () => {
+    const steps = deriveCompositeFlow([
+      { ...swapLeg, estimatedOutNative: "6200000" }, // 6.2 USDC (6 decimals)
+      lendLeg,
+    ]);
+    // Swap node carries its estimated output; the deposit edge shows that output flowing in.
+    expect(steps[0].nodeSub).toBe("Swap → ≈ 6.2 USDC");
+    expect(steps[1].edgeLabel).toBe("≈ 6.2 USDC");
+  });
+
+  it("falls back to the bare ticker when no estimate is present", () => {
+    const steps = deriveCompositeFlow([swapLeg, lendLeg]);
+    expect(steps[0].nodeSub).toBe("Swap → USDC");
+    expect(steps[1].edgeLabel).toBe("USDC");
+  });
+
   it("threads coinDecimals into the swap-leg amount", () => {
     const steps = deriveCompositeFlow([{ ...swapLeg, amountInNative: "2500000" }], { [SUI]: 6 });
     expect(steps[0].edgeLabel).toBe("2.5 SUI");
