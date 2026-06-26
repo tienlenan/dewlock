@@ -11,13 +11,11 @@
  *   Atomic mode is only shown when the plan has exactly 2 steps matching the swap_lend_v1
  *   recipe (swap step → lend step with navi protocol).
  *
- * PIN — while the chain is IN PROGRESS (any step active/pending and not all done/halted):
- *   The card emits isPinned=true via onPinChange callback. The parent (chat-thread.tsx) uses
- *   this to render the card in a sticky slot above the chat input. When the chain completes
- *   or halts, the card emits isPinned=false and returns to its normal inline position.
+ * The card renders inline in the thread; while a chain is in progress it is simply the
+ * last message, so it stays at the bottom naturally (no sticky/fixed positioning).
  */
 
-import React, { useEffect } from "react";
+import React from "react";
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -103,40 +101,6 @@ function ChainConnector({ done }: { done: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// Pin icon — small indicator shown in header when the card is pinned
-// ---------------------------------------------------------------------------
-
-function PinIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-label="Pinned"
-      role="img"
-      style={{ flexShrink: 0 }}
-    >
-      <path
-        d="M8.5 1.5L10.5 3.5L7.5 6.5L8 9L4 5L7 2L8.5 1.5Z"
-        stroke="var(--fg-faint)"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      <line
-        x1="4"
-        y1="8"
-        x2="2"
-        y2="10"
-        stroke="var(--fg-faint)"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Atomic mode eligibility check
 // ---------------------------------------------------------------------------
 
@@ -171,39 +135,23 @@ export interface ChainPlanCardProps {
    * The parent builds a composite proposal and calls prepareTrade with actionType "composite".
    */
   onRunAtomic?: () => void;
-  /**
-   * Called when the card's pin state changes (in-progress → pinned, done/halted → unpinned).
-   * The parent uses this to move the card to a sticky slot above the chat input.
-   */
-  onPinChange?: (pinned: boolean) => void;
-  /** True when this card is currently rendered in the sticky pinned slot. */
-  isPinned?: boolean;
 }
 
-export function ChainPlanCard({ plan, onStartStep, onRunAtomic, onPinChange, isPinned }: ChainPlanCardProps) {
+export function ChainPlanCard({ plan, onStartStep, onRunAtomic }: ChainPlanCardProps) {
   const { steps } = plan;
 
   const hasBlock = steps.some((s) => s.status === "blocked");
   const allDone = steps.every((s) => s.status === "done");
-  const isInProgress = !hasBlock && !allDone;
 
   const activeStep = steps.find((s) => s.status === "active");
   const nextPending = steps.find((s) => s.status === "pending");
   const showAtomicToggle = isAtomicEligible(plan) && !!onRunAtomic;
 
-  // Notify parent when pin state changes. Pin = in progress (any step active/pending,
-  // nothing done/blocked). Release = complete or halted.
-  useEffect(() => {
-    onPinChange?.(isInProgress);
-  }, [isInProgress, onPinChange]);
-
   return (
     <div
       style={{
         borderRadius: 12,
-        border: isPinned
-          ? "1px solid var(--accent)"
-          : "1px solid var(--border)",
+        border: "1px solid var(--border)",
         background: "var(--bg-sub)",
         padding: "14px 16px",
         display: "flex",
@@ -226,14 +174,6 @@ export function ChainPlanCard({ plan, onStartStep, onRunAtomic, onPinChange, isP
         >
           sequential plan · {steps.length} steps
         </span>
-        {isPinned && (
-          <span
-            title="Pinned — in progress"
-            style={{ display: "flex", alignItems: "center", gap: 3 }}
-          >
-            <PinIcon />
-          </span>
-        )}
         {allDone && (
           <span style={{ fontSize: 11, color: "#22c55e", marginLeft: "auto" }}>complete</span>
         )}

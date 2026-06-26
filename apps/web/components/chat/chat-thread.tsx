@@ -20,7 +20,7 @@
  * per card — rules-of-hooks compliant, approvedDigest baked per card instance.
  */
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import { TxPreviewCard } from "@/components/tx-preview-card";
 import { TxRebuildCard } from "@/components/tx-rebuild-card";
 import { BlockCard } from "@/components/block-card";
@@ -560,149 +560,57 @@ export function ChatThread({ messages, onReplaceCard, walletAddress, onSend, cha
   const bottomRef = useRef<HTMLDivElement>(null);
   const isEmpty = messages.length === 0;
 
-  // ---------------------------------------------------------------------------
-  // Pinned chain-plan card state (Feature B).
-  // When a chain plan is IN PROGRESS (steps active/pending, not all done/halted),
-  // we surface it in a sticky slot at the bottom of the thread viewport so the
-  // user can always see it without scrolling up.
-  // pinnedPlan: the plan data to show in the pinned slot, or null when released.
-  // ---------------------------------------------------------------------------
-  const [pinnedPlan, setPinnedPlan] = useState<import("@/components/chat/chain-plan-card").ChainPlanData | null>(null);
-
-  // Derive which plan (if any) should be pinned: find the in-progress chain-plan
-  // card across all messages. "In progress" = not all done AND not halted (blocked).
-  const activePlan = useMemo(() => {
-    for (const msg of messages) {
-      for (const card of msg.cards ?? []) {
-        if (card.type === "chain-plan") {
-          const { steps } = card.plan;
-          const allDone = steps.every((s) => s.status === "done");
-          const hasBlock = steps.some((s) => s.status === "blocked");
-          if (!allDone && !hasBlock) return card.plan;
-        }
-      }
-    }
-    return null;
-  }, [messages]);
-
-  // Sync the pinned slot with the derived active plan.
-  useEffect(() => {
-    setPinnedPlan(activePlan);
-  }, [activePlan]);
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Lookup a chain-plan card's replace callback by planId for the pinned slot.
-  // The pinned card needs onReplace so the atomic tx-preview flows correctly.
-  const getPinnedOnReplace = useCallback(
-    (planOriginalText: string) => {
-      for (const msg of messages) {
-        for (let i = 0; i < (msg.cards?.length ?? 0); i++) {
-          const card = msg.cards[i];
-          if (card?.type === "chain-plan" && card.plan.originalText === planOriginalText) {
-            return (replacement: ToolCard) => onReplaceCard(msg.id, i, replacement);
-          }
-        }
-      }
-      return undefined;
-    },
-    [messages, onReplaceCard],
-  );
-
   return (
     /*
-     * Outer wrapper: flex-col so the pinned slot sits between the scroll area
-     * and where ChatInput renders (in the parent). The scroll area is flex-1.
+     * role="log" + aria-live="polite": announces new messages to screen readers
+     * without interrupting ongoing speech (polite = waits for current utterance).
+     * The in-progress chain-plan card simply renders inline as the last message —
+     * no sticky/fixed slot (that broke the layout); being the last message keeps it
+     * naturally pinned at the bottom while the chain runs.
      */
     <div
+      role="log"
+      aria-live="polite"
+      aria-label="Conversation"
       className="flex-1"
-      style={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+      style={{
+        overflowY: "auto",
+        padding: "26px clamp(16px, 4vw, 40px)",
+        // Custom scrollbar matching mockup
+        scrollbarWidth: "thin",
+        scrollbarColor: "var(--border-strong) transparent",
+      }}
     >
-      {/*
-       * role="log" + aria-live="polite": announces new messages to screen readers
-       * without interrupting ongoing speech (polite = waits for current utterance).
-       * aria-label provides a descriptive region name for AT landmark navigation.
-       */}
       <div
-        role="log"
-        aria-live="polite"
-        aria-label="Conversation"
         style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "26px clamp(16px, 4vw, 40px)",
-          // Custom scrollbar matching mockup
-          scrollbarWidth: "thin",
-          scrollbarColor: "var(--border-strong) transparent",
+          maxWidth: "680px",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "20px",
         }}
       >
-        <div
-          style={{
-            maxWidth: "680px",
-            margin: "0 auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: "20px",
-          }}
-        >
-          {/* Welcome + action cards + memory chips — shown on empty thread */}
-          <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} onSend={onSend} />
+        {/* Welcome + action cards + memory chips — shown on empty thread */}
+        <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} onSend={onSend} />
 
-          {/* Message list */}
-          {messages.map((msg) => (
-            <MessageRow
-              key={msg.id}
-              message={msg}
-              onReplaceCard={onReplaceCard}
-              walletAddress={walletAddress}
-              onSend={onSend}
-              chainCallbacks={chainCallbacks}
-            />
-          ))}
+        {/* Message list */}
+        {messages.map((msg) => (
+          <MessageRow
+            key={msg.id}
+            message={msg}
+            onReplaceCard={onReplaceCard}
+            walletAddress={walletAddress}
+            onSend={onSend}
+            chainCallbacks={chainCallbacks}
+          />
+        ))}
 
-          <div ref={bottomRef} />
-        </div>
+        <div ref={bottomRef} />
       </div>
-
-      {/* Pinned chain-plan card — shown above ChatInput while the chain is in progress. */}
-      {pinnedPlan && (() => {
-        const onReplace = getPinnedOnReplace(pinnedPlan.originalText);
-        if (!onReplace) return null;
-        return (
-          <div
-            aria-label="Active chain plan (pinned)"
-            style={{
-              borderTop: "1px solid var(--border)",
-              background: "var(--bg)",
-              padding: "10px clamp(12px, 3vw, 32px)",
-              // Scrollable internally if the card is taller than the slot.
-              overflowY: "auto",
-              maxHeight: "40vh",
-              flexShrink: 0,
-            }}
-          >
-            <ChainPlanWithComposite
-              plan={pinnedPlan}
-              onStartStep={
-                chainCallbacks
-                  ? (stepIndex) =>
-                      chainCallbacks.onStartChainStep(
-                        pinnedPlan.originalText,
-                        stepIndex,
-                        pinnedPlan,
-                      )
-                  : undefined
-              }
-              onReplace={onReplace}
-              walletAddress={walletAddress}
-              chainCallbacks={chainCallbacks}
-              onPinChange={undefined}
-            />
-          </div>
-        );
-      })()}
     </div>
   );
 }
@@ -1062,9 +970,6 @@ function CardSlot({
         onReplace={onReplace}
         walletAddress={walletAddress}
         chainCallbacks={chainCallbacks}
-        // Pin state is managed inside ChainPlanWithComposite → ChainPlanCard.
-        // onPinChange is not needed here because the sticky slot is inside ChatThread.
-        onPinChange={undefined}
       />
     );
   }
@@ -1311,14 +1216,12 @@ function ChainPlanWithComposite({
   onReplace,
   walletAddress,
   chainCallbacks,
-  onPinChange,
 }: {
   plan: import("@/components/chat/chain-plan-card").ChainPlanData;
   onStartStep?: (stepIndex: number) => void;
   onReplace: (replacement: ToolCard) => void;
   walletAddress?: string;
   chainCallbacks?: ChainSignCallbacks;
-  onPinChange?: (pinned: boolean) => void;
 }) {
   const { ChainPlanCard, isAtomicEligible } = require("@/components/chat/chain-plan-card") as {
     ChainPlanCard: (props: import("@/components/chat/chain-plan-card").ChainPlanCardProps) => React.ReactElement | null;
@@ -1437,7 +1340,6 @@ function ChainPlanWithComposite({
         plan={plan}
         onStartStep={onStartStep}
         onRunAtomic={isAtomicEligible(plan) ? () => void handleRunAtomic() : undefined}
-        onPinChange={onPinChange}
       />
 
       {/* Atomic build in-progress indicator */}
