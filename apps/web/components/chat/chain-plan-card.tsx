@@ -71,30 +71,19 @@ const STATUS_LABELS: Record<ChainStepStatus, string> = {
 
 function StepDot({ status }: { status: ChainStepStatus }) {
   const color = STATUS_COLORS[status];
+  const filled = status !== "pending" && status !== "cancelled";
   return (
     <div
       style={{
-        width: 10,
-        height: 10,
+        width: 11,
+        height: 11,
         borderRadius: "50%",
-        background: status === "pending" || status === "cancelled" ? "transparent" : color,
+        background: filled ? color : "var(--bg-sub)",
         border: `2px solid ${color}`,
+        // A soft ring on the active step draws the eye to the current step.
+        boxShadow: status === "active" ? `0 0 0 3px color-mix(in srgb, ${color} 22%, transparent)` : "none",
         flexShrink: 0,
-        marginTop: 2,
-      }}
-    />
-  );
-}
-
-function ChainConnector({ done }: { done: boolean }) {
-  return (
-    <div
-      style={{
-        width: 2,
-        height: 20,
-        background: done ? "#22c55e" : "var(--border)",
-        margin: "2px 0 2px 4px",
-        borderRadius: 2,
+        marginTop: 4, // align the dot centre with the step title baseline
       }}
     />
   );
@@ -217,13 +206,26 @@ export function ChainPlanCard({ plan, onStartStep, onRunAtomic }: ChainPlanCardP
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         {steps.map((step, i) => (
           <React.Fragment key={step.index}>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            {/* alignItems:stretch lets the rail column fill the row height so the connector
+                line (flex:1) runs UNBROKEN from this dot down to the next dot. */}
+            <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 11 }}>
                 <StepDot status={step.status} />
-                {i < steps.length - 1 && <ChainConnector done={step.status === "done"} />}
+                {i < steps.length - 1 && (
+                  <div
+                    style={{
+                      width: 2,
+                      flex: 1,
+                      minHeight: 16,
+                      marginTop: 4,
+                      borderRadius: 2,
+                      background: step.status === "done" ? "#22c55e" : "var(--border)",
+                    }}
+                  />
+                )}
               </div>
 
-              <div style={{ flex: 1, paddingBottom: i < steps.length - 1 ? 8 : 0 }}>
+              <div style={{ flex: 1, paddingBottom: i < steps.length - 1 ? 14 : 0 }}>
                 {/* Category + status */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 13, fontWeight: 500, color: "var(--fg)" }}>
