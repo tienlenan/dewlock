@@ -439,7 +439,111 @@
   <div class="footer"><span>Dewlock — Sui DeFi intent-firewall</span><span class="accent">04 — Differentiators &amp; the Guardian</span></div>
 </section>
 
-<!-- ===================== PAGE 5 — THE BLOCK SEQUENCE ===================== -->
+<!-- ===================== PAGE 5 — ATOMIC COMPOSITE ===================== -->
+<section class="page light">
+  <div class="sec-head">
+    <span class="eyebrow">New · one-signature chaining</span>
+    <h2>Two actions. One signature. All-or-nothing.</h2>
+    <p>“Swap 2 SUI to USDC <b>then</b> lend it on NAVI” compiles into a <b>single PTB</b> you sign once — the swap output feeds the deposit <i>inside</i> the transaction. A Move abort in either leg reverts both. No half-done state, no second prompt.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="bar" style="background:linear-gradient(90deg,#3B9EFF,#6ebef7)"></div>
+      <div class="ic" style="background:var(--tint-sky);color:#1E6FD0">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h13"/><path d="m13 3 4 4-4 4"/><path d="M20 17H7"/><path d="m11 13-4 4 4 4"/></svg></span>
+      </div>
+      <div class="role" style="margin-top:8px">How it composes</div>
+      <h3>Composable swap</h3>
+      <p>The Cetus aggregator’s <span class="mono">routerSwap</span> returns the output coin as a PTB argument — fed straight into the NAVI deposit. No wallet round-trip between legs.</p>
+      <div class="why">structural proof: swap-out = lend-in</div>
+    </div>
+    <div class="card">
+      <div class="bar" style="background:linear-gradient(90deg,#7C9CFF,#3B9EFF)"></div>
+      <div class="ic" style="background:var(--tint-peri);color:#4a51c9">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
+      </div>
+      <div class="role" style="margin-top:8px">Still fail-closed</div>
+      <h3>One Guardian recipe</h3>
+      <p><span class="mono">checkCompositeRecipe</span> re-verifies the whole PTB: closed recipe, exact target multiset, coin-type linkage, delta/owner anti-leak + dual caps.</p>
+      <div class="why">no ad-hoc composition; any fail → BLOCK</div>
+    </div>
+    <div class="card">
+      <div class="bar" style="background:linear-gradient(90deg,#34C77B,#16A34A)"></div>
+      <div class="ic" style="background:var(--tint-mint);color:#127a44">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/><path d="m9 12 2 2 4-4"/></svg></span>
+      </div>
+      <div class="role" style="margin-top:8px">Never stuck</div>
+      <h3>Graceful fallback</h3>
+      <p>Can’t compose, or a check fails? It degrades to the step-by-step chain — funds and every Guardian check unaffected. A SUI shortfall is reported plainly.</p>
+      <div class="why">upfront SUI-coverage gate</div>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <div class="cap"><span class="t">swap → lend, composed into one signature</span><span class="n">flow · 05</span></div>
+    <svg viewBox="0 0 1000 250" role="img" aria-label="Atomic composite: swap then lend in one PTB">
+      <defs>
+        <marker id="a-aqua" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 Z" fill="#3B9EFF"/></marker>
+        <marker id="a-green" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 Z" fill="#16A34A"/></marker>
+        <marker id="a-amber" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7.5,3.2 L0,6.4 Z" fill="#C2410C"/></marker>
+      </defs>
+
+      <!-- ONE PTB container -->
+      <rect x="6" y="16" width="838" height="150" rx="16" fill="#F6F9FC" stroke="#b9d8fb" stroke-dasharray="5 5"/>
+      <text class="d-tag" x="24" y="38" font-size="10.5">ONE PTB · ONE SIGNATURE · ALL-OR-NOTHING</text>
+
+      <!-- You -->
+      <rect x="24" y="62" width="152" height="58" rx="11" fill="#DCECFF" stroke="#b9d8fb"/>
+      <text class="d-lab" x="100" y="88" font-size="13" text-anchor="middle">You</text>
+      <text class="d-sub" x="100" y="105" font-size="9.5" text-anchor="middle">your wallet</text>
+
+      <line x1="176" y1="91" x2="328" y2="91" stroke="#3B9EFF" stroke-width="2" marker-end="url(#a-aqua)"/>
+      <text class="d-flow" x="252" y="82" font-size="10.5" text-anchor="middle">− 2 SUI</text>
+
+      <!-- Cetus -->
+      <rect x="332" y="62" width="184" height="58" rx="11" fill="#fff" stroke="#E2E8F0"/>
+      <rect x="332" y="62" width="5" height="58" rx="2" fill="#3B9EFF"/>
+      <text class="d-lab" x="350" y="86" font-size="12">Cetus Aggregator</text>
+      <text class="d-sub" x="350" y="104" font-size="9.5">swap → ~6.2 USDC (est.)</text>
+
+      <line x1="516" y1="91" x2="650" y2="91" stroke="#3B9EFF" stroke-width="2" marker-end="url(#a-aqua)"/>
+      <text class="d-flow" x="583" y="82" font-size="10.5" text-anchor="middle">~6.2 USDC</text>
+
+      <!-- NAVI -->
+      <rect x="654" y="62" width="166" height="58" rx="11" fill="#fff" stroke="#E2E8F0"/>
+      <rect x="654" y="62" width="5" height="58" rx="2" fill="#3B9EFF"/>
+      <text class="d-lab" x="672" y="86" font-size="12">NAVI</text>
+      <text class="d-sub" x="672" y="104" font-size="9.5">lending · deposit</text>
+
+      <text class="d-sub" x="24" y="150" font-size="9.5">swap-output coin is consumed by the deposit inside the PTB — no settle to wallet between legs</text>
+
+      <!-- PASS exit -->
+      <line x1="844" y1="70" x2="864" y2="70" stroke="#16A34A" stroke-width="2" marker-end="url(#a-green)"/>
+      <rect x="868" y="47" width="128" height="48" rx="10" fill="#fff" stroke="#16A34A"/>
+      <path d="M882 71 l4 4 l7 -8" stroke="#16A34A" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="900" y="68" font-size="11" font-weight="700" fill="#127a44">sign once</text>
+      <text class="d-sub" x="900" y="83" font-size="8.5">approved digest</text>
+
+      <!-- FALLBACK note -->
+      <rect x="6" y="190" width="990" height="44" rx="11" fill="#fff" stroke="#FBD9B8"/>
+      <rect x="6" y="190" width="5" height="44" rx="2" fill="#C2410C"/>
+      <text class="d-lab" x="26" y="210" font-size="11" fill="#9A3412">Can’t compose · or any Guardian check fails</text>
+      <line x1="372" y1="212" x2="402" y2="212" stroke="#C2410C" stroke-width="2" marker-end="url(#a-amber)"/>
+      <text class="d-sub" x="412" y="216" font-size="10">degrades to step-by-step chain — funds &amp; every Guardian check unaffected</text>
+    </svg>
+    <div class="legend">
+      <span class="li"><span class="sw" style="background:#DCECFF;border:1px solid #b9d8fb"></span>One PTB, one signature</span>
+      <span class="li"><span class="sw line" style="border-color:#16A34A"></span>Composed &amp; verified → sign once</span>
+      <span class="li"><span class="sw line" style="border-color:#C2410C"></span>Else → safe step-by-step</span>
+      <span class="li"><span class="sw" style="background:#3B9EFF"></span>Cetus routerSwap → NAVI deposit</span>
+    </div>
+  </div>
+
+  <div class="footer"><span>Dewlock — one signature, all-or-nothing.</span><span class="accent">05 — Atomic composite</span></div>
+</section>
+
+<!-- ===================== PAGE 6 — THE BLOCK SEQUENCE ===================== -->
 <section class="page light">
   <div class="sec-head">
     <span class="eyebrow">The hero beat</span>
@@ -509,10 +613,10 @@
     </div>
   </div>
 
-  <div class="footer"><span>Dewlock — proof a BLOCK happened, not just a tx.</span><span class="accent">05 — The BLOCK sequence</span></div>
+  <div class="footer"><span>Dewlock — proof a BLOCK happened, not just a tx.</span><span class="accent">06 — The BLOCK sequence</span></div>
 </section>
 
-<!-- ===================== PAGE 6 — STACK / STATUS / DEMO ===================== -->
+<!-- ===================== PAGE 7 — STACK / STATUS / DEMO ===================== -->
 <section class="page light">
   <div class="sec-head">
     <span class="eyebrow">Under the hood &amp; where it stands</span>
@@ -528,7 +632,8 @@
       <div class="kv"><span class="k">DeepBook limit-order</span><span class="v">POST_ONLY + gates</span></div>
       <div class="kv"><span class="k">BLOCK + receipt</span><span class="v">Move pkg + async blob</span></div>
       <div class="kv"><span class="k">Seal-encrypted chat</span><span class="v">owner-only decrypt</span></div>
-      <div class="kv"><span class="k">Tests · CI · deploy</span><span class="v">620 green · GH · Vercel</span></div>
+      <div class="kv"><span class="k">Atomic composite</span><span class="v">swap→lend · one signature</span></div>
+      <div class="kv"><span class="k">Tests · CI · deploy</span><span class="v">1108 green · GH · Vercel</span></div>
     </div>
     <div class="panel dark">
       <span class="eyebrow" style="color:var(--accent-2)">Why Sui-native</span>
