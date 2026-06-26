@@ -138,23 +138,24 @@ Welcome to the Dewlock copilot. This guide covers the exact commands you can use
 **What you see:** A plan card showing each step in the chain. Step 1 executes normally; when you sign, step 2 waits for the on-chain result of step 1 and resolves its amount from the **delta** (what step 1 produced), not your current wallet balance. The card streams live status as each step completes.
 
 **Limitations:** 
-- The full chain-execution loop is wired in code but requires manual mainnet verification of end-to-end behavior.
 - A page refresh loses an in-flight chain (durable resume across sessions is not yet implemented — you would restart the chain).
-- Atomic single-sign chaining is NOT yet available (see below).
+- A transient stale-object error auto-rebuilds the step with fresh balances (you just re-confirm).
+- For `swap → lend`, prefer the one-signature atomic mode below.
 
 **Tech:** Sequential steps; each remains a normal single-action PTB through the Guardian. The delta resolver ensures step 2 consumes step 1's output (not your pre-existing balance). Each step is counted once toward daily spend (recycled values are not double-counted).
 
 ---
 
-### Atomic Composite Chaining (Single-Sign)
-**Status:** GATE IMPLEMENTED + tested; live builder is fail-closed (NOT user-facing)  
-**End-user commands:** None — not available yet.
+### Atomic Composite Chaining (Single-Sign) — LIVE
+**Status:** LIVE on mainnet (recipe `swap_lend_v1`)  
+**End-user commands:**
+- `"swap 2 SUI to USDC then lend it on navi"` → on the plan card, click **"Run as 1 transaction (atomic)"**.
 
-**What this is:** The security gate (`checkCompositeRecipe`) for a single-sign atomic composite (e.g., swap→lend in one PTB, one signature) is fully implemented, adversarially tested, and personal-reviewed. A single unsafe composite is blocked; the gate is proven.
+**What you see:** The two-step plan card offers a **"Run as 1 transaction (atomic)"** toggle. Click it and both legs are composed into ONE PTB you sign **once** — all-or-nothing. The tx-preview shows the full flow map: **You → Cetus Aggregator (Swap → ≈ estimated USDC) → NAVI (deposit)**, with real protocol logos and the estimated output on each node.
 
-**What it is NOT:** The live composite builder is not yet available. A composite intent safely **degrades to the sequential chain** above. Do NOT expect a single-sign atomic command — it is not yet user-facing.
+**What it is NOT:** It does not change the safety model — the Guardian's `checkCompositeRecipe` re-verifies the entire composed PTB before the single signature. If the route can't be composed or any check fails, it **degrades to the sequential chain** above; funds and every Guardian check are unaffected. A SUI/gas shortfall is reported plainly ("not enough SUI…"), not as a route error.
 
-**Tech:** The gate enforces four invariants: (a) closed-recipe registry (no ad-hoc composition), (b) target multiset (exact PTB shape), (c) coin-type linkage (swap output = lend input), (d) delta/owner anti-leak + dual caps (USD + net-SUI). Verified against real dry-run paths.
+**Tech:** Built via the Cetus aggregator's `routerSwap` (the swap-output coin is fed structurally into the NAVI deposit), with an upfront SUI-coverage gate. The Guardian gate enforces four invariants: (a) closed-recipe registry (no ad-hoc composition), (b) target multiset (exact PTB shape), (c) coin-type linkage (swap output = lend input), (d) delta/owner anti-leak + dual caps (USD + net-SUI). One signature, WYSIWYS, all-or-nothing. Full detail: `atomic-composite-mode.md`.
 
 ---
 

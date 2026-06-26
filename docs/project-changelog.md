@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06-26 — Atomic composite mode goes LIVE (swap→lend, one signature)
+
+Supersedes the "Live composite BUILD is fail-closed / not yet available" deferral in the entry below — atomic single-sign composite is now live and user-facing.
+
+### Added
+- **Live composite builder on the Cetus aggregator** (`buildLiveSwapLendPtb`) — composes `swap → NAVI deposit` into ONE PTB. Uses `routerSwap` (not `fastRouterSwap`) so the swap-output coin is returned as a composable PTB argument and fed structurally into the deposit; splits exactly the slippage-floor minimum into NAVI and returns the dust remainder to the sender. Replaces the Aftermath add-trade path, which aborted multi-path SUI routes (MoveAbort 46001).
+- **Upfront SUI-coverage gate** (`assertSuiGasCoverage`) — a balance/gas shortfall is caught before the route fetch and surfaced as the same `insufficient_gas` gate/message as a normal SUI swap, instead of a raw `InsufficientCoinBalance` or a misleading "route unavailable".
+- **Composite flow map** — the tx-preview renders both legs (`You → Cetus → NAVI`) with real protocol logos and the live **estimated swap output** on the swap node + the edge into the lend node (the intermediate coin nets to ~0 at the wallet, so balance deltas alone would hide the lend leg).
+- **Deterministic intent-router cross-check gate** — blocks an LLM-misdetected `actionType` that doesn't match the user's literal command (57 unit tests).
+- **Sequential chain UX** — transient stale-object error now auto-rebuilds the step with fresh bytes (bounded, never re-sends stale bytes); continuous timeline rail on the plan card.
+
+### Notes
+- The Guardian's `checkCompositeRecipe` (entry below) re-verifies the whole composed PTB before the single signature — the safety model is unchanged; on any build/Guardian failure it degrades to the sequential chain. New end-user + architecture doc: `atomic-composite-mode.md`. 1108/1108 tests pass; typecheck clean.
+
 ## 2026-06-26 — Atomic composite-recipe Guardian gate (Track B) — the moat
 
 ### Added
