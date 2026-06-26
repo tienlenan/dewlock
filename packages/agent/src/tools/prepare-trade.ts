@@ -243,6 +243,11 @@ export const prepareTrade = createTool({
     compositeLegs: z
       .array(
         z.object({
+          // Per-leg role for the recipe (leg 0 = "swap", leg 1 = "lend_deposit" for
+          // swap_lend_v1). Required — the composite builder validates leg roles by this
+          // field; omitting it from the schema would silently strip it (Zod drops unknown
+          // keys), surfacing as 'leg 0 must be "swap", got "undefined"'.
+          actionType: z.enum(["swap", "lend_deposit"]),
           coinTypeIn: z.enum(COIN_TYPE_VALUES),
           coinTypeOut: z.enum(COIN_TYPE_VALUES).optional(),
           amountInNative: z.string().regex(/^\d+$/).describe("Amount in native units"),
