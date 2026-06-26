@@ -7,12 +7,14 @@ import { describe, it, expect } from "vitest";
 import {
   resolveOwnerLabel,
   deriveFlowRows,
+  deriveCompositeFlow,
   groupObjectsTouched,
   groupContractsByProtocol,
   thirdPartyTransfers,
   formatNative,
   type ContractCallDisplay,
   type ObjectTouchedDisplay,
+  type CompositeFlowLeg,
 } from "../tx-preview-format";
 
 const YOU = "0x" + "a".repeat(64);
@@ -159,5 +161,47 @@ describe("groupContractsByProtocol", () => {
       call("0xb::cetus::swap", "Cetus Aggregator (route)", "signature-matched"),
     ]);
     expect(groups[0].allowlistKind).toBe("signature-matched");
+  });
+});
+
+describe("deriveCompositeFlow", () => {
+  const swapLeg: CompositeFlowLeg = {
+    actionType: "swap",
+    coinTypeIn: SUI,
+    coinTypeOut: USDC,
+    amountInNative: "1000000000", // 1 SUI
+  };
+  const lendLeg: CompositeFlowLeg = {
+    actionType: "lend_deposit",
+    coinTypeIn: USDC,
+    amountInNative: "0", // placeholder — deposits the swap output
+    lendingProtocol: "navi",
+  };
+
+  it("renders BOTH legs of a swap→lend composite (the lend leg is never hidden)", () => {
+    const steps = deriveCompositeFlow([swapLeg, lendLeg]);
+    expect(steps).toHaveLength(2);
+
+    // Leg 0: the swap — funds leave the wallet (outflow), labelled with the input coin.
+    expect(steps[0].nodeLabel).toBe("Cetus Aggregator");
+    expect(steps[0].nodeSub).toBe("Swap → USDC");
+    expect(steps[0].edgeLabel).toBe("1 SUI");
+    expect(steps[0].isOutflow).toBe(true);
+
+    // Leg 1: the lend deposit — the swap output coin flows into the lending protocol.
+    expect(steps[1].nodeLabel).toBe("NAVI");
+    expect(steps[1].nodeSub).toBe("Lending · deposit");
+    expect(steps[1].edgeLabel).toBe("USDC");
+    expect(steps[1].isOutflow).toBe(false);
+  });
+
+  it("threads coinDecimals into the swap-leg amount", () => {
+    const steps = deriveCompositeFlow([{ ...swapLeg, amountInNative: "2500000" }], { [SUI]: 6 });
+    expect(steps[0].edgeLabel).toBe("2.5 SUI");
+  });
+
+  it("only the first leg is an outflow (later legs move between protocols)", () => {
+    const steps = deriveCompositeFlow([swapLeg, lendLeg]);
+    expect(steps.filter((s) => s.isOutflow)).toHaveLength(1);
   });
 });

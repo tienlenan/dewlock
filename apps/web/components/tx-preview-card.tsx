@@ -25,6 +25,7 @@ import type {
   BalanceDeltaDisplay,
   ContractCallDisplay,
   ObjectTouchedDisplay,
+  CompositeFlowLeg,
 } from "./tx-preview-format";
 import { TxPreviewHeader } from "./tx-preview-header";
 import { TxAssuranceHeader } from "./tx-assurance-header";
@@ -56,6 +57,8 @@ export interface TxPreviewData {
   estimatedUsdValue: number;
   gasCostMist: string;
   balanceDeltas: BalanceDeltaDisplay[];
+  /** Per-leg flow for an atomic composite (swap→lend) — drives the multi-leg flow map. */
+  compositeFlow?: CompositeFlowLeg[];
   /** Contracts (Move targets) the PTB invokes — permissions UI. Optional for legacy payloads. */
   contractsCalled?: ContractCallDisplay[];
   /** Objects the PTB creates/mutates/transfers — permissions UI (server-capped). */

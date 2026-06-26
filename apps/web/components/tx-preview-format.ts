@@ -111,11 +111,74 @@ export function primaryCounterpartyLabel(ctx: OwnerCtx): string {
 // each labelled with direction + semantic from/to for the Rows / Map views.
 // ---------------------------------------------------------------------------
 
+/** One leg of an atomic composite (e.g. swap→lend), as surfaced on the preview. */
+export interface CompositeFlowLeg {
+  actionType: string; // "swap" | "lend_deposit"
+  coinTypeIn: string;
+  coinTypeOut?: string;
+  amountInNative: string;
+  lendingProtocol?: string;
+}
+
 export interface FlowPreviewInput {
   balanceDeltas: BalanceDeltaDisplay[];
   recipientAddress?: string;
   contractsCalled?: ContractCallDisplay[];
   coinDecimals?: Record<string, number>;
+  /** Present for atomic composites — drives an explicit multi-leg flow (see deriveCompositeFlow). */
+  compositeFlow?: CompositeFlowLeg[];
+}
+
+/** A rendered hop in a composite flow: a protocol node + the coin flowing INTO it. */
+export interface CompositeFlowStep {
+  /** Protocol/step node label, e.g. "Cetus Aggregator" / "NAVI". */
+  nodeLabel: string;
+  /** Category sub-line, e.g. "Swap → USDC" / "Lending · deposit". */
+  nodeSub: string;
+  /** Coin flowing into this node from the previous node, e.g. "1 SUI" / "USDC". */
+  edgeLabel: string;
+  /** True for the first hop (funds leaving the wallet) → rendered as an outflow. */
+  isOutflow: boolean;
+}
+
+/**
+ * Turn composite legs into an ordered You → leg0 → leg1 … chain for the flow map.
+ *
+ * WHY a dedicated path (not deriveFlowRows): a composite's intermediate coin (e.g. the
+ * swap-output USDC that is immediately deposited) nets to ~0 at the wallet, so it never
+ * appears in balanceDeltas — the lend leg would be invisible. These legs come straight
+ * from the declared recipe, so every hop is shown explicitly and accurately.
+ */
+export function deriveCompositeFlow(
+  legs: CompositeFlowLeg[],
+  coinDecimals?: Record<string, number>,
+): CompositeFlowStep[] {
+  return legs.map((leg, i) => {
+    if (leg.actionType === "swap") {
+      const amt = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
+      return {
+        nodeLabel: "Cetus Aggregator",
+        nodeSub: leg.coinTypeOut ? `Swap → ${shortCoinType(leg.coinTypeOut)}` : "Swap",
+        edgeLabel: `${amt} ${shortCoinType(leg.coinTypeIn)}`,
+        isOutflow: i === 0,
+      };
+    }
+    if (leg.actionType === "lend_deposit") {
+      return {
+        nodeLabel: (leg.lendingProtocol ?? "lending").toUpperCase(),
+        nodeSub: "Lending · deposit",
+        // The deposited coin = this leg's input = the prior leg's output coin.
+        edgeLabel: shortCoinType(leg.coinTypeIn),
+        isOutflow: false,
+      };
+    }
+    return {
+      nodeLabel: leg.actionType,
+      nodeSub: "Step",
+      edgeLabel: shortCoinType(leg.coinTypeIn),
+      isOutflow: i === 0,
+    };
+  });
 }
 
 export interface FlowRow {

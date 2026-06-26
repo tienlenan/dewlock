@@ -15,7 +15,13 @@
 
 import React, { useState } from "react";
 import { Maximize2 } from "lucide-react";
-import { deriveFlowRows, type FlowPreviewInput, type FlowRow } from "./tx-preview-format";
+import {
+  deriveFlowRows,
+  deriveCompositeFlow,
+  type FlowPreviewInput,
+  type FlowRow,
+  type CompositeFlowStep,
+} from "./tx-preview-format";
 import { TxFlowGraph } from "./tx-flow-graph";
 import { TxFlowDialog } from "./tx-flow-dialog";
 
@@ -30,8 +36,14 @@ export function TxFlowSection({
   walletAddress?: string;
 }) {
   const [view, setView] = useState<"rows" | "map">("rows");
+  // Composite (e.g. swap→lend): render every leg explicitly — the intermediate coin nets
+  // to ~0 at the wallet, so the balance-delta rows alone would hide the lend leg.
+  const compositeSteps =
+    preview.compositeFlow && preview.compositeFlow.length > 0
+      ? deriveCompositeFlow(preview.compositeFlow, preview.coinDecimals)
+      : null;
   const rows = deriveFlowRows(preview, walletAddress);
-  if (rows.length === 0) return null;
+  if (!compositeSteps && rows.length === 0) return null;
 
   return (
     <div>
@@ -44,7 +56,11 @@ export function TxFlowSection({
         </p>
         <Switcher view={view} onChange={setView} />
       </div>
-      {view === "rows" ? <RowsView rows={rows} /> : <MapView preview={preview} walletAddress={walletAddress} />}
+      {view === "rows" ? (
+        compositeSteps ? <CompositeRowsView steps={compositeSteps} /> : <RowsView rows={rows} />
+      ) : (
+        <MapView preview={preview} walletAddress={walletAddress} />
+      )}
     </div>
   );
 }
@@ -119,6 +135,50 @@ function RowsView({ rows }: { rows: FlowRow[] }) {
       })}
     </div>
   );
+}
+
+// Composite rows: an explicit You → leg0 → leg1 … chain. Each row shows the hop and the
+// coin flowing into it, so a swap→lend composite reads "You → Cetus (1 SUI)" then
+// "Cetus → NAVI (USDC)" — the lend leg the balance-delta rows would otherwise hide.
+function CompositeRowsView({ steps }: { steps: CompositeFlowStep[] }) {
+  return (
+    <div style={{ borderRadius: 8, border: "1px solid var(--border)", overflow: "hidden" }}>
+      {steps.map((s, i) => {
+        const from = i === 0 ? "You" : steps[i - 1].nodeLabel;
+        return (
+          <div
+            key={i}
+            className="flex items-center justify-between gap-2"
+            style={{ padding: "8px 12px", fontSize: "12px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}
+          >
+            <span style={{ color: "var(--fg-muted)", minWidth: 0 }}>
+              <strong style={{ color: "var(--fg)" }}>{from}</strong> →{" "}
+              <strong style={{ color: "var(--fg)" }}>{s.nodeLabel}</strong>
+              <span style={{ color: "var(--fg-faint)" }}> · {s.nodeSub}</span>
+            </span>
+            <span className="mono split-mono" style={compositeChipStyle(s.isOutflow)}>
+              {s.isOutflow ? "−" : ""}
+              {s.edgeLabel}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function compositeChipStyle(isOutflow: boolean): React.CSSProperties {
+  const color = isOutflow ? OUT : "var(--fg-muted)";
+  return {
+    fontSize: "11px",
+    color,
+    background: `color-mix(in srgb, ${color} 10%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
+    padding: "2px 8px",
+    borderRadius: 99,
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  };
 }
 
 // Map: the asset flow as an interactive React Flow graph. The compact in-card preview

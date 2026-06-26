@@ -321,6 +321,20 @@ export const prepareTrade = createTool({
         slippageBps: z.number().optional(),
         swapSource: z.enum(SWAP_SOURCES).optional(),
         routeProviders: z.array(z.string()).optional(),
+        // Per-leg flow for an atomic composite (e.g. swap→lend). Display-only: lets the
+        // flow map render BOTH legs (swap node + lend node) since the intermediate coin
+        // nets to ~0 at the wallet and would otherwise be invisible in balanceDeltas.
+        compositeFlow: z
+          .array(
+            z.object({
+              actionType: z.string(),
+              coinTypeIn: z.string(),
+              coinTypeOut: z.string().optional(),
+              amountInNative: z.string(),
+              lendingProtocol: z.string().optional(),
+            }),
+          )
+          .optional(),
         recipientAddress: z.string().optional(),
         estimatedUsdValue: z.number(),
         gasCostMist: z.string(), // bigint serialized as string
@@ -850,6 +864,18 @@ export const prepareTrade = createTool({
           amount: d.amount.toString(),
           owner: d.owner,
         })),
+        // Surface the composite legs so the flow map can draw every leg (the swap output
+        // coin nets to ~0 at the wallet, so balanceDeltas alone hides the lend leg).
+        compositeFlow:
+          actionType === "composite" && compositeLegs
+            ? compositeLegs.map((leg) => ({
+                actionType: leg.actionType,
+                coinTypeIn: leg.coinTypeIn,
+                coinTypeOut: leg.coinTypeOut,
+                amountInNative: String(leg.amountInNative),
+                lendingProtocol: leg.lendingProtocol,
+              }))
+            : undefined,
       },
     };
   },

@@ -30,7 +30,14 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Wallet, UserRound, ArrowLeftRight, CircleHelp } from "lucide-react";
 import { useSuinsNames } from "@/lib/use-suins-names";
-import { deriveFlowRows, short0x, type FlowPreviewInput, type FlowRow } from "./tx-preview-format";
+import {
+  deriveFlowRows,
+  deriveCompositeFlow,
+  short0x,
+  type FlowPreviewInput,
+  type FlowRow,
+  type CompositeFlowStep,
+} from "./tx-preview-format";
 
 const OUT = "var(--destructive)";
 const IN = "var(--success)";
@@ -152,6 +159,36 @@ function buildGraph(
   return { nodes, edges };
 }
 
+// Composite chain: a straight vertical river You → leg0 → leg1 … Each protocol is its own
+// node and each edge carries the coin flowing into it, so a swap→lend composite shows BOTH
+// the swap and the lend node (the intermediate coin nets to ~0 at the wallet, so the
+// balance-delta graph would collapse it to a single swap node).
+function buildCompositeGraph(
+  steps: CompositeFlowStep[],
+  walletAddress: string | undefined,
+  suins: Record<string, string>,
+): { nodes: Node[]; edges: Edge[] } {
+  const youSub = walletAddress ? (suins[walletAddress.toLowerCase()] ?? short0x(walletAddress)) : undefined;
+  const node = (id: string, x: number, y: number, data: NodeMeta): Node => ({ id, type: "flow", position: { x, y }, data: data as unknown as Record<string, unknown> });
+
+  const nodes: Node[] = [node("you", 0, 0, { kind: "you", label: "You", sub: youSub, primary: true })];
+  const edges: Edge[] = [];
+  let prevId = "you";
+  steps.forEach((s, i) => {
+    const id = `leg-${i}`;
+    nodes.push(node(id, 0, (i + 1) * LEVEL_H, { kind: "protocol", label: s.nodeLabel, sub: s.nodeSub }));
+    edges.push({
+      id: `el-${i}`,
+      source: prevId,
+      target: id,
+      label: s.isOutflow ? `−${s.edgeLabel}` : s.edgeLabel,
+      ...edgeProps(s.isOutflow ? OUT : "var(--accent)"),
+    });
+    prevId = id;
+  });
+  return { nodes, edges };
+}
+
 // ---- component ------------------------------------------------------------
 
 export function TxFlowGraph({
@@ -170,7 +207,13 @@ export function TxFlowGraph({
   );
   const suins = useSuinsNames(addrs);
 
-  const initial = useMemo(() => buildGraph(rows, preview, walletAddress, suins), [rows, preview, walletAddress, suins]);
+  const initial = useMemo(() => {
+    // Composite (e.g. swap→lend): render the explicit leg chain so every protocol is a node.
+    if (preview.compositeFlow && preview.compositeFlow.length > 0) {
+      return buildCompositeGraph(deriveCompositeFlow(preview.compositeFlow, preview.coinDecimals), walletAddress, suins);
+    }
+    return buildGraph(rows, preview, walletAddress, suins);
+  }, [rows, preview, walletAddress, suins]);
   const [nodes, , onNodesChange] = useNodesState(initial.nodes);
   const [edges, , onEdgesChange] = useEdgesState(initial.edges);
 
