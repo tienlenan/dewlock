@@ -11,6 +11,7 @@
     "./intent/intent-directive": "./dist/intent/intent-directive.js",
     "./intent/parse-intent": "./dist/intent/parse-intent.js",
     "./intent/detect-multi-action": "./dist/intent/detect-multi-action.js",
+    "./intent/intent-router": "./dist/intent/intent-router.js",
     "./tools/prepare-trade": "./dist/tools/prepare-trade.js",
     "./tools/prepare-bridge-redeem": "./dist/tools/prepare-bridge-redeem.js",
     "./tools/get-portfolio": "./dist/tools/get-portfolio.js",

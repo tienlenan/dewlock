@@ -352,13 +352,33 @@ export async function POST(req: NextRequest) {
 
     const result = await agent.stream(prompt);
 
+    // Load the intent-router once per request (require is cached by Node module system).
+    // Wrapped in try/catch so a load failure never blocks the turn (fail-open on machinery).
+    let assertActionMatchesTextFn: ((text: string, actionType: string) => { ok: boolean; reason?: string }) | null = null;
+    try {
+      /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+      const { assertActionMatchesText } = require("@dewlock/agent/intent/intent-router") as {
+        assertActionMatchesText: (text: string, actionType: string) => { ok: boolean; reason?: string };
+      };
+      assertActionMatchesTextFn = assertActionMatchesText;
+    } catch {
+      // Router module unavailable — fail-open, all prepareTrade results pass through.
+    }
+
     const readable = new ReadableStream({
       async start(controller) {
         try {
           // fullStream emits typed parts. Mastra 1.x wraps content in `.payload`:
           //   text-delta:  part.payload.textDelta
           //   tool-result: part.payload.toolName + part.payload.result
+          //   tool-call:   part.payload.toolName + part.payload.args (or toolInput)
           // We surface text deltas and tool results as NDJSON lines to the client.
+
+          // Capture the prepareTrade actionType from the tool-call part so the
+          // cross-check gate can compare it against the user's literal text.
+          // The tool-call arrives BEFORE the tool-result in Mastra's fullStream.
+          let lastPrepareTradeActionType: string | null = null;
+
           for await (const part of result.fullStream) {
             // Mastra 1.x wraps chunk content in `.payload`; future versions may
             // flatten it. Defensive fallback: `payload ?? part` ensures both shapes work.
@@ -375,10 +395,57 @@ export async function POST(req: NextRequest) {
                   ndjsonLine({ type: "text", text: textDelta }),
                 );
               }
+            } else if (part.type === "tool-call") {
+              // Capture the prepareTrade actionType from the tool-call args so the
+              // cross-check can run when the tool-result arrives.
+              // Mastra 1.42 shape: payload.toolName + payload.args (AI SDK v5 object).
+              // Older shape: payload.toolName + payload.toolInput. Try both.
+              const callName = payload.toolName as string | undefined;
+              if (callName === "prepareTrade") {
+                const args = (payload.args ?? payload.toolInput) as Record<string, unknown> | undefined;
+                const at = args?.actionType;
+                if (typeof at === "string") lastPrepareTradeActionType = at;
+              }
             } else if (part.type === "tool-result") {
               const toolName = payload.toolName as string | undefined;
-              const toolResult = payload.result;
-              if (toolName) {
+              const toolResult = payload.result as Record<string, unknown> | undefined;
+              if (toolName === "prepareTrade" && toolResult?.ok === true) {
+                // Cross-check: if the LLM built an action whose category doesn't match
+                // the user's literal command, block it before any PTB reaches the user.
+                // Fail-open: a thrown error inside assertActionMatchesText never blocks
+                // a legitimate turn — only a positive category mismatch is a hard block.
+                let crossCheckOk = true;
+                let crossCheckReason: string | undefined;
+                if (assertActionMatchesTextFn && lastPrepareTradeActionType) {
+                  try {
+                    const xr = assertActionMatchesTextFn(lastMessage.content, lastPrepareTradeActionType);
+                    if (!xr.ok) {
+                      crossCheckOk = false;
+                      crossCheckReason = xr.reason;
+                    }
+                  } catch {
+                    // Unexpected error in the router — fail-open, let the result through.
+                  }
+                }
+                if (!crossCheckOk) {
+                  // Emit a block result instead of the approved PTB preview.
+                  controller.enqueue(
+                    ndjsonLine({
+                      type: "tool-result",
+                      toolName: "prepareTrade",
+                      result: {
+                        ok: false,
+                        reasons: [crossCheckReason ?? "Intent mismatch detected — please rephrase your request."],
+                        gates: ["intent_mismatch"],
+                      },
+                    }),
+                  );
+                } else {
+                  controller.enqueue(
+                    ndjsonLine({ type: "tool-result", toolName, result: toolResult }),
+                  );
+                }
+              } else if (toolName) {
                 controller.enqueue(
                   ndjsonLine({
                     type: "tool-result",
@@ -388,7 +455,7 @@ export async function POST(req: NextRequest) {
                 );
               }
             }
-            // step-finish, finish, tool-call parts are skipped (not needed by client)
+            // step-finish, finish parts are skipped (not needed by client)
           }
           controller.enqueue(ndjsonLine({ type: "done" }));
         } catch (e) {
