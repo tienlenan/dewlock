@@ -231,31 +231,85 @@
   </table>
 
   <!-- MANUAL E2E -->
-  <h2>3 · Manual end-to-end UI test cases</h2>
+  <h2>3 · Manual E2E test cases — transaction-type coverage</h2>
   <p class="muted">Run against the dev server (<code>pnpm --filter web dev</code> &rarr; <code>http://localhost:3000/app</code>),
-  wallet connected. These exercise the full stream path the unit tests stub out.</p>
+  wallet connected. These exercise the full agent-stream path the unit tests stub out, across <b>every</b> transaction
+  type Dewlock's <code>prepareTrade</code> can emit. Each row's done condition = the gate's correct verdict <i>plus</i> the
+  expected card.</p>
 
-  <h3>M-1 · Block path — forced LLM misdetection</h3>
+  <h3>3.1 · Gate-CHECKED transactions — correct detection &rarr; PASS <span class="muted">(value verbs; mismatch is hard-blocked, see §3.4)</span></h3>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:13%">Tx type</th><th style="width:27%">Example command</th><th style="width:14%">actionType</th><th>Expected card · done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">T1</td><td>Swap</td><td class="inp"><code>swap 5 SUI to USDC</code></td><td><code>swap</code></td><td>Aggregator swap preview; route + min-out shown; sign enabled</td></tr>
+      <tr><td class="id">T2</td><td>Swap (synonym)</td><td class="inp"><code>sell 10 SUI for USDC</code> · <code>convert 5 SUI to USDC</code></td><td><code>swap</code></td><td>Same swap preview — <code>sell/convert/dump/exchange</code> all route to swap</td></tr>
+      <tr><td class="id">T3</td><td>Lend deposit</td><td class="inp"><code>lend 100 USDC on navi</code> · <code>supply 100 USDC</code></td><td><code>lend_deposit</code></td><td>NAVI deposit preview; supplied amount + new position</td></tr>
+      <tr><td class="id">T4</td><td>Lend repay</td><td class="inp"><code>repay 50 USDC on navi</code></td><td><code>lend_repay</code></td><td>Repay preview; debt reduction shown</td></tr>
+      <tr><td class="id">T5</td><td>Lend borrow</td><td class="inp"><code>borrow 20 USDC from navi</code></td><td><code>lend_borrow</code></td><td>Borrow preview + post-tx <b>health-factor gate</b> blocks if HF unsafe</td></tr>
+      <tr><td class="id">T6</td><td>Lend withdraw</td><td class="inp"><code>withdraw 30 USDC from navi</code></td><td><code>lend_withdraw</code></td><td>Withdraw preview; collateral change + HF check</td></tr>
+      <tr><td class="id">T7</td><td>Stake afSUI</td><td class="inp"><code>stake 10 SUI to afsui</code></td><td><code>stake</code></td><td>Aftermath afSUI mint preview; staking gate validates provider+target</td></tr>
+      <tr><td class="id">T8</td><td>Stake haSUI</td><td class="inp"><code>stake 10 SUI to hasui</code></td><td><code>stake</code></td><td>Haedal direct-PTB haSUI preview; correct validator/object</td></tr>
+      <tr><td class="id">T9</td><td>Unstake</td><td class="inp"><code>unstake 5 afSUI</code></td><td><code>unstake</code></td><td>Unstake preview; both map to <b>stake</b> category (no over-block)</td></tr>
+      <tr><td class="id">T10</td><td>Send → address</td><td class="inp"><code>send 1 SUI to 0xabc…</code></td><td><code>transfer</code></td><td>Transfer preview; recipient = literal address</td></tr>
+      <tr><td class="id">T11</td><td>Send → contact</td><td class="inp"><code>pay 2 USDC to alice</code></td><td><code>transfer</code></td><td>Transfer preview; contact resolved from signed blob-book</td></tr>
+      <tr><td class="id">T12</td><td>Limit order</td><td class="inp"><code>limit buy SUI at 3.50</code></td><td><code>limit_order</code></td><td>DeepBook limit-order preview; price + size; <code>limit</code> category</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.2 · Gate-SKIPPED flows — <code>categoryForActionType → null</code>, never blocked <span class="muted">(no single user-verb mapping)</span></h3>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:18%">Flow</th><th style="width:28%">Example</th><th style="width:15%">actionType</th><th>Why skipped · done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">T13</td><td>Atomic composite</td><td class="inp"><code>swap 5 SUI to USDC then lend it</code> → Run atomic</td><td><span class="tag t-skip">composite</span></td><td>Multi-leg recipe in 1 PTB; verified by the composite-recipe Guardian gate, not this one</td></tr>
+      <tr><td class="id">T14</td><td>Sequential chain</td><td class="inp">multi-step plan (any combo), step-by-step</td><td>per-step</td><td>Each step re-submitted as a <b>complete command</b> &rarr; each step is gate-checked individually</td></tr>
+      <tr><td class="id">T15</td><td>DeepBook onboarding</td><td class="inp">balance-manager wizard</td><td><span class="tag t-skip">bm_create</span> <span class="tag t-skip">bm_deposit</span></td><td>UI wizard, not NL-driven &rarr; skipped</td></tr>
+      <tr><td class="id">T16</td><td>Cancel order</td><td class="inp">Cancel from an open-order card</td><td><span class="tag t-skip">cancel_order</span></td><td>Order-lifecycle UI action &rarr; skipped</td></tr>
+      <tr><td class="id">T17</td><td>Withdraw / claim settled</td><td class="inp">Claim from a settled-funds card</td><td><span class="tag t-skip">withdraw_settled</span> <span class="tag t-skip">claim_settled</span></td><td>Order-management UI &rarr; skipped</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 · Read-only intents — <code>routeAction → null</code>, gate silent <span class="muted">(no value verb)</span></h3>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:34%">Example command</th><th style="width:16%">Expected</th><th>Done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">T18</td><td class="inp"><code>show my portfolio</code></td><td>Portfolio card</td><td>Positions render; no gate involvement</td></tr>
+      <tr><td class="id">T19</td><td class="inp"><code>show my recent activity</code></td><td>History card</td><td>Activity list renders; gate silent</td></tr>
+      <tr><td class="id">T20</td><td class="inp"><code>what's the best yield for USDC</code></td><td>Advisor answer</td><td>Read-only yield advisor; nothing signable; gate silent</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.4 · Mismatch &rarr; BLOCK safety matrix — forced LLM misdetection <span class="muted">(the load-bearing cases)</span></h3>
+  <p class="muted">For each, the user's literal intent is unambiguous but the LLM proposes a <i>different</i> category.
+  Expected: no signable preview — a <b>BlockCard</b> (<code>gates:[intent_mismatch]</code>) naming both actions + "rephrase".</p>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:30%">User text (real intent)</th><th style="width:20%">LLM wrongly proposes</th><th style="width:13%">Verdict</th><th>Done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">B1</td><td class="inp"><code>lend 100 USDC on navi</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>No swap preview; reason cites lend vs swap</td></tr>
+      <tr><td class="id">B2</td><td class="inp"><code>stake 10 SUI</code></td><td><code>lend_deposit</code></td><td><span class="tag t-block">BLOCK</span></td><td>No lend preview; reason cites stake vs lend</td></tr>
+      <tr><td class="id">B3</td><td class="inp"><code>send 1 SUI to alice</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>No swap preview — funds-leak intent stopped</td></tr>
+      <tr><td class="id">B4</td><td class="inp"><code>swap 5 SUI to USDC</code></td><td><code>stake</code></td><td><span class="tag t-block">BLOCK</span></td><td>No stake preview; reason cites swap vs stake</td></tr>
+      <tr><td class="id">B5</td><td class="inp"><code>borrow 20 USDC from navi</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>No swap preview; borrow&ne;swap</td></tr>
+      <tr><td class="id">B6</td><td class="inp"><code>repay 50 USDC on navi</code></td><td><code>transfer</code></td><td><span class="tag t-block">BLOCK</span></td><td>No transfer preview; repay (lend)&ne;send</td></tr>
+      <tr><td class="id">B7</td><td class="inp"><code>withdraw 30 USDC from navi</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>No swap preview; withdraw (lend)&ne;swap</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.5 · Detailed walkthroughs</h3>
+  <h4 style="margin:8px 0 2px; color:var(--ink2); font-size:11px">M-1 · Block path</h4>
   <ol class="steps">
-    <li>Type a command whose verb is unambiguous, e.g. <code>lend 5 USDC on navi</code>.</li>
-    <li>In a misdetection scenario the LLM proposes <code>prepareTrade(actionType:"swap")</code>.</li>
-    <li><b>Expect:</b> no signable swap preview appears. Instead a <b>BlockCard</b> renders with reason
-      <i>"Refusing for safety: the prepared action (\"swap\") doesn't match what you asked (\"lend\")…"</i> and gate <code>intent_mismatch</code>.</li>
-    <li><b>Done when:</b> nothing signable is shown; user is asked to rephrase; no wallet popup.</li>
+    <li>Type <code>lend 100 USDC on navi</code>; LLM (misdetecting) proposes <code>prepareTrade(actionType:"swap")</code>.</li>
+    <li><b>Expect:</b> no signable swap preview — a <b>BlockCard</b> with <i>"Refusing for safety: the prepared action (\"swap\") doesn't match what you asked (\"lend\")…"</i>, gate <code>intent_mismatch</code>.</li>
+    <li><b>Done when:</b> nothing signable shown; rephrase prompt; no wallet popup.</li>
   </ol>
-
-  <h3>M-2 · Pass path — correct detection</h3>
+  <h4 style="margin:8px 0 2px; color:var(--ink2); font-size:11px">M-2 · Pass path</h4>
   <ol class="steps">
-    <li>Type <code>swap 5 SUI to USDC</code>.</li>
-    <li>LLM proposes <code>prepareTrade(actionType:"swap")</code>.</li>
-    <li><b>Expect:</b> the normal swap preview card renders (Guardian-checked), wallet sign enabled.</li>
-    <li><b>Done when:</b> preview shows the correct route &amp; amounts; gate adds no friction to a correct turn.</li>
+    <li>Type <code>swap 5 SUI to USDC</code>; LLM proposes <code>actionType:"swap"</code>.</li>
+    <li><b>Done when:</b> normal Guardian-checked swap preview renders; gate adds zero friction to a correct turn.</li>
   </ol>
-
-  <h3>M-3 · No-false-positive on read-only &amp; chained intents</h3>
+  <h4 style="margin:8px 0 2px; color:var(--ink2); font-size:11px">M-3 · No-false-positive</h4>
   <ol class="steps">
-    <li>Type <code>show my portfolio</code> &rarr; portfolio renders, gate silent (routeAction null).</li>
-    <li>Type a composite/atomic intent (<code>swap 5 SUI to USDC then lend it</code>) and run atomic &rarr; the composite actionType is <b>skipped</b> by the gate (categoryForActionType null); chain proceeds normally.</li>
+    <li><code>show my portfolio</code> &rarr; portfolio renders, gate silent (routeAction null).</li>
+    <li>Atomic <code>swap 5 SUI to USDC then lend it</code> &rarr; composite skipped (categoryForActionType null); chain proceeds.</li>
     <li><b>Done when:</b> neither legitimate flow is blocked.</li>
   </ol>
 
