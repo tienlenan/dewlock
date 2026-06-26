@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dewlock — Intent-Router Cross-Check Gate · Test Suite & Verification</title>
+<style>
+  :root{
+    --ink:#0b1f3a; --ink2:#243b53; --body:#1f2937; --muted:#5b6b7f;
+    --blue:#4DA2FF; --blue-d:#1f6fd6; --line:#d7dee8; --line2:#e8edf3;
+    --ok:#0f9d58; --ok-bg:#e7f6ee; --block:#d23b3b; --block-bg:#fdecec;
+    --skip:#9aa6b2; --skip-bg:#f1f4f8; --code-bg:#f4f7fb; --wash:#f7fafe;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-print-color-adjust:exact; print-color-adjust:exact;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    color:var(--body); font-size:11px; line-height:1.5; margin:0; background:#fff;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:28px 30px 48px;}
+  h1{font-size:23px; color:var(--ink); margin:0 0 4px; letter-spacing:-.3px;}
+  h2{font-size:15.5px; color:var(--ink); margin:26px 0 8px; padding-bottom:5px; border-bottom:2px solid var(--blue);}
+  h3{font-size:12.5px; color:var(--ink2); margin:16px 0 6px;}
+  p{margin:6px 0;}
+  code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:9.6px; background:var(--code-bg); padding:1px 4px; border-radius:3px; color:#0a3b73;}
+  .lead{color:var(--muted); font-size:11.5px; margin:2px 0 0;}
+  .muted{color:var(--muted);}
+  a{color:var(--blue-d); text-decoration:none;}
+
+  /* header band */
+  .band{background:linear-gradient(110deg,#0b1f3a 0%,#163a63 60%,#1f6fd6 100%); color:#fff; border-radius:12px; padding:20px 24px; margin-bottom:14px;}
+  .band h1{color:#fff;}
+  .band .lead{color:#cfe2ff;}
+  .meta{display:flex; flex-wrap:wrap; gap:7px 9px; margin-top:13px;}
+  .pill{background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22); color:#eaf3ff; border-radius:999px; padding:3px 11px; font-size:9.6px; font-weight:600;}
+  .pill b{color:#fff;}
+  .pass-badge{background:var(--ok); border-color:var(--ok);}
+
+  /* summary cards */
+  .cards{display:flex; gap:10px; margin:12px 0 4px;}
+  .card{flex:1; border:1px solid var(--line); border-radius:10px; padding:11px 13px; background:var(--wash);}
+  .card .n{font-size:21px; font-weight:700; color:var(--ink); line-height:1;}
+  .card .l{font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-top:4px;}
+  .card.green .n{color:var(--ok);}
+
+  /* tables */
+  table{border-collapse:collapse; width:100%; margin:8px 0 4px; font-size:9.7px;}
+  th{background:#eef3f9; border:1px solid var(--line); padding:6px 8px; text-align:left; color:var(--ink2); font-size:9px; text-transform:uppercase; letter-spacing:.4px;}
+  td{border:1px solid var(--line2); padding:5px 8px; vertical-align:top;}
+  tbody tr:nth-child(even){background:#fbfcfe;}
+  td.id{color:var(--muted); font-variant-numeric:tabular-nums; width:26px; text-align:right;}
+  td.inp code{background:transparent; padding:0; color:#0a3b73;}
+  .tag{display:inline-block; font-size:8.4px; font-weight:700; border-radius:4px; padding:1px 6px; white-space:nowrap;}
+  .t-pass{background:var(--ok-bg); color:#0a7a43;}
+  .t-block{background:var(--block-bg); color:#b32626;}
+  .t-skip{background:var(--skip-bg); color:#65727f;}
+  .t-null{background:#eef1f5; color:#5b6b7f; font-family:"SF Mono",monospace;}
+
+  /* callouts */
+  .note{border-left:3px solid var(--blue); background:var(--wash); padding:9px 13px; border-radius:0 8px 8px 0; margin:10px 0; font-size:10.4px;}
+  .note.warn{border-left-color:#e0a417; background:#fdf8ec;}
+  .note.gate{border-left-color:var(--block); background:var(--block-bg);}
+  .note b{color:var(--ink);}
+
+  /* checklist */
+  ul.ck{list-style:none; padding:0; margin:6px 0;}
+  ul.ck li{padding:4px 0 4px 24px; position:relative; font-size:10.6px; border-bottom:1px dashed var(--line2);}
+  ul.ck li:before{content:"\2611"; position:absolute; left:2px; top:3px; color:var(--ok); font-size:13px;}
+  ul.ck li b{color:var(--ink2);}
+
+  /* flow */
+  .flow{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:8px 0; font-size:9.4px;}
+  .flow .step{background:#fff; border:1px solid var(--line); border-radius:7px; padding:6px 9px; color:var(--ink2);}
+  .flow .step.bad{border-color:var(--block); background:var(--block-bg); color:#b32626; font-weight:600;}
+  .flow .step.good{border-color:var(--ok); background:var(--ok-bg); color:#0a7a43; font-weight:600;}
+  .flow .arr{color:var(--muted); font-weight:700;}
+
+  .steps{counter-reset:s; padding-left:0; list-style:none; margin:6px 0;}
+  .steps li{counter-increment:s; position:relative; padding:5px 0 5px 26px; font-size:10.5px; border-bottom:1px dashed var(--line2);}
+  .steps li:before{content:counter(s); position:absolute; left:0; top:4px; width:17px; height:17px; background:var(--blue); color:#fff; border-radius:50%; text-align:center; font-size:9px; line-height:17px; font-weight:700;}
+
+  .foot{margin-top:26px; padding-top:10px; border-top:1px solid var(--line); color:var(--muted); font-size:9px; display:flex; justify-content:space-between;}
+
+  @media print{
+    .wrap{max-width:none; padding:0 4px;}
+    h2{page-break-after:avoid;}
+    table{page-break-inside:auto;}
+    tr{page-break-inside:avoid;}
+    .card,.note,.band{page-break-inside:avoid;}
+    .avoid{page-break-inside:avoid;}
+  }
+  @page{size:A4; margin:13mm 12mm;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="band">
+    <h1>Intent-Router Cross-Check Gate</h1>
+    <div class="lead">Test Suite &amp; Verification Report — Dewlock, the intent-firewall copilot for agentic Sui DeFi</div>
+    <div class="meta">
+      <span class="pill">Feature&nbsp;·&nbsp;<b>Deterministic intent cross-check</b></span>
+      <span class="pill">Commit&nbsp;·&nbsp;<b>91172d7</b></span>
+      <span class="pill">Date&nbsp;·&nbsp;<b>2026-06-26</b></span>
+      <span class="pill">Branch&nbsp;·&nbsp;<b>main</b></span>
+      <span class="pill pass-badge">STATUS&nbsp;·&nbsp;<b>57/57 PASS</b></span>
+    </div>
+  </div>
+
+  <p class="lead"><b>The moat, applied to intent.</b> The LLM only <i>proposes</i> an action; a deterministic router
+  re-derives the action category from the user's literal command and <b>blocks</b> any prepared trade whose
+  <code>actionType</code> category does not match — catching LLM action-misdetection <i>before</i> a PTB ever reaches
+  the user for signing. Same fail-closed posture as the Guardian.</p>
+
+  <div class="cards">
+    <div class="card green"><div class="n">57</div><div class="l">Automated tests</div></div>
+    <div class="card green"><div class="n">57</div><div class="l">Passing</div></div>
+    <div class="card"><div class="n">0</div><div class="l">False positives</div></div>
+    <div class="card"><div class="n">1103</div><div class="l">Full suite (all green)</div></div>
+    <div class="card"><div class="n">124ms</div><div class="l">Suite runtime</div></div>
+  </div>
+
+  <!-- ARCHITECTURE UNDER TEST -->
+  <h2>1 · What is under test</h2>
+  <p>Module <code>packages/agent/src/intent/intent-router.ts</code> (pure, deterministic, no LLM) exposes three units,
+  wired into the agent stream at <code>apps/web/app/api/agent/route.ts</code>.</p>
+
+  <table class="avoid">
+    <thead><tr><th style="width:30%">Unit</th><th>Responsibility</th><th style="width:24%">Returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>routeAction(text)</code></td><td>Classify the user's <i>literal</i> command into an action category from adapter keywords (swap / lend / stake / send) + guard-only verbs (bridge / limit). First value-verb of the first clause wins.</td><td>category · or <code>null</code> (read-only / no verb)</td></tr>
+      <tr><td><code>categoryForActionType(at)</code></td><td>Map a proposed <code>prepareTrade</code> actionType to its category. Composite &amp; DeepBook-lifecycle return <code>null</code> (no single-verb mapping → not cross-checked).</td><td>category · or <code>null</code> (skip)</td></tr>
+      <tr><td><code>assertActionMatchesText(text, at)</code></td><td>The gate. Blocks <b>only</b> when both sides are non-null <b>and</b> differ. <code>null</code> on either side → pass (no false positive).</td><td><code>{ ok, reason? }</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Server wiring — where the gate fires</h3>
+  <div class="flow">
+    <span class="step">user text</span><span class="arr">&rarr;</span>
+    <span class="step">LLM proposes <code>prepareTrade</code></span><span class="arr">&rarr;</span>
+    <span class="step">capture <code>actionType</code> from <b>tool-call</b> part</span><span class="arr">&rarr;</span>
+    <span class="step">on <code>tool-result ok:true</code></span><span class="arr">&rarr;</span>
+    <span class="step">assertActionMatchesText</span>
+  </div>
+  <div class="flow">
+    <span class="arr" style="padding-left:4px">match&nbsp;&rarr;</span><span class="step good">emit preview &rarr; user signs</span>
+    <span class="arr" style="margin-left:14px">mismatch&nbsp;&rarr;</span><span class="step bad">emit BLOCK · gates:[intent_mismatch] &rarr; BlockCard</span>
+  </div>
+  <div class="note gate"><b>Why a hard block matters:</b> a misrouted action that reaches the preview is one click from
+  signing the wrong on-chain transaction. The gate replaces the signable preview with a block card carrying the same
+  <code>{ ok:false, reasons, gates }</code> shape the Guardian uses — so a misdetected trade can never be signed.</div>
+
+  <!-- TEST GROUP A -->
+  <h2>2 · Automated test cases (57)</h2>
+  <h3>2.1 · <code>routeAction</code> — value-verb classification <span class="muted">(21 cases)</span></h3>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:42%">Input (user text)</th><th style="width:18%">Expected</th><th>Done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">1</td><td class="inp"><code>swap 5 SUI to USDC</code></td><td><span class="tag t-pass">swap</span></td><td>swap keyword detected</td></tr>
+      <tr><td class="id">2</td><td class="inp"><code>sell 10 SUI for USDC</code></td><td><span class="tag t-pass">swap</span></td><td><code>sell</code> is a swap synonym</td></tr>
+      <tr><td class="id">3</td><td class="inp"><code>lend 5 USDC on navi</code></td><td><span class="tag t-pass">lend</span></td><td>lend keyword detected</td></tr>
+      <tr><td class="id">4</td><td class="inp"><code>deposit 100 USDC to suilend</code></td><td><span class="tag t-pass">lend</span></td><td><code>deposit</code> &rarr; lend category</td></tr>
+      <tr><td class="id">5</td><td class="inp"><code>stake 10 SUI</code></td><td><span class="tag t-pass">stake</span></td><td>stake keyword detected</td></tr>
+      <tr><td class="id">6</td><td class="inp"><code>stake 5 SUI to afsui</code></td><td><span class="tag t-pass">stake</span></td><td>LST provider suffix ignored</td></tr>
+      <tr><td class="id">7</td><td class="inp"><code>send 1 SUI to alice</code></td><td><span class="tag t-pass">send</span></td><td>send keyword detected</td></tr>
+      <tr><td class="id">8</td><td class="inp"><code>transfer 2 USDC to 0xabc</code></td><td><span class="tag t-pass">send</span></td><td><code>transfer</code> &rarr; send category</td></tr>
+      <tr><td class="id">9</td><td class="inp"><code>pay 1 SUI to bob</code></td><td><span class="tag t-pass">send</span></td><td><code>pay</code> &rarr; send category</td></tr>
+      <tr><td class="id">10</td><td class="inp"><code>bridge USDC to ethereum</code></td><td><span class="tag t-pass">bridge</span></td><td>guard-only verb detected</td></tr>
+      <tr><td class="id">11</td><td class="inp"><code>redeem my bridge</code></td><td><span class="tag t-pass">bridge</span></td><td><code>redeem</code> &rarr; bridge</td></tr>
+      <tr><td class="id">12</td><td class="inp"><code>limit order SUI at 3.50</code></td><td><span class="tag t-pass">limit</span></td><td>guard-only verb detected</td></tr>
+      <tr><td class="id">13</td><td class="inp"><code>show my portfolio</code></td><td><span class="tag t-null">null</span></td><td>read-only verb &rarr; no action</td></tr>
+      <tr><td class="id">14</td><td class="inp"><code>what's the best yield</code></td><td><span class="tag t-null">null</span></td><td>question &rarr; no action</td></tr>
+      <tr><td class="id">15</td><td class="inp"><code>check my balance</code></td><td><span class="tag t-null">null</span></td><td>read-only verb &rarr; no action</td></tr>
+      <tr><td class="id">16</td><td class="inp"><code>portfolio</code></td><td><span class="tag t-null">null</span></td><td>read-only noun &rarr; no action</td></tr>
+      <tr><td class="id">17</td><td class="inp"><code>where can I get the best APY?</code></td><td><span class="tag t-null">null</span></td><td>question &rarr; no action</td></tr>
+      <tr><td class="id">18</td><td class="inp"><code>5 SUI USDC</code></td><td><span class="tag t-null">null</span></td><td>no verb &rarr; ambiguous, no action</td></tr>
+      <tr><td class="id">19</td><td class="inp"><code>""</code> (empty)</td><td><span class="tag t-null">null</span></td><td>empty &rarr; no action</td></tr>
+      <tr><td class="id">20</td><td class="inp"><code>"   "</code> (whitespace)</td><td><span class="tag t-null">null</span></td><td>blank &rarr; no action</td></tr>
+      <tr><td class="id">21</td><td class="inp"><code>swap 5 SUI to USDC then lend it</code></td><td><span class="tag t-pass">swap</span></td><td>first clause wins (chaining handled upstream)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 · <code>categoryForActionType</code> — actionType &rarr; category <span class="muted">(17 cases)</span></h3>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:34%">actionType</th><th style="width:18%">Expected</th><th>Done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">22</td><td class="inp"><code>swap</code></td><td><span class="tag t-pass">swap</span></td><td>1:1 map</td></tr>
+      <tr><td class="id">23</td><td class="inp"><code>lend_deposit</code></td><td><span class="tag t-pass">lend</span></td><td>all lend_* collapse to lend</td></tr>
+      <tr><td class="id">24</td><td class="inp"><code>lend_repay</code></td><td><span class="tag t-pass">lend</span></td><td>all lend_* collapse to lend</td></tr>
+      <tr><td class="id">25</td><td class="inp"><code>lend_borrow</code></td><td><span class="tag t-pass">lend</span></td><td>all lend_* collapse to lend</td></tr>
+      <tr><td class="id">26</td><td class="inp"><code>lend_withdraw</code></td><td><span class="tag t-pass">lend</span></td><td>all lend_* collapse to lend</td></tr>
+      <tr><td class="id">27</td><td class="inp"><code>stake</code></td><td><span class="tag t-pass">stake</span></td><td>1:1 map</td></tr>
+      <tr><td class="id">28</td><td class="inp"><code>unstake</code></td><td><span class="tag t-pass">stake</span></td><td>unstake shares stake category</td></tr>
+      <tr><td class="id">29</td><td class="inp"><code>transfer</code></td><td><span class="tag t-pass">send</span></td><td>transfer &rarr; send</td></tr>
+      <tr><td class="id">30</td><td class="inp"><code>limit_order</code></td><td><span class="tag t-pass">limit</span></td><td>1:1 map</td></tr>
+      <tr><td class="id">31</td><td class="inp"><code>bridge_redeem</code></td><td><span class="tag t-pass">bridge</span></td><td>1:1 map</td></tr>
+      <tr><td class="id">32</td><td class="inp"><code>composite</code></td><td><span class="tag t-skip">null · skip</span></td><td>multi-leg chain, no single verb</td></tr>
+      <tr><td class="id">33</td><td class="inp"><code>cancel_order</code></td><td><span class="tag t-skip">null · skip</span></td><td>DeepBook lifecycle, UI-driven</td></tr>
+      <tr><td class="id">34</td><td class="inp"><code>bm_create</code></td><td><span class="tag t-skip">null · skip</span></td><td>onboarding wizard, not NL</td></tr>
+      <tr><td class="id">35</td><td class="inp"><code>bm_deposit</code></td><td><span class="tag t-skip">null · skip</span></td><td>onboarding wizard, not NL</td></tr>
+      <tr><td class="id">36</td><td class="inp"><code>withdraw_settled</code></td><td><span class="tag t-skip">null · skip</span></td><td>order-management UI</td></tr>
+      <tr><td class="id">37</td><td class="inp"><code>claim_settled</code></td><td><span class="tag t-skip">null · skip</span></td><td>order-management UI</td></tr>
+      <tr><td class="id">38</td><td class="inp"><code>unknown_action</code></td><td><span class="tag t-skip">null · skip</span></td><td>unknown &rarr; skip (fail-open)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.3 · <code>assertActionMatchesText</code> — the cross-check gate <span class="muted">(19 cases)</span></h3>
+  <table>
+    <thead><tr><th class="id">#</th><th style="width:30%">User text</th><th style="width:18%">actionType</th><th style="width:14%">Result</th><th>Done condition</th></tr></thead>
+    <tbody>
+      <tr><td class="id">39</td><td class="inp"><code>lend 5 USDC on navi</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>reason names both "swap" &amp; "lend" + "rephrase"</td></tr>
+      <tr><td class="id">40</td><td class="inp"><code>stake 10 SUI</code></td><td><code>lend_deposit</code></td><td><span class="tag t-block">BLOCK</span></td><td>reason names "lend_deposit" &amp; "stake"</td></tr>
+      <tr><td class="id">41</td><td class="inp"><code>send 1 SUI to alice</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>send&ne;swap &rarr; blocked</td></tr>
+      <tr><td class="id">42</td><td class="inp"><code>swap 5 SUI to USDC</code></td><td><code>lend_deposit</code></td><td><span class="tag t-block">BLOCK</span></td><td>swap&ne;lend &rarr; blocked</td></tr>
+      <tr><td class="id">43</td><td class="inp"><code>bridge USDC to eth</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>bridge&ne;swap &rarr; blocked</td></tr>
+      <tr><td class="id">44</td><td class="inp"><code>swap 5 SUI to USDC</code></td><td><code>swap</code></td><td><span class="tag t-pass">PASS</span></td><td>category match &rarr; allowed</td></tr>
+      <tr><td class="id">45</td><td class="inp"><code>lend 5 USDC on navi</code></td><td><code>lend_deposit</code></td><td><span class="tag t-pass">PASS</span></td><td>both &rarr; lend</td></tr>
+      <tr><td class="id">46</td><td class="inp"><code>deposit 10 USDC to suilend</code></td><td><code>lend_repay</code></td><td><span class="tag t-pass">PASS</span></td><td>both &rarr; lend (sub-action differs, OK)</td></tr>
+      <tr><td class="id">47</td><td class="inp"><code>stake 10 SUI</code></td><td><code>stake</code></td><td><span class="tag t-pass">PASS</span></td><td>category match</td></tr>
+      <tr><td class="id">48</td><td class="inp"><code>stake 10 SUI</code></td><td><code>unstake</code></td><td><span class="tag t-pass">PASS</span></td><td>both &rarr; stake category (no over-block)</td></tr>
+      <tr><td class="id">49</td><td class="inp"><code>send 1 SUI to alice</code></td><td><code>transfer</code></td><td><span class="tag t-pass">PASS</span></td><td>both &rarr; send</td></tr>
+      <tr><td class="id">50</td><td class="inp"><code>show my portfolio</code> &amp; 2 more</td><td><code>swap</code> · …</td><td><span class="tag t-pass">PASS</span></td><td>read-only text &rarr; null &rarr; pass (no FP)</td></tr>
+      <tr><td class="id">51</td><td class="inp"><code>5 SUI USDC</code> (no verb)</td><td><code>swap</code></td><td><span class="tag t-pass">PASS</span></td><td>ambiguous &rarr; null &rarr; pass (no FP)</td></tr>
+      <tr><td class="id">52</td><td class="inp"><code>""</code> (empty)</td><td><code>swap</code></td><td><span class="tag t-pass">PASS</span></td><td>empty &rarr; null &rarr; pass (no FP)</td></tr>
+      <tr><td class="id">53</td><td class="inp"><code>swap…</code> / <code>lend…</code></td><td><code>composite</code></td><td><span class="tag t-skip">SKIP</span></td><td>composite null &rarr; pass even if verb present</td></tr>
+      <tr><td class="id">54</td><td class="inp"><code>stake 10 SUI</code></td><td><code>cancel_order</code></td><td><span class="tag t-skip">SKIP</span></td><td>DeepBook lifecycle &rarr; pass</td></tr>
+      <tr><td class="id">55</td><td class="inp"><code>swap 5 SUI</code></td><td><code>bm_create</code></td><td><span class="tag t-skip">SKIP</span></td><td>onboarding &rarr; pass</td></tr>
+      <tr><td class="id">56</td><td class="inp"><code>stake 10 SUI</code></td><td><code>withdraw_settled</code></td><td><span class="tag t-skip">SKIP</span></td><td>order-mgmt &rarr; pass</td></tr>
+      <tr><td class="id">57</td><td class="inp"><code>lend 5 USDC on navi</code></td><td><code>swap</code></td><td><span class="tag t-block">BLOCK</span></td><td>reason is user-safe: no "Error", contains "rephrase"</td></tr>
+    </tbody>
+  </table>
+
+  <!-- MANUAL E2E -->
+  <h2>3 · Manual end-to-end UI test cases</h2>
+  <p class="muted">Run against the dev server (<code>pnpm --filter web dev</code> &rarr; <code>http://localhost:3000/app</code>),
+  wallet connected. These exercise the full stream path the unit tests stub out.</p>
+
+  <h3>M-1 · Block path — forced LLM misdetection</h3>
+  <ol class="steps">
+    <li>Type a command whose verb is unambiguous, e.g. <code>lend 5 USDC on navi</code>.</li>
+    <li>In a misdetection scenario the LLM proposes <code>prepareTrade(actionType:"swap")</code>.</li>
+    <li><b>Expect:</b> no signable swap preview appears. Instead a <b>BlockCard</b> renders with reason
+      <i>"Refusing for safety: the prepared action (\"swap\") doesn't match what you asked (\"lend\")…"</i> and gate <code>intent_mismatch</code>.</li>
+    <li><b>Done when:</b> nothing signable is shown; user is asked to rephrase; no wallet popup.</li>
+  </ol>
+
+  <h3>M-2 · Pass path — correct detection</h3>
+  <ol class="steps">
+    <li>Type <code>swap 5 SUI to USDC</code>.</li>
+    <li>LLM proposes <code>prepareTrade(actionType:"swap")</code>.</li>
+    <li><b>Expect:</b> the normal swap preview card renders (Guardian-checked), wallet sign enabled.</li>
+    <li><b>Done when:</b> preview shows the correct route &amp; amounts; gate adds no friction to a correct turn.</li>
+  </ol>
+
+  <h3>M-3 · No-false-positive on read-only &amp; chained intents</h3>
+  <ol class="steps">
+    <li>Type <code>show my portfolio</code> &rarr; portfolio renders, gate silent (routeAction null).</li>
+    <li>Type a composite/atomic intent (<code>swap 5 SUI to USDC then lend it</code>) and run atomic &rarr; the composite actionType is <b>skipped</b> by the gate (categoryForActionType null); chain proceeds normally.</li>
+    <li><b>Done when:</b> neither legitimate flow is blocked.</li>
+  </ol>
+
+  <!-- VERIFICATION CHECKLIST -->
+  <h2>4 · Verification checklist · done conditions</h2>
+  <ul class="ck">
+    <li><b>Unit coverage:</b> 57/57 automated cases pass (<code>vitest run intent-router.test.ts</code> — 124ms).</li>
+    <li><b>Full regression:</b> 1103/1103 tests pass — zero regressions from the gate (1046 prior + 57 new).</li>
+    <li><b>Typecheck:</b> agent + web typecheck clean; the new module emits no errors.</li>
+    <li><b>Runtime resolution:</b> <code>require("@dewlock/agent/intent/intent-router")</code> resolves from <code>apps/web</code> (where the route runs); package export added &amp; dist built.</li>
+    <li><b>Behavior smoke:</b> <code>routeAction("lend 5 USDC on navi") = "lend"</code>; mismatch vs <code>swap</code> returns the safe block reason at runtime.</li>
+    <li><b>Block shape:</b> emitted <code>{ ok:false, reasons, gates:["intent_mismatch"] }</code> matches the Guardian block shape &rarr; renders via <code>isPrepareTradeResult &rarr; makeBlockCard &rarr; BlockCard</code> (verified end-to-end).</li>
+    <li><b>No false positives:</b> null on either side passes — read-only, ambiguous, empty, composite, DeepBook all flow through.</li>
+    <li><b>Fail-open machinery:</b> router throw / module-load failure / uncapturable actionType &rarr; gate skips; only a positive category mismatch is a hard block.</li>
+    <li><b>Dev server:</b> rebuilt agent dist picked up; <code>/app</code> returns HTTP 200.</li>
+    <li><b>Committed:</b> <code>91172d7</code> on <code>main</code> (not pushed).</li>
+  </ul>
+
+  <div class="note warn"><b>Known limitation (fail-open, by design):</b> the gate reads <code>actionType</code> from the Mastra
+  <b>tool-call</b> stream part because the <code>ok:true</code> result carries no <code>actionType</code>. It relies on the
+  tool-call part arriving before the tool-result in Mastra 1.42's <code>fullStream</code> (it does). If that ordering ever
+  changes, the captured actionType is null and the gate <b>fails open</b> — safe (never blocks a legit turn) but blind.
+  Hardening follow-up: add <code>actionType</code> to the <code>prepareTrade</code> output schema for a result-side fallback.</div>
+
+  <div class="foot">
+    <span>Dewlock · Intent-Router Cross-Check Gate · QA Report</span>
+    <span>intent-router.ts · route.ts · 57 tests · commit 91172d7 · 2026-06-26</span>
+  </div>
+
+</div>
+</body>
+</html>
