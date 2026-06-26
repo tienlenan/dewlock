@@ -173,6 +173,23 @@ describe("PlanStepper — ordered step execution and halt semantics", () => {
     expect(states[1].status).toBe("cancelled");
   });
 
+  it("resetStepToPending makes an active step re-preparable WITHOUT halting the chain", () => {
+    // A transient stale-object sign failure resets the step to pending (not blocked),
+    // so the user can re-prepare it; later steps are NOT cancelled.
+    const stepper = new PlanStepper(WALLET, makeSteps());
+    stepper.startStep(0);
+    expect(stepper.getStepStates()[0].status).toBe("active");
+
+    stepper.resetStepToPending(0);
+    expect(stepper.getStepStates()[0].status).toBe("pending"); // re-preparable
+    expect(stepper.getStepStates()[1].status).toBe("pending"); // not cancelled — chain not halted
+    expect(stepper.isChainIncomplete()).toBe(false);
+
+    // The step can be started again for a fresh build.
+    expect(() => stepper.startStep(0)).not.toThrow();
+    expect(stepper.getStepStates()[0].status).toBe("active");
+  });
+
   it("BLOCK at step 0 produces a chain-incomplete marker", () => {
     const stepper = new PlanStepper(WALLET, makeSteps());
     stepper.startStep(0);

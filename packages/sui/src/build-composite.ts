@@ -4,17 +4,20 @@
  * WHY single PTB: both legs execute atomically — if NAVI deposit fails, the swap is also
  * reverted. "One signature, all-or-nothing" is the user-facing guarantee.
  *
- * WHY fixture-mode only in v1: the live aggregator SDK (fastRouterSwap) internally manages
- * its own coin flow and does not expose a stable "here is the output coin PTBResult" hook.
- * Refactoring that hook requires SDK cooperation beyond the scope of v1. The fixture path
- * demonstrates the PTB structure (swap leg output coin → lend leg input) and is what the
- * Guardian's dry-run, multiset, and delta/owner checks run against in tests.
+ * Live mode (swap_lend_v1): uses Aftermath Router's addTransactionForCompleteTradeRoute to
+ * add the swap to an existing tx and return coinOutId (the swap-output coin object). That
+ * coinOutId is then passed directly to NAVI depositCoinPTB — no wallet coin selection
+ * between legs. This is the structural proof that the swap output feeds the lend input.
  *
  * For live mode: the Guardian's checkCompositeRecipe still verifies the composite PTB's
  * MoveCall multiset + delta/owner invariants regardless of how the PTB was built.
  *
  * Atomicity: a Move abort in either leg (e.g. slippage exceeded, NAVI deposit rejected)
  * reverts the entire PTB. Nothing executes on abort.
+ *
+ * NOTE [needs mainnet verification]: the Aftermath Router coinOutId shape and the NAVI
+ * depositCoinPTB coin-argument signature are verified against the bundled SDK at build time
+ * but depend on upstream SDK versions in sdk-bundles/aftermath.cjs and sdk-bundles/navi.cjs.
  */
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
@@ -134,13 +137,136 @@ export async function buildComposite(
     return buildFixtureComposite(client, senderAddress, swapLeg, lendLeg);
   }
 
-  // Live mode: fail-closed — the live aggregator SDK does not expose a stable
-  // "output coin PTBResult" hook for chaining. Until that API is available,
-  // reject live composite builds rather than produce an unsafe PTB.
-  throw new CompositeBuildError(
-    "Composite live-mode build is not yet supported (requires aggregator SDK output-coin hook). " +
-      "Use fixture mode or sequential Track A for this intent.",
-  );
+  // Live mode: Aftermath Router exposes addTransactionForCompleteTradeRoute which
+  // adds the swap to a shared tx and returns coinOutId — the swap-output coin usable
+  // as a PTB argument. We wire it directly into NAVI depositCoinPTB (one PTB, one sig).
+  // [needs mainnet verification] — Guardian's checkCompositeRecipe re-verifies the full
+  // PTB via dry-run before returning approvedDigest to the client.
+  return buildLiveSwapLendPtb(client, senderAddress, swapLeg, lendLeg);
+}
+
+// ---------------------------------------------------------------------------
+// Live composite builder — Aftermath swap → NAVI deposit (one PTB)
+// [needs mainnet verification]
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a live composite PTB: SUI → (Aftermath Router swap) → USDC →
+ * (NAVI depositCoinPTB) in a SINGLE PTB.
+ *
+ * The Aftermath Router's addTransactionForCompleteTradeRoute mutates the shared tx
+ * and returns { tx, coinOutId } where coinOutId is a TransactionObjectArgument
+ * referencing the swap-output coin. NAVI depositCoinPTB accepts that coinOutId
+ * directly — no wallet coin selection, no intermediate transfer between legs.
+ *
+ * Throws CompositeBuildError on any failure (SDK load, route fetch, build).
+ * Callers (Guardian) treat a throw as BLOCK.
+ */
+async function buildLiveSwapLendPtb(
+  client: SuiClient,
+  sender: string,
+  swapLeg: CompositeLeg,
+  lendLeg: CompositeLeg,
+): Promise<CompositeBuildResult> {
+  type AftermathSdk = typeof import("aftermath-ts-sdk");
+  type NaviSdk = typeof import("@naviprotocol/lending");
+
+  let mod: AftermathSdk;
+  let navi: NaviSdk;
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    mod = require("../sdk-bundles/aftermath.cjs") as AftermathSdk;
+  } catch (err) {
+    throw new CompositeBuildError(
+      `Failed to load Aftermath SDK: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  try {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    navi = require("../sdk-bundles/navi.cjs") as NaviSdk;
+  } catch (err) {
+    throw new CompositeBuildError(
+      `Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  try {
+    const af = await mod.Aftermath.create({ network: "MAINNET" });
+    const router = af.Router();
+
+    // Leg 0: fetch the best Aftermath route for coinTypeIn → coinTypeOut.
+    const slippageFraction = (swapLeg.slippageBps ?? 50) / 10_000;
+    const completeRoute = await router.getCompleteTradeRouteGivenAmountIn({
+      coinInType: swapLeg.coinTypeIn,
+      coinOutType: swapLeg.coinTypeOut!,
+      coinInAmount: swapLeg.amountInNative,
+    });
+
+    // Estimate swap output for the NAVI deposit amount parameter.
+    const rawOut = (completeRoute as { coinOut?: { amount?: bigint | string } }).coinOut?.amount;
+    if (rawOut == null) {
+      throw new CompositeBuildError(
+        "Aftermath router returned no coinOut.amount — cannot build composite swap.",
+      );
+    }
+    const estimatedAmountOut =
+      typeof rawOut === "bigint" ? rawOut : BigInt(String(rawOut));
+    if (estimatedAmountOut <= 0n) {
+      throw new CompositeBuildError(
+        "Aftermath router returned zero estimated output — cannot build composite swap.",
+      );
+    }
+
+    // Build a fresh transaction for the composite PTB.
+    const tx = new Transaction();
+    tx.setSender(sender);
+
+    // Leg 0 (swap): add the Aftermath route to the shared tx. The router mutates tx
+    // and returns { tx: tx2, coinOutId } where coinOutId is the swap-output coin arg.
+    // [needs mainnet verification] — addTransactionForCompleteTradeRoute signature:
+    //   { tx, completeRoute, walletAddress, slippage } → { tx, coinOutId }
+    const swapResult = await router.addTransactionForCompleteTradeRoute({
+      tx,
+      completeRoute,
+      walletAddress: sender,
+      slippage: slippageFraction,
+    });
+    // The router may return a new tx reference or mutate in place — use returned tx2
+    // to capture any internal reassignment.
+    const tx2: Transaction = (swapResult as { tx: Transaction }).tx ?? tx;
+    const coinOutId = (swapResult as { coinOutId: TransactionObjectArgument }).coinOutId;
+    if (!coinOutId) {
+      throw new CompositeBuildError(
+        "Aftermath addTransactionForCompleteTradeRoute returned no coinOutId — " +
+          "cannot wire swap output into the NAVI deposit leg.",
+      );
+    }
+
+    // Leg 1 (lend deposit): pass coinOutId directly to NAVI depositCoinPTB.
+    // coinOutId is the swap-output PTBResult — no wallet coin selection between legs.
+    // NAVI SDK signature: depositCoinPTB(tx, coinType, coin, options)
+    // where options = { account: senderAddress, amount: number (native units) }
+    // [needs mainnet verification] — amount is the estimated swap output in native units.
+    const naviOptions = {
+      account: sender,
+      amount: Number(estimatedAmountOut),
+    } as never;
+    await navi.depositCoinPTB(tx2, lendLeg.coinTypeIn, coinOutId as never, naviOptions);
+
+    // Native-SUI input is split from tx.gas by the Aftermath router. Pin gas payment
+    // so a fragmented wallet doesn't land on a gas coin too small for the split.
+    if (swapLeg.coinTypeIn === COIN_TYPES.SUI) {
+      await pinSuiGasPayment(client, tx2, sender, swapLeg.amountInNative);
+    }
+
+    const bytes = await tx2.build({ client: client as unknown as ClientWithCoreApi });
+    return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
+  } catch (err) {
+    if (err instanceof CompositeBuildError) throw err;
+    throw new CompositeBuildError(
+      `Composite live PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -207,10 +333,6 @@ function _buildSwapLegFixture(tx: Transaction, leg: CompositeLeg): TransactionOb
   // owned coins — in fixture mode, we use gas-split as a universal stand-in.
   // The Guardian's delta/owner walk on the mocked dry-run result is what validates
   // the real invariants; the fixture bytes only need to parse cleanly.
-  //
-  // tx.splitCoins() returns TransactionResult (union), and destructuring narrows to
-  // NestedResult — cast to TransactionObjectArgument (the correct PTB argument type
-  // for object/coin arguments, accepted by tx.moveCall arguments array).
   const [swapOutput] = tx.splitCoins(tx.gas, [leg.amountInNative]);
   return swapOutput as TransactionObjectArgument;
 }
@@ -224,9 +346,6 @@ function _buildSwapLegFixture(tx: Transaction, leg: CompositeLeg): TransactionOb
  * Placeholder: uses a moveCall with the NAVI entry_deposit target so the Guardian's
  * multiset check can verify the lend leg is present. The real NAVI SDK call would
  * pass the coin as the first positional argument; the placeholder mirrors that shape.
- *
- * The NAVI package is imported via the allowlist constants so the target string is
- * stable and consistent with allowedTargetsForAction("lend_deposit").
  */
 function _buildLendLegFixture(
   tx: Transaction,
@@ -234,8 +353,6 @@ function _buildLendLegFixture(
   inputCoin: TransactionObjectArgument,
   _senderAddress: string,
 ): void {
-  // Import is done inline to avoid a circular dep with the agent package's allowlist.
-  // The NAVI package id is authoritative from protocol-constants.ts (via the allowlist export).
   const NAVI_PKG = "0x1e4a13a0494d5facdbe8473e74127b838c2d446ecec0ce262e2eddafa77259cb";
   // Placeholder MoveCall: entry_deposit(coin, ...). The real call passes additional
   // NAVI pool + config objects; the fixture call uses the coin arg only, which is

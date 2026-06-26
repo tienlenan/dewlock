@@ -138,6 +138,17 @@ export interface ChainStepperHookReturn {
     reasons: string[],
     updatePlan: UpdatePlanFn,
   ) => void;
+
+  /**
+   * Called when a step's sign failed with a TRANSIENT stale-object error. Resets the
+   * step to "pending" (does NOT halt the chain) so the user can re-prepare it for a
+   * fresh build via the "Prepare Step N" button.
+   */
+  onStepStale: (
+    planId: string,
+    stepIndex: number,
+    updatePlan: UpdatePlanFn,
+  ) => void;
 }
 
 export function useChainPlanStepper(): ChainStepperHookReturn {
@@ -337,14 +348,21 @@ export function useChainPlanStepper(): ChainStepperHookReturn {
         const resolvedLabel = `${humanAmount} ${symbol}`;
 
         // Surface on the card and unlock the next step for user confirmation.
-        updatePlan(planId, (prev) =>
-          patchStepResolved(prev, nextStepIndex, resolvedLabel),
-        );
+        // updatePlan closes over a chat.messages snapshot; this runs AFTER the ~1.5s balance
+        // read, in a later tick than the "done" patch above, so its base may predate that
+        // patch. Re-assert step k = done here (idempotent) so this call cannot clobber it
+        // back to "active" — the bug where Step 1 stayed "preparing…" after it confirmed.
+        updatePlan(planId, (prev) => {
+          const withDone = patchStepStatusAndDigest(prev, stepIndex, "done", txDigest);
+          return patchStepResolved(withDone, nextStepIndex, resolvedLabel);
+        });
       }
 
-      // If chain is now complete, reflect that.
+      // If chain is now complete, reflect that. Re-assert this step = done (idempotent)
+      // rather than spreading prev — on a stale snapshot a bare {...prev} would revert the
+      // just-confirmed last step back to "active" (same clobber class as the resolve patch).
       if (entry.stepper.isComplete()) {
-        updatePlan(planId, (prev) => ({ ...prev })); // trigger re-render; steps already done
+        updatePlan(planId, (prev) => patchStepStatusAndDigest(prev, stepIndex, "done", txDigest));
       }
     },
     [client],
@@ -383,7 +401,24 @@ export function useChainPlanStepper(): ChainStepperHookReturn {
     [],
   );
 
-  return { registerPlan, onStartStep, onStepConfirmed, onStepBlocked };
+  // ---------------------------------------------------------------------------
+  // onStepStale — transient stale-object failure → reset to re-preparable (no halt)
+  // ---------------------------------------------------------------------------
+
+  const onStepStale = useCallback(
+    (planId: string, stepIndex: number, updatePlan: UpdatePlanFn) => {
+      const entry = entriesRef.current.get(planId);
+      if (!entry) return;
+      entry.stepper.resetStepToPending(stepIndex);
+      // Clear any resolved-amount staleness is unnecessary (the resolved amount stays
+      // valid — only the prepared bytes went stale). Just flip the status back so the
+      // "Prepare Step N" button reappears for a fresh re-issue.
+      updatePlan(planId, (prev) => patchStepStatus(prev, stepIndex, "pending"));
+    },
+    [],
+  );
+
+  return { registerPlan, onStartStep, onStepConfirmed, onStepBlocked, onStepStale };
 }
 
 // ---------------------------------------------------------------------------

@@ -399,6 +399,10 @@ export default function AppPage() {
     onChainStepBlocked: (planId, stepIndex, reasons) => {
       chainStepper.onStepBlocked(planId, stepIndex, reasons, updatePlan);
     },
+    onChainStepStale: (planId, stepIndex) => {
+      // Transient stale-object failure → reset the step to re-preparable (no halt).
+      chainStepper.onStepStale(planId, stepIndex, updatePlan);
+    },
   };
 
   // Conversation list + persistence live at the PAGE level — the SAME level as `chat`, which

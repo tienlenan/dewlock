@@ -48,6 +48,7 @@ type SupportedCoinType = (typeof SUPPORTED_COIN_TYPES)[number];
 
 // Deterministic actions servable without the LLM. The DeepBook order-lifecycle verbs
 // are driven straight from the positions UI (no natural-language round).
+// "composite" is driven from the chain-plan card atomic toggle (no NL round needed).
 const DETERMINISTIC_ACTIONS = [
   "transfer",
   "swap",
@@ -57,6 +58,7 @@ const DETERMINISTIC_ACTIONS = [
   "cancel_order",
   "withdraw_settled",
   "claim_settled",
+  "composite",
 ] as const;
 
 const requestSchema = z.object({
@@ -95,6 +97,26 @@ const requestSchema = z.object({
     .regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex order id")
     .optional(),
 
+  // --- Composite fields (actionType === "composite") ---
+  compositeRecipeId: z
+    .string()
+    .optional()
+    .describe("Declared recipe id (e.g. 'swap_lend_v1'). Required when actionType==='composite'."),
+
+  compositeLegs: z
+    .array(
+      z.object({
+        actionType: z.enum(["swap", "lend_deposit"]),
+        coinTypeIn: z.enum(SUPPORTED_COIN_TYPES as readonly [SupportedCoinType, ...SupportedCoinType[]]),
+        coinTypeOut: z.enum(SUPPORTED_COIN_TYPES as readonly [SupportedCoinType, ...SupportedCoinType[]]).optional(),
+        amountInNative: z.string().regex(/^\d+$/).describe("Amount in native units"),
+        lendingProtocol: z.enum(["navi", "suilend"]).optional(),
+        slippageBps: z.number().int().min(0).max(5000).optional(),
+      }),
+    )
+    .optional()
+    .describe("Per-leg specs for a composite proposal (actionType==='composite')."),
+
   argProvenance: z
     .object({
       recipient: z.enum(["user_turn", "derived"]).optional(),
@@ -106,8 +128,8 @@ const requestSchema = z.object({
   verifiedContacts: z.array(z.string()).optional(),
 });
 
-/** DeepBook order-lifecycle actions that bypass the transfer/swap coin+amount precondition. */
-const DEEPBOOK_ACTIONS = new Set(["bm_create", "bm_deposit", "cancel_order", "withdraw_settled", "claim_settled"]);
+/** Actions that bypass the transfer/swap coin+amount precondition (handled internally). */
+const DEEPBOOK_ACTIONS = new Set(["bm_create", "bm_deposit", "cancel_order", "withdraw_settled", "claim_settled", "composite"]);
 
 // ---------------------------------------------------------------------------
 // CORS headers
@@ -130,6 +152,8 @@ function buildActionLabel(actionType: string, amountInNative: string): string {
       return "Claim settled DeepBook balances";
     case "withdraw_settled":
       return `Withdraw settled balance (${amountInNative} native units)`;
+    case "composite":
+      return "Atomic swap + lend (1 signature)";
     default:
       return `Action ${amountInNative} native units`;
   }
@@ -285,11 +309,19 @@ export async function POST(req: NextRequest) {
       recipientInput: input.recipientInput,
       amountInNative: effectiveAmountInNative,
       slippageBps: input.slippageBps ?? 50,
-      // DeepBook order-lifecycle identifiers — forwarded so execute can route + gate them
-      // (dropping these is what made the no-NL-round path impossible before).
+      // DeepBook order-lifecycle identifiers — forwarded so execute can route + gate them.
       poolKey: input.poolKey,
       balanceManagerId: input.balanceManagerId,
       orderId: input.orderId,
+      // Composite fields — forwarded when actionType === "composite".
+      compositeRecipeId: input.compositeRecipeId,
+      compositeLegs: input.compositeLegs?.map((leg) => ({
+        coinTypeIn: leg.coinTypeIn,
+        coinTypeOut: leg.coinTypeOut,
+        amountInNative: leg.amountInNative,
+        lendingProtocol: leg.lendingProtocol,
+        slippageBps: leg.slippageBps,
+      })),
       actionLabel,
       argProvenance,
       verifiedContacts: input.verifiedContacts ?? [],

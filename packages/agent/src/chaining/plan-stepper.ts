@@ -170,6 +170,20 @@ export class PlanStepper {
   }
 
   /**
+   * Reset step i back to "pending" after a TRANSIENT, retry-able failure — e.g. the
+   * prepared bytes went stale because a prior step changed the coin objects (RPC lag).
+   * Unlike blockStep, this does NOT halt the chain: the step can be re-prepared for a
+   * fresh build. Later steps are untouched. No-op if the step already advanced.
+   */
+  resetStepToPending(i: number): void {
+    const state = this.states[i];
+    if (state && (state.status === "active" || state.status === "blocked")) {
+      state.status = "pending";
+      state.blockReasons = undefined;
+    }
+  }
+
+  /**
    * Coin object IDs from step i-1 that step i must wait to see on the RPC node
    * before building. Polling getObject on these IDs (with version check) ensures
    * selectCoin in the lend/transfer builders does not pick a stale object version.

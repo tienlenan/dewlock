@@ -20,7 +20,7 @@
  * per card — rules-of-hooks compliant, approvedDigest baked per card instance.
  */
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { TxPreviewCard } from "@/components/tx-preview-card";
 import { TxRebuildCard } from "@/components/tx-rebuild-card";
 import { BlockCard } from "@/components/block-card";
@@ -50,7 +50,7 @@ import {
 import type { TxPreviewData } from "@/components/tx-preview-card";
 import type { PortfolioCardProps } from "@/components/portfolio-card";
 import { useSignAndExecuteTx, WysiwysError } from "@/lib/use-sign-and-execute-tx";
-import { friendlySignError } from "@/lib/sign-error-message";
+import { friendlySignError, isRetryableStaleSignError } from "@/lib/sign-error-message";
 import { emitTxConfirmed } from "@/lib/tx-events";
 import { useLivePositions } from "@/lib/use-live-positions";
 import { useReceiptStream } from "./use-receipt-stream";
@@ -195,6 +195,14 @@ export interface ChainSignCallbacks {
     stepIndex: number,
     reasons: string[],
   ) => void;
+
+  /**
+   * Called when a chain step's sign failed with a TRANSIENT, retry-able error (the
+   * prepared bytes went stale because a prior step changed the coin objects). Unlike
+   * onChainStepBlocked, this does NOT halt the chain — it resets the step to "pending"
+   * so the user can re-prepare it for a fresh build.
+   */
+  onChainStepStale?: (planId: string, stepIndex: number) => void;
 }
 
 interface ChatThreadProps {
@@ -552,54 +560,149 @@ export function ChatThread({ messages, onReplaceCard, walletAddress, onSend, cha
   const bottomRef = useRef<HTMLDivElement>(null);
   const isEmpty = messages.length === 0;
 
+  // ---------------------------------------------------------------------------
+  // Pinned chain-plan card state (Feature B).
+  // When a chain plan is IN PROGRESS (steps active/pending, not all done/halted),
+  // we surface it in a sticky slot at the bottom of the thread viewport so the
+  // user can always see it without scrolling up.
+  // pinnedPlan: the plan data to show in the pinned slot, or null when released.
+  // ---------------------------------------------------------------------------
+  const [pinnedPlan, setPinnedPlan] = useState<import("@/components/chat/chain-plan-card").ChainPlanData | null>(null);
+
+  // Derive which plan (if any) should be pinned: find the in-progress chain-plan
+  // card across all messages. "In progress" = not all done AND not halted (blocked).
+  const activePlan = useMemo(() => {
+    for (const msg of messages) {
+      for (const card of msg.cards ?? []) {
+        if (card.type === "chain-plan") {
+          const { steps } = card.plan;
+          const allDone = steps.every((s) => s.status === "done");
+          const hasBlock = steps.some((s) => s.status === "blocked");
+          if (!allDone && !hasBlock) return card.plan;
+        }
+      }
+    }
+    return null;
+  }, [messages]);
+
+  // Sync the pinned slot with the derived active plan.
+  useEffect(() => {
+    setPinnedPlan(activePlan);
+  }, [activePlan]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Lookup a chain-plan card's replace callback by planId for the pinned slot.
+  // The pinned card needs onReplace so the atomic tx-preview flows correctly.
+  const getPinnedOnReplace = useCallback(
+    (planOriginalText: string) => {
+      for (const msg of messages) {
+        for (let i = 0; i < (msg.cards?.length ?? 0); i++) {
+          const card = msg.cards[i];
+          if (card?.type === "chain-plan" && card.plan.originalText === planOriginalText) {
+            return (replacement: ToolCard) => onReplaceCard(msg.id, i, replacement);
+          }
+        }
+      }
+      return undefined;
+    },
+    [messages, onReplaceCard],
+  );
+
   return (
     /*
-     * role="log" + aria-live="polite": announces new messages to screen readers
-     * without interrupting ongoing speech (polite = waits for current utterance).
-     * aria-label provides a descriptive region name for AT landmark navigation.
+     * Outer wrapper: flex-col so the pinned slot sits between the scroll area
+     * and where ChatInput renders (in the parent). The scroll area is flex-1.
      */
     <div
-      role="log"
-      aria-live="polite"
-      aria-label="Conversation"
-      className="flex-1 overflow-y-auto"
-      style={{
-        padding: "26px clamp(16px, 4vw, 40px)",
-        // Custom scrollbar matching mockup
-        scrollbarWidth: "thin",
-        scrollbarColor: "var(--border-strong) transparent",
-      }}
+      className="flex-1"
+      style={{ display: "flex", flexDirection: "column", minHeight: 0 }}
     >
+      {/*
+       * role="log" + aria-live="polite": announces new messages to screen readers
+       * without interrupting ongoing speech (polite = waits for current utterance).
+       * aria-label provides a descriptive region name for AT landmark navigation.
+       */}
       <div
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation"
         style={{
-          maxWidth: "680px",
-          margin: "0 auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: "20px",
+          flex: 1,
+          overflowY: "auto",
+          padding: "26px clamp(16px, 4vw, 40px)",
+          // Custom scrollbar matching mockup
+          scrollbarWidth: "thin",
+          scrollbarColor: "var(--border-strong) transparent",
         }}
       >
-        {/* Welcome + action cards + memory chips — shown on empty thread */}
-        <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} onSend={onSend} />
+        <div
+          style={{
+            maxWidth: "680px",
+            margin: "0 auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: "20px",
+          }}
+        >
+          {/* Welcome + action cards + memory chips — shown on empty thread */}
+          <WelcomeRow showMemory={isEmpty} walletAddress={walletAddress} onSend={onSend} />
 
-        {/* Message list */}
-        {messages.map((msg) => (
-          <MessageRow
-            key={msg.id}
-            message={msg}
-            onReplaceCard={onReplaceCard}
-            walletAddress={walletAddress}
-            onSend={onSend}
-            chainCallbacks={chainCallbacks}
-          />
-        ))}
+          {/* Message list */}
+          {messages.map((msg) => (
+            <MessageRow
+              key={msg.id}
+              message={msg}
+              onReplaceCard={onReplaceCard}
+              walletAddress={walletAddress}
+              onSend={onSend}
+              chainCallbacks={chainCallbacks}
+            />
+          ))}
 
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
       </div>
+
+      {/* Pinned chain-plan card — shown above ChatInput while the chain is in progress. */}
+      {pinnedPlan && (() => {
+        const onReplace = getPinnedOnReplace(pinnedPlan.originalText);
+        if (!onReplace) return null;
+        return (
+          <div
+            aria-label="Active chain plan (pinned)"
+            style={{
+              borderTop: "1px solid var(--border)",
+              background: "var(--bg)",
+              padding: "10px clamp(12px, 3vw, 32px)",
+              // Scrollable internally if the card is taller than the slot.
+              overflowY: "auto",
+              maxHeight: "40vh",
+              flexShrink: 0,
+            }}
+          >
+            <ChainPlanWithComposite
+              plan={pinnedPlan}
+              onStartStep={
+                chainCallbacks
+                  ? (stepIndex) =>
+                      chainCallbacks.onStartChainStep(
+                        pinnedPlan.originalText,
+                        stepIndex,
+                        pinnedPlan,
+                      )
+                  : undefined
+              }
+              onReplace={onReplace}
+              walletAddress={walletAddress}
+              chainCallbacks={chainCallbacks}
+              onPinChange={undefined}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -785,6 +888,7 @@ function CardSlot({
         chainContext={card.chainContext}
         onChainStepConfirmed={chainCallbacks?.onChainStepConfirmed}
         onChainStepBlocked={chainCallbacks?.onChainStepBlocked}
+        onChainStepStale={chainCallbacks?.onChainStepStale}
       />
     );
   }
@@ -942,24 +1046,25 @@ function CardSlot({
     return <BmOnboardingCard walletAddress={card.walletAddress} />;
   }
   if (card.type === "chain-plan") {
-    // Lazy import to avoid pulling chain-plan-card into the main bundle until needed.
-    const { ChainPlanCard } = require("@/components/chat/chain-plan-card") as {
-      ChainPlanCard: (props: import("@/components/chat/chain-plan-card").ChainPlanCardProps) => React.ReactElement | null;
-    };
     return (
-      <ChainPlanCard
+      <ChainPlanWithComposite
         plan={card.plan}
         onStartStep={
           chainCallbacks
             ? (stepIndex) =>
                 chainCallbacks.onStartChainStep(
-                  // planId = originalText is stable within a session and unique per message
                   card.plan.originalText,
                   stepIndex,
                   card.plan,
                 )
             : undefined
         }
+        onReplace={onReplace}
+        walletAddress={walletAddress}
+        chainCallbacks={chainCallbacks}
+        // Pin state is managed inside ChainPlanWithComposite → ChainPlanCard.
+        // onPinChange is not needed here because the sticky slot is inside ChatThread.
+        onPinChange={undefined}
       />
     );
   }
@@ -983,6 +1088,7 @@ function TxPreviewCardWithSigning({
   chainContext,
   onChainStepConfirmed,
   onChainStepBlocked,
+  onChainStepStale,
 }: {
   pendingTx: PendingTx;
   onReplace: (replacement: ToolCard) => void;
@@ -991,6 +1097,7 @@ function TxPreviewCardWithSigning({
   chainContext?: ChainStepContext;
   onChainStepConfirmed?: ChainSignCallbacks["onChainStepConfirmed"];
   onChainStepBlocked?: ChainSignCallbacks["onChainStepBlocked"];
+  onChainStepStale?: ChainSignCallbacks["onChainStepStale"];
 }) {
   const [isPending, setIsPending] = useState(false);
   // Store txDigest after sign so the readiness callback can include it in the patch.
@@ -1102,9 +1209,17 @@ function TxPreviewCardWithSigning({
             "Please start a new transaction.",
         });
       } else {
-        const msg = friendlySignError(err instanceof Error ? err.message : String(err));
-        // Sign rejection (user cancelled wallet popup) → halt the chain.
-        if (chainContext && onChainStepBlocked) {
+        const raw = err instanceof Error ? err.message : String(err);
+        const msg = friendlySignError(raw);
+        if (chainContext && isRetryableStaleSignError(raw) && onChainStepStale) {
+          // TRANSIENT: the prepared bytes went stale because the prior step changed the
+          // coin objects (RPC lag). Do NOT halt the chain — reset the step to "pending"
+          // so the user can re-prepare it for a fresh build (the "Prepare Step N" button
+          // reappears). Re-submitting the SAME bytes would equivocate the coin, so the
+          // recovery is a fresh re-issue, which onStartChainStep does.
+          onChainStepStale(chainContext.planId, chainContext.stepIndex);
+        } else if (chainContext && onChainStepBlocked) {
+          // Terminal failure (e.g. user cancelled the wallet popup) → halt the chain.
           onChainStepBlocked(chainContext.planId, chainContext.stepIndex, [msg]);
         }
         onReplace({ type: "wysiwys-error", wysiwysMessage: msg });
@@ -1172,4 +1287,186 @@ function extractTouchedObjectIds(
     }
   }
   return [...new Set(ids)]; // deduplicate
+}
+
+// ---------------------------------------------------------------------------
+// ChainPlanWithComposite — wraps ChainPlanCard and handles the atomic toggle.
+//
+// WHY a wrapper: ChainPlanCard is a pure display component; the composite-build
+// logic needs fetch + state, which would violate rules-of-hooks if inlined into
+// CardSlot (a conditional branch). Extracting as a component keeps hooks stable.
+//
+// Atomic flow:
+//  1. User clicks "Run as 1 transaction (atomic)" → handleRunAtomic fires.
+//  2. Parse the chain plan steps → compositeLegs (swap leg + lend leg).
+//  3. POST /api/prepare-trade with actionType "composite".
+//  4. On PASS: call onReplace with a tx-preview card (same sign flow as any tx).
+//  5. On BLOCK: surface a brief error note; the sequential plan card remains visible
+//     so the user can fall back to step-by-step.
+// ---------------------------------------------------------------------------
+
+function ChainPlanWithComposite({
+  plan,
+  onStartStep,
+  onReplace,
+  walletAddress,
+  chainCallbacks,
+  onPinChange,
+}: {
+  plan: import("@/components/chat/chain-plan-card").ChainPlanData;
+  onStartStep?: (stepIndex: number) => void;
+  onReplace: (replacement: ToolCard) => void;
+  walletAddress?: string;
+  chainCallbacks?: ChainSignCallbacks;
+  onPinChange?: (pinned: boolean) => void;
+}) {
+  const { ChainPlanCard, isAtomicEligible } = require("@/components/chat/chain-plan-card") as {
+    ChainPlanCard: (props: import("@/components/chat/chain-plan-card").ChainPlanCardProps) => React.ReactElement | null;
+    isAtomicEligible: (plan: import("@/components/chat/chain-plan-card").ChainPlanData) => boolean;
+  };
+
+  const [atomicError, setAtomicError] = useState<string | null>(null);
+  const [atomicPreparing, setAtomicPreparing] = useState(false);
+  const [atomicTx, setAtomicTx] = useState<PrepareTradePass | null>(null);
+
+  // Parse a swap amount (native bigint) from a clause like "swap 5 SUI to USDC".
+  // Used to populate the swap leg's amountInNative for the composite proposal.
+  function parseSwapAmountNative(clause: string): string {
+    // Match decimal number in "swap <number> <COIN>" pattern.
+    const m = clause.match(/swap\s+([\d.,]+)\s+([A-Za-z]+)/i);
+    if (!m) return "0";
+    const human = parseFloat(m[1].replace(/,/g, ""));
+    const sym = m[2].toUpperCase();
+    // SUI = 9 decimals, others default 9 — composite only supports SUI→USDC in v1.
+    const decimals = sym === "USDC" ? 6 : sym === "DEEP" ? 6 : 9;
+    return BigInt(Math.round(human * 10 ** decimals)).toString();
+  }
+
+  const handleRunAtomic = useCallback(async () => {
+    if (!walletAddress || !isAtomicEligible(plan)) return;
+
+    const [swapStep, lendStep] = plan.steps;
+    if (!swapStep || !lendStep) return;
+
+    // Canonical coin types for the swap_lend_v1 recipe.
+    // v1 is SUI → USDC → NAVI deposit. The composite builder enforces coinTypeOut=lendCoinTypeIn.
+    const SUI_TYPE = "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI";
+    const USDC_TYPE = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+
+    const swapAmountNative = parseSwapAmountNative(swapStep.clause);
+
+    setAtomicPreparing(true);
+    setAtomicError(null);
+
+    try {
+      const res = await fetch("/api/prepare-trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress,
+          actionType: "composite",
+          coinTypeIn: SUI_TYPE,
+          amountInNative: swapAmountNative,
+          compositeRecipeId: "swap_lend_v1",
+          compositeLegs: [
+            {
+              actionType: "swap",
+              coinTypeIn: SUI_TYPE,
+              coinTypeOut: USDC_TYPE,
+              amountInNative: swapAmountNative,
+              slippageBps: 50,
+            },
+            {
+              actionType: "lend_deposit",
+              coinTypeIn: USDC_TYPE,
+              amountInNative: "0",
+              lendingProtocol: "navi",
+            },
+          ],
+          argProvenance: { amount: "user_turn" },
+        }),
+      });
+
+      const data = (await res.json()) as PrepareTradeResult;
+
+      if (!data.ok) {
+        const block = data as PrepareTradeBlock;
+        // Degrade gracefully — show the error note, keep the sequential plan card visible.
+        setAtomicError(
+          `Atomic build blocked: ${block.reasons.join("; ")} — falling back to step-by-step.`,
+        );
+        return;
+      }
+
+      // PASS: inject a tx-preview card (replaces this chain-plan card slot).
+      // The sign flow is identical to any other tx-preview.
+      const pass = data as PrepareTradePass;
+      setAtomicTx(pass);
+    } catch (err) {
+      setAtomicError(
+        `Atomic build failed: ${err instanceof Error ? err.message : "network error"} — use step-by-step.`,
+      );
+    } finally {
+      setAtomicPreparing(false);
+    }
+  }, [walletAddress, plan, isAtomicEligible]);
+
+  // When the atomic tx-preview is ready, replace the chain-plan card slot with a tx-preview.
+  // This is the ONE signature path — the composite PTB covers both legs atomically.
+  if (atomicTx) {
+    return (
+      <TxPreviewCardWithSigning
+        pendingTx={atomicTx}
+        onReplace={(replacement) => {
+          setAtomicTx(null);
+          onReplace(replacement);
+        }}
+        walletAddress={walletAddress}
+        // Composite tx has no chain step context — it's a single atomic action.
+        chainContext={undefined}
+        onChainStepConfirmed={chainCallbacks?.onChainStepConfirmed}
+        onChainStepBlocked={chainCallbacks?.onChainStepBlocked}
+        onChainStepStale={chainCallbacks?.onChainStepStale}
+      />
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <ChainPlanCard
+        plan={plan}
+        onStartStep={onStartStep}
+        onRunAtomic={isAtomicEligible(plan) ? () => void handleRunAtomic() : undefined}
+        onPinChange={onPinChange}
+      />
+
+      {/* Atomic build in-progress indicator */}
+      {atomicPreparing && (
+        <p
+          className="split-mono"
+          style={{ fontSize: 11, color: "var(--fg-muted)", margin: 0 }}
+        >
+          Building atomic transaction…
+        </p>
+      )}
+
+      {/* Atomic build error — degrade note, sequential plan remains */}
+      {atomicError && !atomicPreparing && (
+        <div
+          style={{
+            maxWidth: 380,
+            borderRadius: 8,
+            border: "1px solid color-mix(in srgb, var(--destructive) 30%, transparent)",
+            background: "color-mix(in srgb, var(--destructive) 5%, transparent)",
+            padding: "8px 11px",
+            fontSize: 11,
+            color: "var(--destructive)",
+            lineHeight: 1.5,
+          }}
+        >
+          {atomicError}
+        </div>
+      )}
+    </div>
+  );
 }

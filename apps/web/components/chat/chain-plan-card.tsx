@@ -1,24 +1,23 @@
 "use client";
 
 /**
- * ChainPlanCard — sequential multi-step intent plan (Track A).
+ * ChainPlanCard — sequential multi-step intent plan (Track A) with optional atomic mode.
  *
- * Renders an ordered list of steps, each with its own status indicator and
- * a per-step "Sign" affordance. The parent drives the signing cycle:
- *  1. User sees Step 1 as "active" with a prepareTrade result card.
- *  2. User signs Step 1; on receipt, parent confirms the step, computes the
- *     balance delta (pre→post), and resolves Step 2's amount from that delta.
- *  3. Step 2 becomes active with a fresh prepareTrade card for the resolved amount.
+ * TOGGLE — "Run as 1 transaction (atomic)" vs "Step-by-step":
+ *   When the user selects atomic, the parent calls onRunAtomic() which builds a COMPOSITE
+ *   proposal from the chain steps (recipeId "swap_lend_v1", legs from step definitions)
+ *   and fires prepareTrade with actionType "composite" → one tx-preview card → one sign.
+ *   When the toggle reverts to step-by-step, the existing sequential flow resumes.
+ *   Atomic mode is only shown when the plan has exactly 2 steps matching the swap_lend_v1
+ *   recipe (swap step → lend step with navi protocol).
  *
- * If any step blocks, the card shows a "chain incomplete" banner explaining
- * which step halted execution and that prior confirmed steps stand.
- *
- * This card is display-only; the signing logic lives in ChatThread via the
- * same useSignAndExecuteTx path as single-step tx-preview cards. The parent
- * passes onStartStep to trigger the next prepareTrade build.
+ * PIN — while the chain is IN PROGRESS (any step active/pending and not all done/halted):
+ *   The card emits isPinned=true via onPinChange callback. The parent (chat-thread.tsx) uses
+ *   this to render the card in a sticky slot above the chat input. When the chain completes
+ *   or halts, the card emits isPinned=false and returns to its normal inline position.
  */
 
-import React from "react";
+import React, { useEffect } from "react";
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -104,6 +103,62 @@ function ChainConnector({ done }: { done: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
+// Pin icon — small indicator shown in header when the card is pinned
+// ---------------------------------------------------------------------------
+
+function PinIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-label="Pinned"
+      role="img"
+      style={{ flexShrink: 0 }}
+    >
+      <path
+        d="M8.5 1.5L10.5 3.5L7.5 6.5L8 9L4 5L7 2L8.5 1.5Z"
+        stroke="var(--fg-faint)"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <line
+        x1="4"
+        y1="8"
+        x2="2"
+        y2="10"
+        stroke="var(--fg-faint)"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Atomic mode eligibility check
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine if this plan qualifies for atomic (composite) execution.
+ * Currently swap_lend_v1 only: exactly 2 steps where step[0] is "swap" and step[1] is "lend".
+ * Only shown when neither step has confirmed/blocked yet (nothing signed yet).
+ */
+export function isAtomicEligible(plan: ChainPlanData): boolean {
+  const { steps } = plan;
+  if (steps.length !== 2) return false;
+  const [s0, s1] = steps;
+  if (s0.category !== "swap") return false;
+  if (s1.category !== "lend") return false;
+  // Only show the toggle before any step has been signed or blocked.
+  const anyConfirmedOrBlocked = steps.some(
+    (s) => s.status === "done" || s.status === "blocked" || s.status === "cancelled",
+  );
+  return !anyConfirmedOrBlocked;
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -111,22 +166,44 @@ export interface ChainPlanCardProps {
   plan: ChainPlanData;
   /** Called by parent to trigger building the next step (prepareTrade). */
   onStartStep?: (stepIndex: number) => void;
+  /**
+   * Called when the user clicks "Run as 1 transaction (atomic)".
+   * The parent builds a composite proposal and calls prepareTrade with actionType "composite".
+   */
+  onRunAtomic?: () => void;
+  /**
+   * Called when the card's pin state changes (in-progress → pinned, done/halted → unpinned).
+   * The parent uses this to move the card to a sticky slot above the chat input.
+   */
+  onPinChange?: (pinned: boolean) => void;
+  /** True when this card is currently rendered in the sticky pinned slot. */
+  isPinned?: boolean;
 }
 
-export function ChainPlanCard({ plan, onStartStep }: ChainPlanCardProps) {
+export function ChainPlanCard({ plan, onStartStep, onRunAtomic, onPinChange, isPinned }: ChainPlanCardProps) {
   const { steps } = plan;
 
   const hasBlock = steps.some((s) => s.status === "blocked");
   const allDone = steps.every((s) => s.status === "done");
+  const isInProgress = !hasBlock && !allDone;
 
   const activeStep = steps.find((s) => s.status === "active");
   const nextPending = steps.find((s) => s.status === "pending");
+  const showAtomicToggle = isAtomicEligible(plan) && !!onRunAtomic;
+
+  // Notify parent when pin state changes. Pin = in progress (any step active/pending,
+  // nothing done/blocked). Release = complete or halted.
+  useEffect(() => {
+    onPinChange?.(isInProgress);
+  }, [isInProgress, onPinChange]);
 
   return (
     <div
       style={{
         borderRadius: 12,
-        border: "1px solid var(--border)",
+        border: isPinned
+          ? "1px solid var(--accent)"
+          : "1px solid var(--border)",
         background: "var(--bg-sub)",
         padding: "14px 16px",
         display: "flex",
@@ -149,6 +226,14 @@ export function ChainPlanCard({ plan, onStartStep }: ChainPlanCardProps) {
         >
           sequential plan · {steps.length} steps
         </span>
+        {isPinned && (
+          <span
+            title="Pinned — in progress"
+            style={{ display: "flex", alignItems: "center", gap: 3 }}
+          >
+            <PinIcon />
+          </span>
+        )}
         {allDone && (
           <span style={{ fontSize: 11, color: "#22c55e", marginLeft: "auto" }}>complete</span>
         )}
@@ -158,6 +243,35 @@ export function ChainPlanCard({ plan, onStartStep }: ChainPlanCardProps) {
           </span>
         )}
       </div>
+
+      {/* Atomic toggle — only when eligible (swap→lend, nothing signed yet) */}
+      {showAtomicToggle && (
+        <button
+          onClick={onRunAtomic}
+          title="Sign both steps in one atomic transaction (all-or-nothing)"
+          style={{
+            alignSelf: "flex-start",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 11px",
+            borderRadius: 7,
+            background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+            color: "var(--accent)",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+          aria-label="Run as 1 transaction (atomic) — one signature for both steps"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+            <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M3.5 5L4.5 6L6.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Run as 1 transaction (atomic)
+        </button>
+      )}
 
       {/* Step list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
@@ -240,7 +354,7 @@ export function ChainPlanCard({ plan, onStartStep }: ChainPlanCardProps) {
                       fontFamily: "var(--font-mono)",
                     }}
                   >
-                    {step.txDigest.slice(0, 12)}…
+                    {step.txDigest.slice(0, 12)}&hellip;
                   </a>
                 )}
               </div>
