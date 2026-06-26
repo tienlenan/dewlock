@@ -187,12 +187,14 @@ describe("deriveCompositeFlow", () => {
     expect(steps[0].nodeSub).toBe("Swap → USDC");
     expect(steps[0].edgeLabel).toBe("1 SUI");
     expect(steps[0].isOutflow).toBe(true);
+    expect(steps[0].logoId).toBe("cetus-aggregator");
 
     // Leg 1: the lend deposit — the swap output coin flows into the lending protocol.
     expect(steps[1].nodeLabel).toBe("NAVI");
     expect(steps[1].nodeSub).toBe("Lending · deposit");
     expect(steps[1].edgeLabel).toBe("USDC");
     expect(steps[1].isOutflow).toBe(false);
+    expect(steps[1].logoId).toBe("navi");
   });
 
   it("threads coinDecimals into the swap-leg amount", () => {

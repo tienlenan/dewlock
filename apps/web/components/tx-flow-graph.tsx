@@ -30,6 +30,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Wallet, UserRound, ArrowLeftRight, CircleHelp } from "lucide-react";
 import { useSuinsNames } from "@/lib/use-suins-names";
+import { ProtocolLogo, protocolLogoIdFromName } from "./chat/asset-logos";
 import {
   deriveFlowRows,
   deriveCompositeFlow,
@@ -45,7 +46,7 @@ const COL_W = 230; // horizontal gap between sibling nodes at the same level
 const LEVEL_H = 132; // vertical gap between levels (sources → you → destinations)
 
 type NodeKind = "you" | "recipient" | "protocol" | "counterparty";
-interface NodeMeta { kind: NodeKind; label: string; sub?: string; primary?: boolean }
+interface NodeMeta { kind: NodeKind; label: string; sub?: string; primary?: boolean; logoId?: string }
 
 const ICONS: Record<NodeKind, typeof Wallet> = {
   you: Wallet,
@@ -78,16 +79,21 @@ function FlowNode({ data }: NodeProps) {
       }}
     >
       <Handle type="target" position={Position.Top} style={handleStyle} />
-      <span
-        style={{
-          flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
-          width: 26, height: 26, borderRadius: 8,
-          background: d.primary ? "var(--accent)" : "var(--bg-sub)",
-          color: d.primary ? "#fff" : "var(--fg-muted)",
-        }}
-      >
-        <Icon size={14} aria-hidden />
-      </span>
+      {d.logoId ? (
+        // Real protocol brand mark (Cetus / NAVI / …); falls back to a monogram internally.
+        <ProtocolLogo id={d.logoId} size={26} />
+      ) : (
+        <span
+          style={{
+            flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 26, height: 26, borderRadius: 8,
+            background: d.primary ? "var(--accent)" : "var(--bg-sub)",
+            color: d.primary ? "#fff" : "var(--fg-muted)",
+          }}
+        >
+          <Icon size={14} aria-hidden />
+        </span>
+      )}
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: d.primary ? "var(--accent-ink)" : "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {d.label}
@@ -114,7 +120,13 @@ function counterpartyMeta(row: FlowRow, preview: FlowPreviewInput, suins: Record
     return { kind: "recipient", label: "Recipient", sub: suins[a.toLowerCase()] ?? short0x(a) };
   }
   const contract = preview.contractsCalled?.find((c) => c.protocolName === cp);
-  if (contract) return { kind: "protocol", label: cp, sub: CATEGORY_LABEL[contract.category] ?? contract.category };
+  if (contract)
+    return {
+      kind: "protocol",
+      label: cp,
+      sub: CATEGORY_LABEL[contract.category] ?? contract.category,
+      logoId: protocolLogoIdFromName(cp),
+    };
   return { kind: "counterparty", label: cp, sub: row.sub };
 }
 
@@ -176,7 +188,7 @@ function buildCompositeGraph(
   let prevId = "you";
   steps.forEach((s, i) => {
     const id = `leg-${i}`;
-    nodes.push(node(id, 0, (i + 1) * LEVEL_H, { kind: "protocol", label: s.nodeLabel, sub: s.nodeSub }));
+    nodes.push(node(id, 0, (i + 1) * LEVEL_H, { kind: "protocol", label: s.nodeLabel, sub: s.nodeSub, logoId: s.logoId }));
     edges.push({
       id: `el-${i}`,
       source: prevId,

@@ -139,6 +139,8 @@ export interface CompositeFlowStep {
   edgeLabel: string;
   /** True for the first hop (funds leaving the wallet) → rendered as an outflow. */
   isOutflow: boolean;
+  /** ProtocolLogo id for this node's brand mark (e.g. "cetus-aggregator", "navi"). */
+  logoId?: string;
 }
 
 /**
@@ -161,6 +163,7 @@ export function deriveCompositeFlow(
         nodeSub: leg.coinTypeOut ? `Swap → ${shortCoinType(leg.coinTypeOut)}` : "Swap",
         edgeLabel: `${amt} ${shortCoinType(leg.coinTypeIn)}`,
         isOutflow: i === 0,
+        logoId: "cetus-aggregator",
       };
     }
     if (leg.actionType === "lend_deposit") {
@@ -170,6 +173,7 @@ export function deriveCompositeFlow(
         // The deposited coin = this leg's input = the prior leg's output coin.
         edgeLabel: shortCoinType(leg.coinTypeIn),
         isOutflow: false,
+        logoId: leg.lendingProtocol, // "navi" | "suilend"
       };
     }
     return {

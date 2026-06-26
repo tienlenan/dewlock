@@ -24,6 +24,7 @@ import {
 } from "./tx-preview-format";
 import { TxFlowGraph } from "./tx-flow-graph";
 import { TxFlowDialog } from "./tx-flow-dialog";
+import { ProtocolLogo } from "./chat/asset-logos";
 
 const OUT = "var(--destructive)";
 const IN = "var(--success)";
@@ -151,10 +152,12 @@ function CompositeRowsView({ steps }: { steps: CompositeFlowStep[] }) {
             className="flex items-center justify-between gap-2"
             style={{ padding: "8px 12px", fontSize: "12px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}
           >
-            <span style={{ color: "var(--fg-muted)", minWidth: 0 }}>
-              <strong style={{ color: "var(--fg)" }}>{from}</strong> →{" "}
+            <span style={{ color: "var(--fg-muted)", minWidth: 0, display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+              <strong style={{ color: "var(--fg)" }}>{from}</strong>
+              <span aria-hidden>→</span>
+              {s.logoId && <ProtocolLogo id={s.logoId} size={16} />}
               <strong style={{ color: "var(--fg)" }}>{s.nodeLabel}</strong>
-              <span style={{ color: "var(--fg-faint)" }}> · {s.nodeSub}</span>
+              <span style={{ color: "var(--fg-faint)" }}>· {s.nodeSub}</span>
             </span>
             <span className="mono split-mono" style={compositeChipStyle(s.isOutflow)}>
               {s.isOutflow ? "−" : ""}

@@ -166,6 +166,31 @@ const PROTOCOL_IMG_SRC: Record<string, string> = {
   nemo: "/logos/nemo.webp",
 };
 
+/**
+ * Best-effort map a human protocol name (as it appears on a tx preview, e.g.
+ * "Cetus Aggregator (route)", "NAVI", "Aftermath Router") to a ProtocolLogo id.
+ * Returns undefined when no brand is recognised → caller shows a neutral fallback.
+ */
+export function protocolLogoIdFromName(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const n = name.toLowerCase();
+  if (n.includes("cetus")) return /agg/.test(n) ? "cetus-aggregator" : "cetus";
+  if (n.includes("aftermath")) return /perp/.test(n) ? "aftermath-perp" : "aftermath";
+  if (n.includes("navi")) return "navi";
+  if (n.includes("suilend")) return "suilend";
+  if (n.includes("deepbook") || n.includes("deep book")) return "deepbook";
+  if (n.includes("haedal")) return "haedal";
+  if (n.includes("scallop")) return "scallop";
+  if (n.includes("wormhole")) return "wormhole";
+  if (n.includes("bluefin")) return "bluefin";
+  if (n.includes("turbos")) return "turbos";
+  if (n.includes("flowx") || n.includes("flow x")) return "flowx";
+  if (n.includes("momentum")) return "momentum";
+  if (n.includes("volo")) return "volo";
+  if (n.includes("7k")) return "7k";
+  return undefined;
+}
+
 export function ProtocolLogo({ id, size = 34 }: { id: string; size?: number }) {
   const [broken, setBroken] = useState(false);
   const Mark = PROTOCOL_MARKS[id];
