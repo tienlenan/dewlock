@@ -1293,16 +1293,25 @@ function ChainPlanWithComposite({
       const data = (await res.json()) as PrepareTradeResult;
 
       if (!data.ok) {
-        // Degrade gracefully — show the error note, keep the sequential plan card visible.
-        // The response may be a Guardian block ({reasons}) OR a validation/tool error
-        // ({error,message}); read whichever is present so a non-block shape can't crash here.
+        // Degrade gracefully — keep the sequential plan card visible so the user just signs
+        // step-by-step. The response may be a Guardian block ({reasons}) OR a validation/tool
+        // error ({error,message}); read whichever is present so a non-block shape can't crash.
         const block = data as Partial<PrepareTradeBlock> & { message?: string };
-        const reason =
+        const rawReason =
           Array.isArray(block.reasons) && block.reasons.length > 0
             ? block.reasons.join("; ")
-            : block.message ?? "build error";
+            : block.message ?? "unknown error";
+        // A composite-build/dry-run failure (e.g. the swap router can't be composed into one
+        // PTB for this route) is NOT a security block — surface a clear, non-cryptic note that
+        // atomic is off for THIS transaction and we're falling back, rather than a raw MoveAbort.
+        const isComposeLimitation =
+          /composite|dry-run|aftermath|split_coin|moveabort|construction failed|coinout/i.test(
+            rawReason,
+          );
         setAtomicError(
-          `Atomic build blocked: ${reason} — falling back to step-by-step.`,
+          isComposeLimitation
+            ? "Atomic (1-transaction) bundling isn't available for this swap route right now — it can't be composed into a single PTB. Falling back to step-by-step; your funds and every Guardian check are unaffected."
+            : `Atomic unavailable for this transaction: ${rawReason} — falling back to step-by-step.`,
         );
         return;
       }

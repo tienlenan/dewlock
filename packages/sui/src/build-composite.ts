@@ -221,16 +221,26 @@ async function buildLiveSwapLendPtb(
     const tx = new Transaction();
     tx.setSender(sender);
 
+    // Pre-split the input coin and pass it as coinInId. When composing a SUI (gas-token)
+    // swap into a larger PTB WITHOUT coinInId, the router lets the server split SUI itself —
+    // but gas is resolved later by tx.build(), so that split aborts during resolution
+    // (MoveAbort 46001 in Aftermath utils::split_coin). Providing an explicit coinInId makes
+    // the swap consume OUR coin and leaves the gas remainder for the network fee. v1's
+    // swap_lend_v1 input is always SUI, so we split from tx.gas.
+    const coinInArg =
+      swapLeg.coinTypeIn === COIN_TYPES.SUI
+        ? tx.splitCoins(tx.gas, [swapLeg.amountInNative])[0]
+        : undefined;
+
     // Leg 0 (swap): add the Aftermath route to the shared tx. The router mutates tx
     // and returns { tx: tx2, coinOutId } where coinOutId is the swap-output coin arg.
-    // [needs mainnet verification] — addTransactionForCompleteTradeRoute signature:
-    //   { tx, completeRoute, walletAddress, slippage } → { tx, coinOutId }
     const swapResult = await router.addTransactionForCompleteTradeRoute({
       tx,
       completeRoute,
       walletAddress: sender,
       slippage: slippageFraction,
-    });
+      ...(coinInArg ? { coinInId: coinInArg } : {}),
+    } as never);
     // The router may return a new tx reference or mutate in place — use returned tx2
     // to capture any internal reassignment.
     const tx2: Transaction = (swapResult as { tx: Transaction }).tx ?? tx;
