@@ -152,12 +152,16 @@ export const prepareTrade = createTool({
     // --- Transfer fields ---
     recipientInput: z
       .string()
+      .nullable()
       .optional()
       .describe("Raw 0x address or .sui name for transfers"),
 
     // --- Swap fields ---
+    // nullable + optional: composite / non-swap actions carry no top-level coinTypeOut
+    // (it lives per-leg). The caller may send null; accept it rather than reject the action.
     coinTypeOut: z
       .enum(COIN_TYPE_VALUES)
+      .nullable()
       .optional()
       .describe("Canonical output coin type for swaps"),
 
@@ -750,7 +754,7 @@ export const prepareTrade = createTool({
       : coinTypeIn;
     const effectiveCoinTypeOut = actionType === "limit_order"
       ? limitOrderQuoteCoinType
-      : coinTypeOut;
+      : (coinTypeOut ?? undefined); // coinTypeOut is now nullable in the schema; normalize null → undefined
 
     // Convert limitQuantity to native units for proposal.amountInNative
     // (Guardian Gate 2 uses amountInNative for non-limit_order cap math;

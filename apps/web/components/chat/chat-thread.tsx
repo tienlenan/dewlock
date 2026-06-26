@@ -1293,10 +1293,16 @@ function ChainPlanWithComposite({
       const data = (await res.json()) as PrepareTradeResult;
 
       if (!data.ok) {
-        const block = data as PrepareTradeBlock;
         // Degrade gracefully — show the error note, keep the sequential plan card visible.
+        // The response may be a Guardian block ({reasons}) OR a validation/tool error
+        // ({error,message}); read whichever is present so a non-block shape can't crash here.
+        const block = data as Partial<PrepareTradeBlock> & { message?: string };
+        const reason =
+          Array.isArray(block.reasons) && block.reasons.length > 0
+            ? block.reasons.join("; ")
+            : block.message ?? "build error";
         setAtomicError(
-          `Atomic build blocked: ${block.reasons.join("; ")} — falling back to step-by-step.`,
+          `Atomic build blocked: ${reason} — falling back to step-by-step.`,
         );
         return;
       }

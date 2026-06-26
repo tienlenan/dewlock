@@ -253,12 +253,11 @@ async function buildLiveSwapLendPtb(
     } as never;
     await navi.depositCoinPTB(tx2, lendLeg.coinTypeIn, coinOutId as never, naviOptions);
 
-    // Native-SUI input is split from tx.gas by the Aftermath router. Pin gas payment
-    // so a fragmented wallet doesn't land on a gas coin too small for the split.
-    if (swapLeg.coinTypeIn === COIN_TYPES.SUI) {
-      await pinSuiGasPayment(client, tx2, sender, swapLeg.amountInNative);
-    }
-
+    // NOTE: do NOT pinSuiGasPayment here. addTransactionForCompleteTradeRoute is
+    // server-composed onto tx2 and sets up its own SUI input/gas handling; re-pinning the
+    // gas payment afterwards changes the gas coin the swap's split_coin relies on and
+    // aborts resolution (MoveAbort in Aftermath utils::split_coin). Let tx.build() resolve
+    // gas, matching how the SDK's add-trade flow expects the gas coin to be selected.
     const bytes = await tx2.build({ client: client as unknown as ClientWithCoreApi });
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
   } catch (err) {

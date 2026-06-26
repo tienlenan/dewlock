@@ -316,6 +316,7 @@ export async function POST(req: NextRequest) {
       // Composite fields — forwarded when actionType === "composite".
       compositeRecipeId: input.compositeRecipeId,
       compositeLegs: input.compositeLegs?.map((leg) => ({
+        actionType: leg.actionType, // the per-leg role — required by the composite builder
         coinTypeIn: leg.coinTypeIn,
         coinTypeOut: leg.coinTypeOut,
         amountInNative: leg.amountInNative,
