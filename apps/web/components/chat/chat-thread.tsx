@@ -1310,6 +1310,16 @@ function ChainPlanWithComposite({
           Array.isArray(block.reasons) && block.reasons.length > 0
             ? block.reasons.join("; ")
             : block.message ?? "unknown error";
+        // A coin/gas shortfall is a balance problem, not a route limitation — say so plainly.
+        // (Falling back to step-by-step would hit the SAME shortfall, so don't imply it helps.)
+        const isBalanceShortfall = /insufficient/i.test(rawReason);
+        if (isBalanceShortfall) {
+          setAtomicError(
+            "Not enough SUI to swap that amount and still cover network gas. Reduce the swap amount " +
+              "(leave a little SUI for gas) or top up your wallet, then try again.",
+          );
+          return;
+        }
         // A composite-build/dry-run failure (e.g. the swap router can't be composed into one
         // PTB for this route) is NOT a security block — surface a clear, non-cryptic note that
         // atomic is off for THIS transaction and we're falling back, rather than a raw MoveAbort.

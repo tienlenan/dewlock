@@ -278,9 +278,17 @@ async function buildLiveSwapLendPtb(
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
   } catch (err) {
     if (err instanceof CompositeBuildError) throw err;
-    throw new CompositeBuildError(
-      `Composite live PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    // A coin/gas shortfall is a user balance problem, NOT a route/compose limitation — give
+    // a clear, actionable message so it isn't misread as "atomic unavailable for this route"
+    // (which wrongly implies step-by-step would succeed; it would hit the same shortfall).
+    if (/insufficientcoinbalance|insufficient coin balance|insufficient.*balance/i.test(msg)) {
+      throw new CompositeBuildError(
+        "Insufficient SUI: this swap plus network gas is more than your SUI balance. " +
+          "Reduce the swap amount (leave a little SUI for gas) or top up, then try again.",
+      );
+    }
+    throw new CompositeBuildError(`Composite live PTB construction failed: ${msg}`);
   }
 }
 
