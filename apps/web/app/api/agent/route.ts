@@ -65,6 +65,7 @@ async function buildAgent(walletAddress?: string) {
   const { getUserStats } = require("@dewlock/agent/tools/get-user-stats") as { getUserStats: AnyTool };
   const { requestActionForm } = require("@dewlock/agent/tools/request-action-form") as { requestActionForm: AnyTool };
   const { requestContactPicker } = require("@dewlock/agent/tools/request-contact-picker") as { requestContactPicker: AnyTool };
+  const { decomposeIntent } = require("@dewlock/agent/tools/decompose-intent") as { decomposeIntent: AnyTool };
   /* eslint-enable @typescript-eslint/no-require-imports */
 
   const gateway = createGateway({ apiKey });
@@ -83,7 +84,7 @@ async function buildAgent(walletAddress?: string) {
     name: "Dewlock Sui DeFi Copilot",
     instructions: `${COPILOT_PERSONA}\n${TOOL_USE_RULES}\n${SECURITY_RULES}${walletContext}`,
     model: gateway(process.env.AGENT_MODEL ?? "google/gemini-2.5-flash"),
-    tools: { getPortfolio, getDefiPositions, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getLimitOrderForm, getReceiveInfo, getProtocolMetrics, getStablecoinYields, getTopTvl, getTrendingTokens, getUserStats, requestActionForm, requestContactPicker },
+    tools: { getPortfolio, getDefiPositions, prepareTrade, listProtocols, getSwapOptions, getLendOptions, getSwapForm, getLimitOrderForm, getReceiveInfo, getProtocolMetrics, getStablecoinYields, getTopTvl, getTrendingTokens, getUserStats, requestActionForm, requestContactPicker, decomposeIntent },
   });
 }
 
@@ -226,6 +227,11 @@ export async function POST(req: NextRequest) {
   //  (a) a supported sequential chain (swap→lend) → emit a chain-plan card, OR
   //  (b) an unsupported combo (send+swap, etc.) → refuse with guidance.
   // Deterministic; never throws into the turn.
+  // When parseChainSteps can't parse a chainable multi-action (e.g. "finally" separator,
+  // multi-recipient, per-clause amounts), fall through to the agent stream with a
+  // decomposeIntent directive instead of refusing. Set here so the stream block reads it.
+  let needsDecompose = false;
+
   try {
     /* eslint-disable-next-line @typescript-eslint/no-require-imports */
     const { detectMultiAction, isChainableSequence, parseChainSteps } = require("@dewlock/agent/intent/detect-multi-action") as {
@@ -235,11 +241,12 @@ export async function POST(req: NextRequest) {
     };
     const ma = detectMultiAction(lastMessage.content);
     if (ma.multi) {
-      // Carve-out: a chainable ordered pair (swap→lend) routes to the chain planner.
+      // Carve-out: a chainable ordered sequence routes to the chain planner.
       // The client renders a ChainPlanCard and drives sequential signing.
       if (isChainableSequence(ma.actions)) {
         const steps = parseChainSteps(lastMessage.content);
         if (steps) {
+          // Fast path: regex parsed the steps cleanly — emit chainPlan immediately.
           const stream = new ReadableStream({
             start(controller) {
               controller.enqueue(
@@ -273,33 +280,37 @@ export async function POST(req: NextRequest) {
             },
           });
         }
+        // Regex parse failed but actions are chainable — delegate to the LLM decomposeIntent
+        // tool for complex separators ("finally", ".", "each", per-clause amounts).
+        // Fall through to the agent stream with the decompose directive injected into the prompt.
+        needsDecompose = true;
+      } else {
+        // Non-chainable multi-action (bridge+X, limit+X) → refuse with guidance (unchanged).
+        const labels: Record<string, string> = {
+          send: "send", swap: "swap/sell", lend: "lend", bridge: "bridge", limit: "place a limit order",
+        };
+        const numbered = ma.actions.map((a, i) => `(${i + 1}) ${labels[a] ?? a}`).join(" and ");
+        const guidance =
+          `I handle one action per message — that keeps each transaction clear and lets the Guardian ` +
+          `verify exactly what you'll sign. You asked to ${numbered}. Which would you like to start with? ` +
+          `Send that one on its own and I'll prepare it.`;
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(ndjsonLine({ type: "text", text: guidance }));
+            controller.enqueue(ndjsonLine({ type: "done" }));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "content-type": "application/x-ndjson; charset=utf-8",
+            "x-content-type-options": "nosniff",
+            "cache-control": "no-cache",
+            ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
+            ...corsHeaders(origin),
+          },
+        });
       }
-
-      // Non-chainable multi-action → refuse with guidance (unchanged behaviour).
-      const labels: Record<string, string> = {
-        send: "send", swap: "swap/sell", lend: "lend", bridge: "bridge", limit: "place a limit order",
-      };
-      const numbered = ma.actions.map((a, i) => `(${i + 1}) ${labels[a] ?? a}`).join(" and ");
-      const guidance =
-        `I handle one action per message — that keeps each transaction clear and lets the Guardian ` +
-        `verify exactly what you'll sign. You asked to ${numbered}. Which would you like to start with? ` +
-        `Send that one on its own and I'll prepare it.`;
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(ndjsonLine({ type: "text", text: guidance }));
-          controller.enqueue(ndjsonLine({ type: "done" }));
-          controller.close();
-        },
-      });
-      return new Response(stream, {
-        headers: {
-          "content-type": "application/x-ndjson; charset=utf-8",
-          "x-content-type-options": "nosniff",
-          "cache-control": "no-cache",
-          ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
-          ...corsHeaders(origin),
-        },
-      });
     }
   } catch {
     // Detection failure must never block the turn — fall through to normal routing.
@@ -327,6 +338,22 @@ export async function POST(req: NextRequest) {
       directive = await buildIntentDirective(lastMessage.content, walletAddress, contacts);
     } catch {
       directive = null; // never block the turn on intent parsing
+    }
+
+    // When the regex chain parser failed on a chainable multi-action (needsDecompose=true),
+    // override the directive with the decomposeIntent directive so the LLM calls that tool
+    // instead of prepareTrade. The normal intent directive is intentionally skipped here
+    // because it would try to route a single action; the compound text needs LLM decomposition.
+    if (needsDecompose) {
+      try {
+        /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+        const { buildChainDecomposeDirective } = require("@dewlock/agent/intent/chain-decompose-directive") as {
+          buildChainDecomposeDirective: (text: string) => string;
+        };
+        directive = buildChainDecomposeDirective(lastMessage.content);
+      } catch {
+        directive = null; // never block the turn if directive build fails
+      }
     }
 
     const historyContext =
@@ -443,6 +470,38 @@ export async function POST(req: NextRequest) {
                 } else {
                   controller.enqueue(
                     ndjsonLine({ type: "tool-result", toolName, result: toolResult }),
+                  );
+                }
+              } else if (toolName === "decomposeIntent") {
+                // Intercept decomposeIntent results — never forward the raw tool-result.
+                // On success: emit a chainPlan line identical in shape to the regex fast-path
+                //   so the existing ChainPlanCard + PlanStepper render it unchanged.
+                // On failure: emit a short text error (LLM proposed an unverifiable decomposition).
+                const decompResult = toolResult as {
+                  ok: boolean;
+                  steps?: Array<{ index: number; category: string; clause: string; amountFrom: string; status: string }>;
+                  reasons?: string[];
+                } | undefined;
+                if (decompResult?.ok === true && decompResult.steps) {
+                  controller.enqueue(
+                    ndjsonLine({
+                      type: "tool-result",
+                      toolName: "chainPlan",
+                      result: {
+                        steps: decompResult.steps,
+                        walletAddress: walletAddress ?? null,
+                        originalText: lastMessage.content,
+                      },
+                    }),
+                  );
+                } else {
+                  // Verification failed — surface a concise user-facing message.
+                  const reasonText = decompResult?.reasons?.join("; ") ?? "Could not decompose your request";
+                  controller.enqueue(
+                    ndjsonLine({
+                      type: "text",
+                      text: `${reasonText} — please send one action at a time.`,
+                    }),
                   );
                 }
               } else if (toolName) {

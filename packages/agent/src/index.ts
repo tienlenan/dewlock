@@ -59,3 +59,5 @@ export type { MultiActionResult, ChainStep } from "./intent/detect-multi-action"
 export { PlanStepper, resolveStepDelta, waitForObjectVersions } from "./chaining/plan-stepper";
 export type { StepState, StepStatus, StepConfirmOptions } from "./chaining/plan-stepper";
 export { recordSpendAtSignTime } from "./tools/prepare-trade";
+export { decomposeIntent } from "./tools/decompose-intent";
+export { buildChainDecomposeDirective } from "./intent/chain-decompose-directive";

@@ -134,6 +134,7 @@ Welcome to the Dewlock copilot. This guide covers the exact commands you can use
 - `"swap 5 SUI to USDC then lend it on NAVI"`
 - `"swap 10 SUI to USDC rồi deposit nó vào NAVI"` (Vietnamese)
 - `"swap 50 USDC to ETH and then borrow 10 ETH on NAVI"`
+- Complex phrasing also works: `"swap 1 SUI to USDC then send 0.2 SUI to abc.sui. Finally lend 10 USDC on suilend"` (handled by the LLM decomposer below).
 
 **What you see:** A plan card showing each step in the chain. Step 1 executes normally; when you sign, step 2 waits for the on-chain result of step 1 and resolves its amount from the **delta** (what step 1 produced), not your current wallet balance. The card streams live status as each step completes.
 
@@ -142,7 +143,7 @@ Welcome to the Dewlock copilot. This guide covers the exact commands you can use
 - A transient stale-object error auto-rebuilds the step with fresh balances (you just re-confirm).
 - For `swap → lend`, prefer the one-signature atomic mode below.
 
-**Tech:** Sequential steps; each remains a normal single-action PTB through the Guardian. The delta resolver ensures step 2 consumes step 1's output (not your pre-existing balance). Each step is counted once toward daily spend (recycled values are not double-counted).
+**Tech:** Sequential steps; each remains a normal single-action PTB through the Guardian. The delta resolver ensures step 2 consumes step 1's output (not your pre-existing balance). Each step is counted once toward daily spend (recycled values are not double-counted). A fast deterministic regex parses simple `A then B` compounds instantly; complex phrasing (`.`/"finally" separators, multiple recipients) falls through to a **hybrid LLM decomposer** — the model proposes the ordered steps and a deterministic verifier (`routeAction` cross-check, fail-closed, one action per step) confirms each before any chain renders. See `system-architecture.md` → "Hybrid multi-intent decomposition".
 
 ---
 

@@ -35,6 +35,7 @@ import { getYieldAdvice } from "./tools/get-yield-advice";
 import { getHistory } from "./tools/get-history";
 import { requestActionForm } from "./tools/request-action-form";
 import { requestContactPicker } from "./tools/request-contact-picker";
+import { decomposeIntent } from "./tools/decompose-intent";
 
 const gateway = createGateway({
   apiKey: process.env.AI_GATEWAY_API_KEY,
@@ -69,5 +70,6 @@ export const copilot = new Agent({
     getHistory,
     requestActionForm,
     requestContactPicker,
+    decomposeIntent,
   },
 });

@@ -50,7 +50,23 @@ GLYPH_SUBS = {
     "✅": "[OK] ", "✔": "[OK] ", "☑": "[x] ",
     "⚠️": "[!] ", "⚠": "[!] ", "\U0001f512": "[gate] ",
     "✓": "[OK] ", "✗": "[x] ", "️": "",
+    "≈": "~", "∞": "inf",
+    # Box-drawing (ASCII flow/tree diagrams) — the core fonts render these as boxes.
+    "─": "-", "│": "|", "┌": "+", "┐": "+", "└": "+", "┘": "+",
+    "├": "+", "┤": "+", "┬": "+", "┴": "+", "┼": "+",
 }
+
+# Vietnamese diacritics → base letters. The core PDF fonts are Latin-1, so accented VN
+# vowels render as boxes; docs are English with occasional VN connectors ("rồi", "tiếp theo")
+# — transliterate them so the PDF stays readable (the markdown keeps the real diacritics).
+_VN = {
+    "àáảãạăằắẳẵặâầấẩẫậ": "a", "èéẻẽẹêềếểễệ": "e", "ìíỉĩị": "i",
+    "òóỏõọôồốổỗộơờớởỡợ": "o", "ùúủũụưừứửữự": "u", "ỳýỷỹỵ": "y", "đ": "d",
+}
+for _src, _dst in _VN.items():
+    for _c in _src:
+        GLYPH_SUBS[_c] = _dst
+        GLYPH_SUBS[_c.upper()] = _dst.upper()
 # Strip remaining decorative emoji (anything outside the BMP / common pictograph blocks).
 def _sanitize(text: str) -> str:
     for k, v in GLYPH_SUBS.items():

@@ -69,8 +69,14 @@ export interface MultiActionResult {
 /**
  * Clause separators — conjunctions / punctuation that join two requests.
  * VN connectors "rồi", "và sau đó", "tiếp theo" are normalised before split.
+ *
+ * `\.\s+` splits on a SENTENCE period (period + whitespace) so "swap 1 SUI. send 2 SUI"
+ * is two clauses — WITHOUT splitting decimals ("0.2") or SuiNS names ("abc.sui"), which
+ * have no whitespace after the dot. "finally"/"lastly" are terminal connectors. This also
+ * closes a smuggle vector: a single command must never hide a second action behind "." or
+ * "finally" — verifyDecomposeSteps relies on this split to assert one action per step.
  */
-const CLAUSE_SPLIT_RE = /\b(?:and|then|also|plus)\b|[,;&+]/i;
+const CLAUSE_SPLIT_RE = /\b(?:and|then|also|plus|finally|lastly)\b|\.\s+|[,;&+]/i;
 
 /**
  * Normalise Vietnamese sequential connectors to "then" so the clause splitter

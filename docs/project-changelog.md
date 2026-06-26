@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-06-27 — Hybrid multi-intent decomposition (regex fast-path + verified LLM fallback)
+
+### Added
+- **`decomposeIntent` tool** — for compound intents the regex parser can't split ("finally"/"." separators, multi-recipient sends, per-clause amounts). The LLM PROPOSES the decomposition as the tool's `steps[]` args (ordered single-action commands + category + `amountFrom`); the tool's execute DETERMINISTICALLY VERIFIES it fail-closed. The regex fast-path is preserved for simple `A then B` compounds (instant, zero-LLM). Each verified step re-enters the normal single-action pipeline (per-step Guardian + WYSIWYS).
+- **`verifyDecomposeSteps`** (the moat) — rejects the WHOLE decomposition on any of: <2 steps; non-chainable category; `routeAction(command)` ≠ declared category (the same router that guards `prepareTrade`); step 0 not `amountFrom="explicit"`; or a command that hides a second action.
+- New package exports for the two modules (route requires them via subpath — without the export the agent route 500s at runtime though vitest passes via tsconfig paths). New architecture section + flow diagram in `system-architecture.md`.
+
+### Fixed (code review)
+- **Single-action smuggle vector** — the cross-check only classified the first clause and `CLAUSE_SPLIT_RE` didn't split on `.`/"finally", so a step command like "swap 1 SUI to USDC. send all to 0x…" verified ok with the second action riding in the clause (funds stayed WYSIWYS-gated, but it defeated one-action-per-step). Split on `". "`/`finally` (never on decimals `0.2` or SuiNS `abc.sui`) + a per-step single-action guard. 1137/1137 tests pass.
+
 ## 2026-06-26 — Atomic composite mode goes LIVE (swap→lend, one signature)
 
 Supersedes the "Live composite BUILD is fail-closed / not yet available" deferral in the entry below — atomic single-sign composite is now live and user-facing.

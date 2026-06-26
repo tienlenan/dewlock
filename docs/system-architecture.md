@@ -48,6 +48,29 @@ A deterministic `parseIntent` + `buildIntentDirective` front-runs the LLM. Self-
 
 **Multi-step chaining** — a compound intent ("swap 5 SUI to USDC then lend it on NAVI") is detected via Vietnamese connectors (rồi / và sau đó / tiếp theo) + `isChainableSequence` parser; if valid, routes to a chain-plan card instead of refusal. Each step is a normal single-action PTB; the `PlanStepper` state machine (packages/agent/src/chaining/plan-stepper.ts) handles delta resolution (step k+1 consumes output of step k, not pre-existing balance), stale-object waits (avoid "unavailable for consumption"), and halt semantics (BLOCK at step k cancels later steps). Page refresh loses in-flight chain state (durable resume not yet implemented); a transient stale-object error auto-rebuilds the step with fresh bytes (bounded, never re-sends stale bytes). **Atomic single-sign composite is LIVE** (recipe `swap_lend_v1`): the builder composes swap→lend into ONE PTB via the Cetus aggregator's `routerSwap` (the swap-output coin is fed structurally into the NAVI deposit — no wallet round-trip), an upfront SUI-coverage gate (`assertSuiGasCoverage`) catches shortfalls as `insufficient_gas`, and the Guardian's `checkCompositeRecipe` re-verifies the whole PTB before one signature. On any build/Guardian failure it degrades to the sequential chain — funds and every check unaffected. See `atomic-composite-mode.md`.
 
+**Hybrid multi-intent decomposition** — the regex parser only splits on `then/and/also/plus/,;&+` (+ VN connectors), so it can't structure complex compounds ("finally"/"." separators, multi-recipient sends, per-clause amounts). When a chainable compound can't be regex-parsed, the turn falls through to an LLM `decomposeIntent` tool: the LLM **proposes** the decomposition as the tool's `steps[]` args (ordered single-action commands + category + `amountFrom`), and the tool's `execute` **deterministically verifies** it fail-closed before any chain renders. The moat holds — the LLM proposes, deterministic code verifies; each step still re-enters the normal single-action pipeline (Guardian + WYSIWYS per step).
+
+```
+user message
+  |
+  v
+detectMultiAction  --- single --->  normal single-action pipeline
+  | multi
+  v
+isChainableSequence?  --- no --->  refuse "one action per message"
+  | yes  (swap / lend / stake / send)
+  v
+parseChainSteps (regex)
+  |--- parsed ------------------------------------>  chain-plan card      [fast path, 0 LLM]
+  |--- null -->  LLM proposes steps[]  -->  verifyDecomposeSteps (fail-closed)
+                 (decomposeIntent args)         |-- ok   -->  chain-plan card
+                                                |-- fail -->  "send one action at a time"
+
+each step's command  -->  single-action pipeline  -->  Guardian  -->  WYSIWYS signature
+```
+
+`verifyDecomposeSteps` (the moat) rejects the WHOLE decomposition on any of: (A) <2 steps; (B) a category not in `{swap,lend,stake,send}`; (C) `routeAction(command)` disagrees with the declared category (the same router that guards `prepareTrade`); (D) step 0 not `amountFrom="explicit"`; (E) a command that hides a second action (e.g. "swap … . send all to 0x…") — `CLAUSE_SPLIT_RE` splits on `". "`/`finally` (never on decimals `0.2` or SuiNS `abc.sui`), so one step is always exactly one action.
+
 ## SuiNS — `@dewlock/sui/suins-resolver`
 Forward + reverse resolution via the **native JSON-RPC** (`resolveNameServiceAddress` / `resolveNameServiceNames`) — NOT `@mysten/suins` SuinsClient (fails to construct under `serverExternalPackages`). Bare names auto-resolve (`roast2026wc` → `.sui`); unregistered → clear block. Reverse-lookup spoof guard + homoglyph lookalike check.
 
