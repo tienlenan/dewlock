@@ -47,21 +47,25 @@ describe("detectMultiAction — existing contract (no regression)", () => {
   });
 });
 
-describe("isChainableSequence — carve-out for swap→lend and similar ordered pairs", () => {
+describe("isChainableSequence — any ordered combination of chainable categories", () => {
   it("'swap 5 SUI to USDC then lend it on NAVI' → chainable", () => {
     expect(isChainableSequence(["swap", "lend"])).toBe(true);
   });
 
-  it("'send + swap' → NOT chainable (different category pair)", () => {
-    expect(isChainableSequence(["send", "swap"])).toBe(false);
+  it("'send + swap' → chainable (both are registered chainable categories)", () => {
+    expect(isChainableSequence(["send", "swap"])).toBe(true);
   });
 
-  it("single action → NOT chainable (need 2 steps)", () => {
+  it("single action → NOT chainable (need at least 2 steps)", () => {
     expect(isChainableSequence(["swap"])).toBe(false);
   });
 
-  it("3+ steps → NOT chainable (Track A supports exactly 2 steps)", () => {
-    expect(isChainableSequence(["swap", "lend", "send"])).toBe(false);
+  it("3+ steps → chainable when all categories are in the chainable set", () => {
+    expect(isChainableSequence(["swap", "lend", "send"])).toBe(true);
+  });
+
+  it("bridge + swap → NOT chainable (bridge is guard-only)", () => {
+    expect(isChainableSequence(["bridge", "swap"])).toBe(false);
   });
 });
 
@@ -94,8 +98,16 @@ describe("parseChainSteps — structured step extraction", () => {
     expect(parseChainSteps("swap 5 SUI to USDC")).toBeNull();
   });
 
-  it("ambiguous compound (send+swap) → null (not a supported chain pattern)", () => {
-    expect(parseChainSteps("send 5 SUI to Alice and swap 10 USDC")).toBeNull();
+  it("send+swap → 2 explicit steps (both are chainable categories now)", () => {
+    const steps = parseChainSteps("send 5 SUI to Alice and swap 10 USDC");
+    expect(steps).not.toBeNull();
+    expect(steps!).toHaveLength(2);
+    expect(steps![0].category).toBe("send");
+    expect(steps![1].category).toBe("swap");
+  });
+
+  it("'redeem then swap' → null (bridge/redeem is not chainable)", () => {
+    expect(parseChainSteps("redeem then swap 5 SUI to USDC")).toBeNull();
   });
 });
 

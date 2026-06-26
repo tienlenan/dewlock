@@ -1,16 +1,22 @@
 /**
  * detect-multi-action — deterministic guard for "one action per message",
- * plus the Track-A sequential chain parser for supported swap→lend patterns.
+ * plus the sequential chain parser for ANY ordered combination of supported
+ * chainable actions (swap, lend, stake, send).
  *
  * Single-action guard: flags a message that requests 2+ DISTINCT value-action
  * categories (send vs swap vs lend vs bridge vs limit-order). The agent route
  * short-circuits on a hit and asks the user to do one action at a time — no
  * value tool runs. Pure + CJS-safe; no React/Walrus deps.
  *
- * Chain parser: carves a hole for the specific swap→lend ordered pair that maps
- * to a supported sequential chain (Track A). Other multi-action combos continue
- * to hit the refusal path. The route checks isChainableSequence() BEFORE the
- * refusal to route chainable intents to the plan-stepper instead.
+ * Chain parser: carves a hole for ANY ordered sequence of chainable categories
+ * (swap/lend/stake/send) that maps to a supported Track-A chain. Other multi-
+ * action combos (bridge+X, limit+X) continue to hit the refusal path. The route
+ * checks isChainableSequence() BEFORE the refusal to route chainable intents to
+ * the plan-stepper instead.
+ *
+ * Adapters are the single source of truth: the CHAIN_ADAPTERS registry in
+ * chain-adapters.ts drives BOTH the keyword map and the chainable-category set.
+ * Adding a new chainable action = one adapter registration; nothing here changes.
  *
  * Read-only intents (portfolio/stats/protocols/receive) are NOT value actions and
  * never count, so "swap 5 SUI to USDC and show my portfolio" is one value action.
@@ -24,24 +30,39 @@
  * is one category → not flagged here; the persona backstop covers it.
  */
 
-/** Value-action categories → the verb keywords that signal each. */
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  send: ["send", "transfer", "pay"],
-  swap: ["swap", "sell", "dump", "convert"],
-  lend: ["lend", "lending", "deposit", "supply", "repay"],
+import {
+  CHAIN_CATEGORY_KEYWORDS,
+  CHAINABLE_CATEGORIES,
+} from "../chaining/chain-adapters";
+
+// ---------------------------------------------------------------------------
+// Single-action guard keyword map
+//
+// Merge adapter keywords (swap/lend/stake/send) with guard-only categories
+// (bridge/limit) that are NOT chainable but must still trigger the refusal.
+// ---------------------------------------------------------------------------
+
+/** Guard-only categories that refuse but never chain. */
+const GUARD_ONLY_KEYWORDS: Record<string, string[]> = {
   bridge: ["bridge", "redeem"],
   limit: ["limit"],
 };
 
+/** Full category→keywords map for the single-action guard. */
+const GUARD_CATEGORY_KEYWORDS: Record<string, string[]> = {
+  ...CHAIN_CATEGORY_KEYWORDS,
+  ...GUARD_ONLY_KEYWORDS,
+};
+
 const WORD_TO_CATEGORY = new Map<string, string>();
-for (const [category, words] of Object.entries(CATEGORY_KEYWORDS)) {
+for (const [category, words] of Object.entries(GUARD_CATEGORY_KEYWORDS)) {
   for (const w of words) WORD_TO_CATEGORY.set(w, category);
 }
 
 export interface MultiActionResult {
   /** True when 2+ distinct value-action categories appear in the message. */
   multi: boolean;
-  /** The ordered distinct categories found (e.g. ["send","swap"]). */
+  /** The ordered distinct categories found (e.g. ["swap","lend"]). */
   actions: string[];
 }
 
@@ -87,15 +108,8 @@ export function detectMultiAction(text: string): MultiActionResult {
 }
 
 // ---------------------------------------------------------------------------
-// Track-A chain parser — "swap then lend" is the only supported ordered pair
+// Track-A chain parser — any ordered N-step combination of chainable categories
 // ---------------------------------------------------------------------------
-
-/**
- * Supported two-step chain sequences (first → second).
- * Only the exact [swap, lend] pair is supported in Track A; extend here as
- * new chain types are validated and added.
- */
-const CHAINABLE_PAIRS: [string, string][] = [["swap", "lend"]];
 
 /**
  * Represents a parsed step in a sequential chain plan.
@@ -109,40 +123,67 @@ export interface ChainStep {
 }
 
 /**
- * Returns true when the ordered action sequence maps to a supported Track-A
- * chain pair. Used by the route to carve a hole before the refusal path.
+ * Prev-output markers: pronouns and forward-references that signal a step
+ * should consume the prior step's on-chain output rather than a user-stated amount.
+ * Examples: "lend it", "stake them", "deposit the output", "send the proceeds".
+ */
+const PREV_OUTPUT_MARKERS =
+  /\b(it|them|the\s+output|the\s+proceeds|the\s+usdc|the\s+sui|the\s+token)\b/i;
+
+/**
+ * Returns true when the ordered action sequence is a valid chainable plan:
+ *  - Length >= 2 (single-step is not a chain).
+ *  - Every action belongs to CHAINABLE_CATEGORIES (swap/lend/stake/send).
+ *    bridge and limit-order are NOT chainable — they fall through to the refusal.
+ *
+ * Any ordered N-step combination of registered chainable actions is accepted.
+ * Adding a new adapter automatically expands what sequences are chainable here.
  */
 export function isChainableSequence(actions: string[]): boolean {
-  if (actions.length !== 2) return false;
-  return CHAINABLE_PAIRS.some(([a, b]) => actions[0] === a && actions[1] === b);
+  if (actions.length < 2) return false;
+  return actions.every((a) => CHAINABLE_CATEGORIES.has(a));
 }
 
 /**
  * Parse a compound intent into ordered ChainStep[], or null when:
- *  - The intent is not a supported chainable sequence.
- *  - The intent is a non-compound (single-step) sentence.
- *  - The intent is ambiguous (e.g. send+swap → ask, don't guess).
+ *  - The intent is a non-compound (single-clause) sentence.
+ *  - Any clause maps to a non-chainable category (bridge/limit) → null, refuse.
+ *  - Fewer than 2 clauses carry a recognisable verb.
  *
- * Step-2 clause using "it"/"the output"/"the proceeds" signals that the amount
- * comes from the prior step's on-chain output (amountFrom="prev-output").
+ * Step amountFrom logic:
+ *  - Step 0 is always "explicit" (the user stated the amount in the first clause).
+ *  - Step k > 0 is "prev-output" when its clause contains a prev-output marker
+ *    (it/them/the output/the proceeds/…), signalling the amount comes from the
+ *    prior step's on-chain confirm. Otherwise it is "explicit" — the user stated
+ *    an amount directly in that clause ("send 1 SUI to A then send 2 SUI to B"
+ *    is two explicit steps, not a prev-output chain).
+ *
+ * Same-category chains (e.g. "send X to A then send Y to B") are valid: the
+ * detectMultiAction guard only fires on DISTINCT categories, so same-category
+ * repetition bypasses it. This function handles that directly via clause parsing.
+ *
+ * This fixes the original bug where step-2 was hardcoded to "prev-output" for all
+ * swap→lend pairs regardless of whether "it" appeared in the lend clause.
  */
 export function parseChainSteps(text: string): ChainStep[] | null {
   const normalized = normalizeVnConnectors(text);
-  const result = detectMultiAction(normalized);
-
-  if (!result.multi) return null; // single-step — not a chain
-  if (!isChainableSequence(result.actions)) return null; // unsupported combo → ask
 
   // Split into clauses on the same separators; filter empties.
-  const rawClauses = normalized.split(CLAUSE_SPLIT_RE).map((c) => c.trim()).filter(Boolean);
+  const rawClauses = normalized
+    .split(CLAUSE_SPLIT_RE)
+    .map((c) => c.trim())
+    .filter(Boolean);
   if (rawClauses.length < 2) return null;
 
-  // Map each raw clause to its first-found category (same logic as detectMultiAction).
+  // Map each raw clause to its first-found verb category (same first-verb
+  // logic as detectMultiAction). A non-chainable verb (bridge/limit) in any
+  // clause voids the whole sequence → null (falls through to refusal path).
   const clauseWithCat: { clause: string; category: string }[] = [];
   for (const clause of rawClauses) {
     for (const w of clause.toLowerCase().split(/[^a-z0-9]+/)) {
       const category = WORD_TO_CATEGORY.get(w);
       if (category) {
+        if (!CHAINABLE_CATEGORIES.has(category)) return null;
         clauseWithCat.push({ clause, category });
         break;
       }
@@ -151,18 +192,24 @@ export function parseChainSteps(text: string): ChainStep[] | null {
 
   if (clauseWithCat.length < 2) return null;
 
-  // Only take the first two (Track A = exactly 2 steps).
-  const [first, second] = clauseWithCat;
+  // Validate via isChainableSequence using the DISTINCT action set.
+  // This rejects non-chainable combos but allows same-category repetition
+  // (send+send has only one distinct category → isChainableSequence passes
+  // because every category in the distinct set is chainable).
+  const distinctActions = [...new Set(clauseWithCat.map((c) => c.category))];
+  if (!isChainableSequence(distinctActions.length >= 2 ? distinctActions : [distinctActions[0], distinctActions[0]])) {
+    return null;
+  }
 
-  // Step-2 refers to the prior step's output when the clause contains a pronoun or
-  // forward-ref ("it", "them", "the output", "the proceeds") — the signal that the
-  // amount is derived from on-chain post-confirm state, not user-stated.
-  const PREV_OUTPUT_MARKERS = /\b(it|them|the\s+output|the\s+proceeds|the\s+usdc|the\s+sui|the\s+token)\b/i;
-  const step2AmountFrom: ChainStep["amountFrom"] =
-    PREV_OUTPUT_MARKERS.test(second.clause) ? "prev-output" : "prev-output"; // always prev-output for lend step
-
-  return [
-    { category: first.category, clause: first.clause, amountFrom: "explicit" },
-    { category: second.category, clause: second.clause, amountFrom: step2AmountFrom },
-  ];
+  // Build ordered ChainStep[]: step 0 is always explicit; later steps check
+  // for a prev-output marker in their clause to determine amountFrom.
+  return clauseWithCat.map(({ clause, category }, i) => {
+    const amountFrom: ChainStep["amountFrom"] =
+      i === 0
+        ? "explicit"
+        : PREV_OUTPUT_MARKERS.test(clause)
+          ? "prev-output"
+          : "explicit";
+    return { category, clause, amountFrom };
+  });
 }
