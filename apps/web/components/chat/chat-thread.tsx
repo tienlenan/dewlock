@@ -1312,11 +1312,17 @@ function ChainPlanWithComposite({
             : block.message ?? "unknown error";
         // A coin/gas shortfall is a balance problem, not a route limitation — say so plainly.
         // (Falling back to step-by-step would hit the SAME shortfall, so don't imply it helps.)
-        const isBalanceShortfall = /insufficient/i.test(rawReason);
+        // Matched by the server's insufficient_gas gate (same gate as a normal SUI swap), with
+        // a message-text fallback. The server reason is already user-facing, so surface it.
+        const isBalanceShortfall =
+          (Array.isArray(block.gates) && block.gates.includes("insufficient_gas")) ||
+          /insufficient|not enough sui/i.test(rawReason);
         if (isBalanceShortfall) {
           setAtomicError(
-            "Not enough SUI to swap that amount and still cover network gas. Reduce the swap amount " +
-              "(leave a little SUI for gas) or top up your wallet, then try again.",
+            /sui/i.test(rawReason)
+              ? rawReason
+              : "Not enough SUI to swap that amount and still cover network gas. Reduce the amount " +
+                  "(leave a little SUI for gas) or top up, then try again.",
           );
           return;
         }

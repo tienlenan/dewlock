@@ -31,6 +31,31 @@ function fmtSui(mist: bigint): string {
 }
 
 /**
+ * Assert the wallet's total SUI covers `suiSpentFromGas + SUI_GAS_RESERVE_MIST`, WITHOUT
+ * pinning the gas payment. Use this when the gas coin is managed by an external builder
+ * (e.g. the Cetus aggregator's buildTransactionBytes) so we can't pin, but still want the
+ * shortfall caught upfront — before the heavy build — as the same actionable error/gate.
+ *
+ * @throws InsufficientGasCoverageError when total SUI < spent + reserve.
+ */
+export async function assertSuiGasCoverage(
+  client: SuiJsonRpcClient,
+  sender: string,
+  suiSpentFromGas: bigint,
+): Promise<void> {
+  const needed = suiSpentFromGas + SUI_GAS_RESERVE_MIST;
+  const bal = await client.getBalance({ owner: sender, coinType: COIN_TYPES.SUI });
+  const total = BigInt(bal.totalBalance);
+  if (total < needed) {
+    throw new InsufficientGasCoverageError(
+      `Not enough SUI to cover this transaction plus network gas: need ~${fmtSui(needed)} SUI ` +
+        `(${fmtSui(suiSpentFromGas)} for the swap + ${fmtSui(SUI_GAS_RESERVE_MIST)} for gas), ` +
+        `but you hold ${fmtSui(total)} SUI. Lower the amount or add more SUI.`,
+    );
+  }
+}
+
+/**
  * Pin `tx`'s gas payment to SUI coins covering `suiSpentFromGas + SUI_GAS_RESERVE_MIST`,
  * largest-first. No-op-safe to call only when the input coin is native SUI.
  *

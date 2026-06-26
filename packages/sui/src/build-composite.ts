@@ -26,7 +26,7 @@ import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transac
 import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { COIN_TYPES } from "./allowlist";
-import { pinSuiGasPayment } from "./sui-gas-payment";
+import { pinSuiGasPayment, assertSuiGasCoverage } from "./sui-gas-payment";
 import { loadAggregatorSdk, AGGREGATOR_ACTIVE_PROVIDERS } from "./aggregator-quotes";
 
 type SuiClient = SuiJsonRpcClient;
@@ -179,12 +179,20 @@ export async function buildComposite(
  * Callers (Guardian) treat a throw as BLOCK → atomic degrades to step-by-step.
  */
 async function buildLiveSwapLendPtb(
-  _client: SuiClient,
+  client: SuiClient,
   sender: string,
   swapLeg: CompositeLeg,
   lendLeg: CompositeLeg,
 ): Promise<CompositeBuildResult> {
   type NaviSdk = typeof import("@naviprotocol/lending");
+
+  // Upfront SUI-coverage gate (the aggregator manages the gas coin, so we assert rather
+  // than pin): a balance shortfall is caught here — before the route fetch + build — and
+  // surfaces as the same actionable "not enough SUI" error/gate as a normal SUI swap,
+  // instead of a raw InsufficientCoinBalance deep in PTB resolution.
+  if (swapLeg.coinTypeIn === COIN_TYPES.SUI) {
+    await assertSuiGasCoverage(client, sender, swapLeg.amountInNative);
+  }
 
   let aggMod: Awaited<ReturnType<typeof loadAggregatorSdk>>;
   let grpcMod: typeof import("@mysten/sui/grpc");
