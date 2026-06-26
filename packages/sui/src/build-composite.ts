@@ -4,10 +4,12 @@
  * WHY single PTB: both legs execute atomically — if NAVI deposit fails, the swap is also
  * reverted. "One signature, all-or-nothing" is the user-facing guarantee.
  *
- * Live mode (swap_lend_v1): uses Aftermath Router's addTransactionForCompleteTradeRoute to
- * add the swap to an existing tx and return coinOutId (the swap-output coin object). That
- * coinOutId is then passed directly to NAVI depositCoinPTB — no wallet coin selection
- * between legs. This is the structural proof that the swap output feeds the lend input.
+ * Live mode (swap_lend_v1): uses the Cetus aggregator's routerSwap to add the swap hops to
+ * an existing tx and return the swap-output coin as a composable PTB argument. That coin is
+ * split to the swap's guaranteed minimum and passed directly to NAVI depositCoinPTB — no
+ * wallet coin selection between legs. This is the structural proof that the swap output
+ * feeds the lend input. (The Aftermath router's add-trade path aborts multi-path SUI routes
+ * mid-resolution; the aggregator is the same engine normal swaps use, so routes compose.)
  *
  * For live mode: the Guardian's checkCompositeRecipe still verifies the composite PTB's
  * MoveCall multiset + delta/owner invariants regardless of how the PTB was built.
@@ -15,9 +17,9 @@
  * Atomicity: a Move abort in either leg (e.g. slippage exceeded, NAVI deposit rejected)
  * reverts the entire PTB. Nothing executes on abort.
  *
- * NOTE [needs mainnet verification]: the Aftermath Router coinOutId shape and the NAVI
- * depositCoinPTB coin-argument signature are verified against the bundled SDK at build time
- * but depend on upstream SDK versions in sdk-bundles/aftermath.cjs and sdk-bundles/navi.cjs.
+ * NOTE [needs mainnet verification]: the aggregator routerSwap output-coin shape and the
+ * NAVI depositCoinPTB coin-argument signature are verified against the SDKs at build time
+ * but depend on upstream versions (@cetusprotocol/aggregator-sdk + sdk-bundles/navi.cjs).
  */
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
@@ -25,6 +27,7 @@ import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { COIN_TYPES } from "./allowlist";
 import { pinSuiGasPayment } from "./sui-gas-payment";
+import { loadAggregatorSdk, AGGREGATOR_ACTIVE_PROVIDERS } from "./aggregator-quotes";
 
 type SuiClient = SuiJsonRpcClient;
 
@@ -137,48 +140,61 @@ export async function buildComposite(
     return buildFixtureComposite(client, senderAddress, swapLeg, lendLeg);
   }
 
-  // Live mode: Aftermath Router exposes addTransactionForCompleteTradeRoute which
-  // adds the swap to a shared tx and returns coinOutId — the swap-output coin usable
-  // as a PTB argument. We wire it directly into NAVI depositCoinPTB (one PTB, one sig).
+  // Live mode: the Cetus aggregator's routerSwap adds the swap hops to a shared tx and
+  // RETURNS the output coin as a composable PTB argument (targetCoin). We wire that coin
+  // straight into NAVI depositCoinPTB — one PTB, one signature. This uses the SAME route
+  // engine as a normal (non-composite) swap, so multi-path SUI routes compose cleanly
+  // (the Aftermath router's add-trade path aborts those mid-resolution).
   // [needs mainnet verification] — Guardian's checkCompositeRecipe re-verifies the full
   // PTB via dry-run before returning approvedDigest to the client.
   return buildLiveSwapLendPtb(client, senderAddress, swapLeg, lendLeg);
 }
 
 // ---------------------------------------------------------------------------
-// Live composite builder — Aftermath swap → NAVI deposit (one PTB)
+// Live composite builder — Cetus aggregator swap → NAVI deposit (one PTB)
 // [needs mainnet verification]
 // ---------------------------------------------------------------------------
 
 /**
- * Build a live composite PTB: SUI → (Aftermath Router swap) → USDC →
+ * Build a live composite PTB: SUI → (Cetus aggregator swap) → USDC →
  * (NAVI depositCoinPTB) in a SINGLE PTB.
  *
- * The Aftermath Router's addTransactionForCompleteTradeRoute mutates the shared tx
- * and returns { tx, coinOutId } where coinOutId is a TransactionObjectArgument
- * referencing the swap-output coin. NAVI depositCoinPTB accepts that coinOutId
- * directly — no wallet coin selection, no intermediate transfer between legs.
+ * WHY the Cetus aggregator (not Aftermath): the aggregator's routerSwap returns the
+ * swap-output coin as a composable PTB argument and runs the exact route engine used by
+ * normal swaps, so multi-path SUI routes assemble cleanly. The Aftermath router's
+ * addTransactionForCompleteTradeRoute splits the gas-token SUI input during a deferred
+ * resolution step that aborts (MoveAbort 46001) for multi-path routes.
+ *
+ * Coin flow (the structural linkage the Guardian's delta/owner walk verifies):
+ *   inputCoin (split from gas for SUI) → routerSwap → targetCoin (swap output) →
+ *   split EXACTLY minAmountOut → NAVI deposit; the dust remainder returns to the sender.
+ *
+ * WHY deposit minAmountOut (not the whole coin): the proven non-composite NAVI deposit
+ * always passes a coin whose value equals the deposit amount. The live swap output is an
+ * estimate that varies with slippage, but routerSwap guarantees output >= minAmountOut, so
+ * splitting exactly minAmountOut always succeeds and reproduces that invariant. The small
+ * remainder above the floor is transferred back to the sender so no coin object dangles.
  *
  * Throws CompositeBuildError on any failure (SDK load, route fetch, build).
- * Callers (Guardian) treat a throw as BLOCK.
+ * Callers (Guardian) treat a throw as BLOCK → atomic degrades to step-by-step.
  */
 async function buildLiveSwapLendPtb(
-  client: SuiClient,
+  _client: SuiClient,
   sender: string,
   swapLeg: CompositeLeg,
   lendLeg: CompositeLeg,
 ): Promise<CompositeBuildResult> {
-  type AftermathSdk = typeof import("aftermath-ts-sdk");
   type NaviSdk = typeof import("@naviprotocol/lending");
 
-  let mod: AftermathSdk;
+  let aggMod: Awaited<ReturnType<typeof loadAggregatorSdk>>;
+  let grpcMod: typeof import("@mysten/sui/grpc");
   let navi: NaviSdk;
   try {
-    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
-    mod = require("../sdk-bundles/aftermath.cjs") as AftermathSdk;
+    aggMod = await loadAggregatorSdk();
+    grpcMod = await import("@mysten/sui/grpc");
   } catch (err) {
     throw new CompositeBuildError(
-      `Failed to load Aftermath SDK: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to load aggregator SDK: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   try {
@@ -191,84 +207,74 @@ async function buildLiveSwapLendPtb(
   }
 
   try {
-    const af = await mod.Aftermath.create({ network: "MAINNET" });
-    const router = af.Router();
-
-    // Leg 0: fetch the best Aftermath route for coinTypeIn → coinTypeOut.
-    const slippageFraction = (swapLeg.slippageBps ?? 50) / 10_000;
-    const completeRoute = await router.getCompleteTradeRouteGivenAmountIn({
-      coinInType: swapLeg.coinTypeIn,
-      coinOutType: swapLeg.coinTypeOut!,
-      coinInAmount: swapLeg.amountInNative,
+    // The aggregator selects/builds on-chain via gRPC (separate from the JSON-RPC client).
+    const grpcBaseUrl = process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443";
+    const grpc = new grpcMod.SuiGrpcClient({ network: "mainnet", baseUrl: grpcBaseUrl });
+    const agg = new aggMod.AggregatorClient({
+      endpoint: process.env.CETUS_AGGREGATOR_ENDPOINT ?? "https://api-sui.cetus.zone/router_v3",
+      signer: sender,
+      client: grpc as never,
+      env: aggMod.Env.Mainnet,
     });
 
-    // Estimate swap output for the NAVI deposit amount parameter.
-    const rawOut = (completeRoute as { coinOut?: { amount?: bigint | string } }).coinOut?.amount;
-    if (rawOut == null) {
-      throw new CompositeBuildError(
-        "Aftermath router returned no coinOut.amount — cannot build composite swap.",
-      );
+    // Leg 0: find the best route for coinTypeIn → coinTypeOut (constrained to allowlisted venues).
+    const slippageBps = swapLeg.slippageBps ?? 50;
+    const router = await agg.findRouters({
+      from: swapLeg.coinTypeIn,
+      target: swapLeg.coinTypeOut!,
+      amount: swapLeg.amountInNative.toString(),
+      byAmountIn: true,
+      providers: [...AGGREGATOR_ACTIVE_PROVIDERS],
+    });
+    if (!router || router.amountOut == null) {
+      throw new CompositeBuildError("Aggregator returned no route — cannot build composite swap.");
     }
-    const estimatedAmountOut =
-      typeof rawOut === "bigint" ? rawOut : BigInt(String(rawOut));
-    if (estimatedAmountOut <= 0n) {
+    const estimatedAmountOut = BigInt(router.amountOut.toString());
+    const minAmountOut = (estimatedAmountOut * BigInt(10_000 - slippageBps)) / 10_000n;
+    if (minAmountOut <= 0n) {
       throw new CompositeBuildError(
-        "Aftermath router returned zero estimated output — cannot build composite swap.",
+        "Aggregator route produced a zero minimum output — cannot build composite swap.",
       );
     }
 
-    // Build a fresh transaction for the composite PTB.
     const tx = new Transaction();
     tx.setSender(sender);
 
-    // Pre-split the input coin and pass it as coinInId. When composing a SUI (gas-token)
-    // swap into a larger PTB WITHOUT coinInId, the router lets the server split SUI itself —
-    // but gas is resolved later by tx.build(), so that split aborts during resolution
-    // (MoveAbort 46001 in Aftermath utils::split_coin). Providing an explicit coinInId makes
-    // the swap consume OUR coin and leaves the gas remainder for the network fee. v1's
-    // swap_lend_v1 input is always SUI, so we split from tx.gas.
-    const coinInArg =
+    // Pre-split the SUI input from gas so routerSwap consumes OUR coin (composable mode).
+    // For a non-SUI input we omit inputCoin and let routerSwap select the wallet coin.
+    const inputCoin =
       swapLeg.coinTypeIn === COIN_TYPES.SUI
         ? tx.splitCoins(tx.gas, [swapLeg.amountInNative])[0]
         : undefined;
 
-    // Leg 0 (swap): add the Aftermath route to the shared tx. The router mutates tx
-    // and returns { tx: tx2, coinOutId } where coinOutId is the swap-output coin arg.
-    const swapResult = await router.addTransactionForCompleteTradeRoute({
-      tx,
-      completeRoute,
-      walletAddress: sender,
-      slippage: slippageFraction,
-      ...(coinInArg ? { coinInId: coinInArg } : {}),
-    } as never);
-    // The router may return a new tx reference or mutate in place — use returned tx2
-    // to capture any internal reassignment.
-    const tx2: Transaction = (swapResult as { tx: Transaction }).tx ?? tx;
-    const coinOutId = (swapResult as { coinOutId: TransactionObjectArgument }).coinOutId;
-    if (!coinOutId) {
+    // Leg 0 (swap): routerSwap returns the swap-output coin as a PTB argument.
+    const targetCoin = (await agg.routerSwap({
+      router,
+      txb: tx,
+      slippage: slippageBps / 10_000,
+      ...(inputCoin ? { inputCoin } : {}),
+    } as never)) as TransactionObjectArgument;
+    if (!targetCoin) {
       throw new CompositeBuildError(
-        "Aftermath addTransactionForCompleteTradeRoute returned no coinOutId — " +
-          "cannot wire swap output into the NAVI deposit leg.",
+        "Cetus routerSwap returned no output coin — cannot wire swap output into the NAVI deposit leg.",
       );
     }
 
-    // Leg 1 (lend deposit): pass coinOutId directly to NAVI depositCoinPTB.
-    // coinOutId is the swap-output PTBResult — no wallet coin selection between legs.
-    // NAVI SDK signature: depositCoinPTB(tx, coinType, coin, options)
-    // where options = { account: senderAddress, amount: number (native units) }
-    // [needs mainnet verification] — amount is the estimated swap output in native units.
-    const naviOptions = {
-      account: sender,
-      amount: Number(estimatedAmountOut),
-    } as never;
-    await navi.depositCoinPTB(tx2, lendLeg.coinTypeIn, coinOutId as never, naviOptions);
+    // Leg 1 (lend deposit): split exactly the guaranteed floor and deposit it, mirroring the
+    // proven NAVI invariant (coin value === deposit amount). NAVI SDK signature:
+    // depositCoinPTB(tx, coinType, coin, { account, amount: number (native units) }).
+    const [depositCoin] = tx.splitCoins(targetCoin, [minAmountOut]);
+    const naviOptions = { account: sender, amount: Number(minAmountOut) } as never;
+    await navi.depositCoinPTB(tx, lendLeg.coinTypeIn, depositCoin as never, naviOptions);
 
-    // NOTE: do NOT pinSuiGasPayment here. addTransactionForCompleteTradeRoute is
-    // server-composed onto tx2 and sets up its own SUI input/gas handling; re-pinning the
-    // gas payment afterwards changes the gas coin the swap's split_coin relies on and
-    // aborts resolution (MoveAbort in Aftermath utils::split_coin). Let tx.build() resolve
-    // gas, matching how the SDK's add-trade flow expects the gas coin to be selected.
-    const bytes = await tx2.build({ client: client as unknown as ClientWithCoreApi });
+    // Return the swap-output remainder (dust above the floor) to the sender so no coin
+    // object dangles. The transfer targets the SENDER → passes the Guardian anti-leak walk.
+    tx.transferObjects([targetCoin], sender);
+
+    // Build via the aggregator's own builder (resolves gas with its gRPC client), matching
+    // the proven normal-swap path. Adding the NAVI deposit + transfer only raises the gas
+    // budget; it does not change how the swap's gas/input coins are selected.
+    const bytes = await agg.buildTransactionBytes(tx);
     return { txBytes: Buffer.from(bytes).toString("base64"), isFixture: false };
   } catch (err) {
     if (err instanceof CompositeBuildError) throw err;
