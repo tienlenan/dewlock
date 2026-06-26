@@ -118,6 +118,9 @@ export function BlockCard({ reasons, gates }: BlockCardProps) {
       className="w-full overflow-hidden"
       style={{
         maxWidth: "440px",
+        // Sits as a bot message card; add breathing room from the assistant
+        // text / preceding card above so the verdict panel isn't cramped.
+        marginTop: "12px",
         border: "1px solid color-mix(in srgb, var(--destructive) 38%, transparent)",
         borderRadius: "14px",
         background: "var(--bg-ink)",
