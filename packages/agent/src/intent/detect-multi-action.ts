@@ -285,8 +285,10 @@ export function parseMultiRecipientSend(
       }
     }
     if (hasVerb) return null;
-    // A digit means a per-recipient amount → too varied for the deterministic prefix.
-    if (/\d/.test(clause)) {
+    // A LEADING number ("0.3 to Bob", "100 USDC to Bob") is a per-recipient amount → too
+    // varied for the deterministic prefix; route to the LLM. A digit ELSEWHERE in the token
+    // is part of the recipient itself (a 0x address, "user2", "888-l.sui") — keep it.
+    if (/^\d[\d.,]*\s/.test(clause)) {
       amountBearingExtras++;
       continue;
     }

@@ -111,17 +111,21 @@ class BurnerWallet implements Wallet {
     };
   };
 
-  #signTransaction: SuiSignTransactionMethod = async ({ transaction, chain }) => {
+  #signTransaction: SuiSignTransactionMethod = async ({ transaction, account, chain }) => {
     const client = clientForChain(chain ?? `sui:${testNetwork()}`);
     const tx = Transaction.from(await transaction.toJSON());
+    // dapp-kit hands the wallet a gas-less, sender-less TransactionKind — the wallet sets the
+    // sender + selects gas before building (mirrors a real wallet; without this build() throws).
+    tx.setSenderIfNotSet(account?.address ?? this.#account.address);
     const bytes = await tx.build({ client });
     const { signature } = await this.#keypair.signTransaction(bytes);
     return { bytes: toBase64(bytes), signature };
   };
 
-  #signAndExecute: SuiSignAndExecuteTransactionMethod = async ({ transaction, chain }) => {
+  #signAndExecute: SuiSignAndExecuteTransactionMethod = async ({ transaction, account, chain }) => {
     const client = clientForChain(chain ?? `sui:${testNetwork()}`);
     const tx = Transaction.from(await transaction.toJSON());
+    tx.setSenderIfNotSet(account?.address ?? this.#account.address);
     const bytes = await tx.build({ client });
     const { signature } = await this.#keypair.signTransaction(bytes);
     const res = await client.executeTransactionBlock({

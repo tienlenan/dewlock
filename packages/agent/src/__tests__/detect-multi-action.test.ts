@@ -77,6 +77,18 @@ describe("parseMultiRecipientSend", () => {
     expect(parseMultiRecipientSend("send 0.2 SUI to Alice and 0.3 to Bob")).toEqual({ kind: "needsLlm" });
   });
 
+  it("keeps digit-containing recipients deterministic (address / numeric name)", () => {
+    // A 0x address or a .sui name with digits has digits but is NOT a per-recipient amount.
+    expect(clauses("send 0.2 SUI to alice and 0xbeef0001")).toEqual([
+      "send 0.2 SUI to alice",
+      "send 0.2 SUI to 0xbeef0001",
+    ]);
+    expect(clauses("send 1 SUI to alice and 888-l.sui")).toEqual([
+      "send 1 SUI to alice",
+      "send 1 SUI to 888-l.sui",
+    ]);
+  });
+
   it("single-recipient send is NOT a multi-recipient send", () => {
     expect(parseMultiRecipientSend("send 0.2 SUI to Alice")).toBeNull();
   });
