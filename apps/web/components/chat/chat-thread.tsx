@@ -37,6 +37,8 @@ import { ContactPickerCard, type ContactPickerData } from "@/components/chat/con
 import { ChainPlanCard, isAtomicEligible } from "@/components/chat/chain-plan-card";
 import { splitMessageByContacts } from "@/lib/chat/resolve-message-contacts";
 import { truncateAddress } from "@/lib/chat/recipient-detect";
+import { resolveSuinsAddress, looksLikeSuinsName } from "@/lib/contacts/suins-forward";
+import { useSuiClient } from "@mysten/dapp-kit";
 import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
 import { AgentThinkingLoader } from "@/components/chat/agent-thinking-loader";
 import { EcosystemYieldsCard } from "@/components/chat/ecosystem-yields-card";
@@ -798,6 +800,7 @@ function MessageRow({
             walletAddress={walletAddress}
             onSend={onSend}
             chainCallbacks={chainCallbacks}
+            contacts={contacts}
           />
         ))}
       </div>
@@ -815,12 +818,14 @@ function CardSlot({
   walletAddress,
   onSend,
   chainCallbacks,
+  contacts = [],
 }: {
   card: ToolCard;
   onReplace: (replacement: ToolCard) => void;
   walletAddress?: string;
   onSend?: (text: string) => void;
   chainCallbacks?: ChainSignCallbacks;
+  contacts?: { name: string; address: string }[];
 }) {
   if (card.type === "tx-preview") {
     return (
@@ -1005,6 +1010,7 @@ function CardSlot({
         onReplace={onReplace}
         walletAddress={walletAddress}
         chainCallbacks={chainCallbacks}
+        contacts={contacts}
       />
     );
   }
@@ -1260,16 +1266,40 @@ function ChainPlanWithComposite({
   onReplace,
   walletAddress,
   chainCallbacks,
+  contacts = [],
 }: {
   plan: import("@/components/chat/chain-plan-card").ChainPlanData;
   onStartStep?: (stepIndex: number) => void;
   onReplace: (replacement: ToolCard) => void;
   walletAddress?: string;
   chainCallbacks?: ChainSignCallbacks;
+  contacts?: { name: string; address: string }[];
 }) {
+  const suiClient = useSuiClient();
   const [atomicError, setAtomicError] = useState<string | null>(null);
   const [atomicPreparing, setAtomicPreparing] = useState(false);
   const [atomicTx, setAtomicTx] = useState<PrepareTradePass | null>(null);
+
+  /** Resolve a send recipient (saved-friend name / .sui / 0x) to a 0x address for the atomic
+   *  proposal — the route requires a resolved 0x and the Guardian anti-leak matches on it. */
+  const resolveRecipientTo0x = useCallback(
+    async (raw: string): Promise<string | null> => {
+      const t = raw.trim();
+      if (/^0x[0-9a-fA-F]{1,64}$/.test(t)) return t.toLowerCase();
+      const c = contacts.find((x) => x.name.toLowerCase() === t.toLowerCase());
+      if (c) return c.address.toLowerCase();
+      if (looksLikeSuinsName(t)) {
+        try {
+          const addr = await resolveSuinsAddress(suiClient, t);
+          if (addr) return addr.toLowerCase();
+        } catch {
+          /* fall through → null */
+        }
+      }
+      return null;
+    },
+    [contacts, suiClient],
+  );
 
   // ---------------------------------------------------------------------------
   // Clause parsers for the dynamic composite builder.
@@ -1390,6 +1420,26 @@ function ChainPlanWithComposite({
     setAtomicError(null);
 
     try {
+      // Pre-resolve send recipients (saved friend / .sui / 0x → 0x). The route requires a
+      // resolved 0x and the Guardian anti-leak matches on it. Fail clearly if any can't resolve.
+      const resolvedRecipients = new Map<number, string>();
+      for (let i = 0; i < plan.steps.length; i++) {
+        const s = plan.steps[i];
+        if (s.category !== "send") continue;
+        const { recipient } = parseSendLeg(s.clause);
+        const resolved = recipient ? await resolveRecipientTo0x(recipient) : null;
+        if (!resolved) {
+          setAtomicError(
+            recipient
+              ? `Couldn't resolve "${recipient}" to an address for the atomic send — use a saved friend, a .sui name, or a 0x address.`
+              : "Couldn't read a recipient for one of the send steps.",
+          );
+          setAtomicPreparing(false);
+          return;
+        }
+        resolvedRecipients.set(i, resolved);
+      }
+
       // Build legs from ALL chain steps (generalized dynamic composite).
       // Map each step.category to its composite actionType and parse amount/coins from clause.
       const compositeLegs: Array<{
@@ -1401,7 +1451,7 @@ function ChainPlanWithComposite({
         recipient?: string;
         slippageBps?: number;
         lendingProtocol?: string;
-      }> = plan.steps.map((step) => {
+      }> = plan.steps.map((step, idx) => {
         const isChained = step.amountFrom === "prev-output";
         if (step.category === "swap") {
           const { coinTypeIn, coinTypeOut, amountNative } = parseSwapLeg(step.clause);
@@ -1414,16 +1464,13 @@ function ChainPlanWithComposite({
             slippageBps: 50,
           };
         } else if (step.category === "send") {
-          const { coinTypeIn, amountNative, recipient } = parseSendLeg(step.clause);
+          const { coinTypeIn, amountNative } = parseSendLeg(step.clause);
           return {
             actionType: "send",
             coinTypeIn,
             amountInNative: amountNative,
             amountFrom: step.amountFrom,
-            // recipient must be a resolved 0x — if we only have a .sui name the server
-            // cannot re-resolve it (TOCTOU), so we pass the raw name and let the server block
-            // with a clear message. A proper integration would pre-resolve at decompose time.
-            recipient: recipient ?? undefined,
+            recipient: resolvedRecipients.get(idx), // pre-resolved 0x (friend/.sui/0x)
           };
         } else if (step.category === "stake") {
           const { coinTypeIn, amountNative } = parseStakeLeg(step.clause);
