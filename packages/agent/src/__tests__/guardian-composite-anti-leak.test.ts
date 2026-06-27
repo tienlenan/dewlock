@@ -650,3 +650,38 @@ describe("PassesSameFriendSumming: two legs to same recipient, dry-run shows sum
     expect(result.ok).toBe(true);
   });
 });
+
+describe("PassesCoinObjectChangeSkip: the transferred coin in objectChanges is not a leak", () => {
+  it("passes when the moved coin appears as a Coin<SUI> third-party objectChange AND a matched balanceDelta", async () => {
+    process.env.TX_USD_CAP = "10000";
+    process.env.DAILY_USD_CAP = "100000";
+
+    const txBytes = await sendOnlyPtb([ALICE], [FIFTY_MILLI_SUI]);
+    const proposal = dynamicSendProposal(txBytes, [
+      { recipient: ALICE, coinType: COIN_TYPES.SUI, amountMist: FIFTY_MILLI_SUI },
+    ]);
+    // A real PTB surfaces the moved coin BOTH as a balanceDelta inflow (authoritative — matched
+    // to the declared leg) AND as a Coin<SUI> third-party objectChange. The objectChanges walk
+    // MUST skip the coin (it carries no owner address) and rely on the balanceDelta multiset.
+    mockDryRun.mockResolvedValue({
+      effects: {} as DryRunResult["effects"],
+      balanceDeltas: [
+        { coinType: COIN_TYPES.SUI, amount: -(FIFTY_MILLI_SUI + 1_000_000n), owner: WALLET },
+        { coinType: COIN_TYPES.SUI, amount: FIFTY_MILLI_SUI, owner: ALICE },
+      ],
+      gasCostMist: 1_000_000n,
+      objectChanges: [
+        {
+          objectId: "0x" + "cc".repeat(32),
+          changeType: "transferred",
+          ownerKind: "third-party",
+          objectType: "0x2::coin::Coin<0x2::sui::SUI>",
+        },
+      ],
+    });
+
+    const result = await checkCompositeRecipe(proposal, stubClient);
+
+    expect(result.ok).toBe(true);
+  });
+});

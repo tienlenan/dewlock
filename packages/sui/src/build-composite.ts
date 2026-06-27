@@ -1,8 +1,8 @@
 /**
- * build-composite.ts — single-PTB composite builder for declared recipes (v1: swap→lend).
+ * build-composite.ts — single-PTB composite builder for declared recipes and dynamic leg sequences.
  *
- * WHY single PTB: both legs execute atomically — if NAVI deposit fails, the swap is also
- * reverted. "One signature, all-or-nothing" is the user-facing guarantee.
+ * WHY single PTB: all legs execute atomically — if any leg fails, the entire PTB is reverted.
+ * "One signature, all-or-nothing" is the user-facing guarantee.
  *
  * Live mode (swap_lend_v1): uses the Cetus aggregator's routerSwap to add the swap hops to
  * an existing tx and return the swap-output coin as a composable PTB argument. That coin is
@@ -11,11 +11,14 @@
  * feeds the lend input. (The Aftermath router's add-trade path aborts multi-path SUI routes
  * mid-resolution; the aggregator is the same engine normal swaps use, so routes compose.)
  *
- * For live mode: the Guardian's checkCompositeRecipe still verifies the composite PTB's
- * MoveCall multiset + delta/owner invariants regardless of how the PTB was built.
+ * Dynamic composite (buildDynamicComposite): builds ONE PTB from N ordered legs of types
+ * send/swap/lend_deposit/stake. Chaining: a leg whose amountFrom === "prev-output" consumes
+ * the prior leg's PTBResult coin instead of pulling a fresh coin from the wallet.
  *
- * Atomicity: a Move abort in either leg (e.g. slippage exceeded, NAVI deposit rejected)
- * reverts the entire PTB. Nothing executes on abort.
+ * For live mode: the Guardian's checkCompositeRecipe still verifies the composite PTB's
+ * MoveCall multiset + delta/owner anti-leak invariants regardless of how the PTB was built.
+ *
+ * Atomicity: a Move abort in any leg reverts the entire PTB. Nothing executes on abort.
  *
  * NOTE [needs mainnet verification]: the aggregator routerSwap output-coin shape and the
  * NAVI depositCoinPTB coin-argument signature are verified against the SDKs at build time
@@ -28,6 +31,7 @@ import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { COIN_TYPES } from "./allowlist";
 import { pinSuiGasPayment, assertSuiGasCoverage } from "./sui-gas-payment";
 import { loadAggregatorSdk, AGGREGATOR_ACTIVE_PROVIDERS } from "./aggregator-quotes";
+import { HAEDAL_PACKAGE, HAEDAL_STAKING_OBJECT } from "./protocol-constants";
 
 type SuiClient = SuiJsonRpcClient;
 
@@ -35,7 +39,7 @@ type SuiClient = SuiJsonRpcClient;
 // Types
 // ---------------------------------------------------------------------------
 
-/** Spec for one leg of a composite transaction. */
+/** Spec for one leg of a composite transaction (swap_lend_v1 recipe). */
 export interface CompositeLeg {
   actionType: "swap" | "lend_deposit";
   coinTypeIn: string;
@@ -65,6 +69,62 @@ export interface CompositeBuildResult {
   swapEstimatedOutNative?: string;
   /** Guaranteed-minimum swap-leg output (native units), the slippage floor. */
   swapMinOutNative?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic composite types (Phase 3 — generalized N-leg builder)
+// ---------------------------------------------------------------------------
+
+/** One leg in a dynamic composite. Covers send/swap/lend_deposit/stake. */
+export interface DynamicCompositeLeg {
+  actionType: "send" | "swap" | "lend_deposit" | "stake";
+  /** Input coin type for this leg. */
+  coinTypeIn: string;
+  /** Output coin type (required for swap legs). */
+  coinTypeOut?: string;
+  /** Amount in native units. Ignored when amountFrom === "prev-output". */
+  amountInNative: bigint;
+  /**
+   * "prev-output": consume the prior leg's PTBResult coin as this leg's input.
+   * "explicit":    pull amountInNative of coinTypeIn from the wallet.
+   * Omitting defaults to "explicit".
+   */
+  amountFrom?: "explicit" | "prev-output";
+  /** Resolved 0x recipient address (required for send legs). */
+  recipient?: string;
+  /** Slippage in bps (for swap legs, default 50). */
+  slippageBps?: number;
+  /** Lending protocol (for lend_deposit legs, default "navi"). */
+  lendingProtocol?: "navi" | "suilend";
+  /** LST provider (for stake legs, default "afsui"). */
+  lstProvider?: "afsui" | "hasui";
+}
+
+/**
+ * Per-leg output from buildDynamicComposite.
+ * Carried in the compositeLegs array that the Guardian reads for the anti-leak gate.
+ */
+export interface DynamicCompositeLegResult {
+  actionType: "send" | "swap" | "lend_deposit" | "stake";
+  coinTypeIn: string;
+  amountInNative: bigint;
+  /** Set for send legs: the resolved 0x recipient (Guardian anti-leak reads this). */
+  recipient?: string;
+}
+
+/** Result from buildDynamicComposite. */
+export interface DynamicCompositeBuildResult {
+  /** Base64 serialized unsigned PTB. */
+  txBytes: string;
+  /** True when built in fixture/demo mode. */
+  isFixture: boolean;
+  /**
+   * Per-leg summary — ordered by leg index.
+   * The caller sets proposal.compositeLegs from this for the Guardian's anti-leak gate.
+   */
+  compositeLegs: DynamicCompositeLegResult[];
+  /** Estimated swap-leg outputs (native units), keyed by leg index. Display-only. */
+  swapEstimatedOutByLeg?: Map<number, string>;
 }
 
 export class CompositeBuildError extends Error {
@@ -403,4 +463,508 @@ function _buildLendLegFixture(
     // structural proof that leg-0's output feeds leg-1's input (no wallet settle).
     arguments: [inputCoin],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic composite builder (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a single PTB from an ordered list of N legs (send/swap/lend_deposit/stake).
+ *
+ * CHAINING: if a leg's amountFrom === "prev-output", it consumes the previous leg's
+ * PTBResult coin directly (no wallet coin selection between legs). Independent legs
+ * (amountFrom === "explicit" or omitted) pull their coin from the wallet balance.
+ *
+ * SUI-input legs (coinTypeIn === COIN_TYPES.SUI) split from tx.gas — SUI is always
+ * the gas coin on Sui. Non-SUI independent legs merge+split from owned coin objects.
+ *
+ * Returns the same base64 txBytes shape as buildComposite, plus compositeLegs that
+ * the caller MUST forward into proposal.compositeLegs for the Guardian's anti-leak gate.
+ *
+ * Throws CompositeBuildError on any error — callers (Guardian) treat a throw as BLOCK.
+ * Max 8 legs (DoS/UX bound, matches buildDynamicRecipe).
+ *
+ * [needs mainnet verification]: live swap/lend/stake SDKs are loaded at runtime; the
+ * fixture path covers the PTB structure. The Guardian re-verifies via dry-run.
+ */
+export async function buildDynamicComposite(
+  client: SuiClient,
+  senderAddress: string,
+  legs: DynamicCompositeLeg[],
+): Promise<DynamicCompositeBuildResult> {
+  if (legs.length === 0 || legs.length > 8) {
+    throw new CompositeBuildError(
+      `Dynamic composite must have 1–8 legs; got ${legs.length}.`,
+    );
+  }
+
+  // Validate send legs have a recipient
+  for (let i = 0; i < legs.length; i++) {
+    const leg = legs[i];
+    if (leg.actionType === "send" && !leg.recipient) {
+      throw new CompositeBuildError(
+        `Send leg at index ${i} requires a resolved recipient (0x address).`,
+      );
+    }
+    if (leg.actionType !== "send" && leg.amountInNative <= 0n) {
+      throw new CompositeBuildError(
+        `Leg ${i} (${leg.actionType}) has non-positive amountInNative.`,
+      );
+    }
+  }
+
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "fixture") {
+    return buildFixtureDynamicComposite(client, senderAddress, legs);
+  }
+  return buildLiveDynamicComposite(client, senderAddress, legs);
+}
+
+/**
+ * Select a non-SUI coin from the wallet (merge if fragmented, split exact amount).
+ * Used by independent non-SUI legs.
+ */
+async function selectNonSuiCoin(
+  client: SuiClient,
+  tx: Transaction,
+  owner: string,
+  coinType: string,
+  amount: bigint,
+): Promise<TransactionObjectArgument> {
+  const coins = await client.getCoins({ owner, coinType });
+  if (!coins.data || coins.data.length === 0) {
+    throw new CompositeBuildError(
+      `No coins of type ${coinType} found in wallet for composite leg.`,
+    );
+  }
+  const [primary, ...rest] = coins.data.map((c) => c.coinObjectId);
+  if (rest.length > 0) {
+    tx.mergeCoins(tx.object(primary), rest.map((id) => tx.object(id)));
+  }
+  const [split] = tx.splitCoins(tx.object(primary), [amount]);
+  return split as TransactionObjectArgument;
+}
+
+/**
+ * Live dynamic composite builder.
+ * Iterates legs in order, tracking the "current output coin" for chaining.
+ */
+async function buildLiveDynamicComposite(
+  client: SuiClient,
+  senderAddress: string,
+  legs: DynamicCompositeLeg[],
+): Promise<DynamicCompositeBuildResult> {
+  type NaviSdk = typeof import("@naviprotocol/lending");
+
+  // Pre-check SUI coverage for any leg that consumes SUI from the gas coin
+  // (independent SUI-in legs). Chained legs that originate from a prior swap
+  // may produce non-SUI, so we skip coverage check for those.
+  for (const leg of legs) {
+    const isIndependent = !leg.amountFrom || leg.amountFrom === "explicit";
+    if (isIndependent && leg.coinTypeIn === COIN_TYPES.SUI && leg.actionType !== "send") {
+      await assertSuiGasCoverage(client, senderAddress, leg.amountInNative);
+    }
+  }
+
+  let aggMod: Awaited<ReturnType<typeof loadAggregatorSdk>> | undefined;
+  let grpcMod: typeof import("@mysten/sui/grpc") | undefined;
+  let navi: NaviSdk | undefined;
+
+  // Load swap SDK only if any leg needs it
+  const needsSwap = legs.some((l) => l.actionType === "swap");
+  if (needsSwap) {
+    try {
+      aggMod = await loadAggregatorSdk();
+      grpcMod = await import("@mysten/sui/grpc");
+    } catch (err) {
+      throw new CompositeBuildError(
+        `Failed to load aggregator SDK: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Load NAVI SDK only if any leg needs it
+  const needsLend = legs.some((l) => l.actionType === "lend_deposit");
+  if (needsLend) {
+    try {
+      /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+      navi = require("../sdk-bundles/navi.cjs") as NaviSdk;
+    } catch (err) {
+      throw new CompositeBuildError(
+        `Failed to load NAVI SDK: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  try {
+    const tx = new Transaction();
+    tx.setSender(senderAddress);
+
+    // Track the most recent leg's output coin so chained legs can consume it.
+    let prevOutputCoin: TransactionObjectArgument | undefined;
+    // For aggregator swaps we need a shared gRPC+agg setup
+    let agg: InstanceType<Awaited<ReturnType<typeof loadAggregatorSdk>>["AggregatorClient"]> | undefined;
+    if (aggMod && grpcMod) {
+      const grpcBaseUrl = process.env.SUI_GRPC_URL ?? "https://fullnode.mainnet.sui.io:443";
+      const grpc = new grpcMod.SuiGrpcClient({ network: "mainnet", baseUrl: grpcBaseUrl });
+      agg = new aggMod.AggregatorClient({
+        endpoint: process.env.CETUS_AGGREGATOR_ENDPOINT ?? "https://api-sui.cetus.zone/router_v3",
+        signer: senderAddress,
+        client: grpc as never,
+        env: aggMod.Env.Mainnet,
+      });
+    }
+
+    const swapEstimatedOutByLeg = new Map<number, string>();
+    const compositeLegs: DynamicCompositeLegResult[] = [];
+
+    for (let i = 0; i < legs.length; i++) {
+      const leg = legs[i];
+      const isChained = leg.amountFrom === "prev-output";
+
+      // A leg that does NOT consume the prior leg's output (independent leg) must return that
+      // unconsumed output to the sender first — otherwise it dangles in the PTB (Sui
+      // "UnusedValueWithoutDrop"). The output is the user's own coin, so the sender is correct.
+      if (!isChained && prevOutputCoin !== undefined) {
+        tx.transferObjects([prevOutputCoin], senderAddress);
+        prevOutputCoin = undefined;
+      }
+
+      if (leg.actionType === "send") {
+        // Send leg: transfer `amountInNative` of `coinTypeIn` to `recipient`.
+        // If chained, transfer the previous output coin directly (ignore amountInNative).
+        const recipient = leg.recipient!;
+        let coinToSend: TransactionObjectArgument;
+
+        if (isChained && prevOutputCoin) {
+          // The chained coin is the full output from the previous leg.
+          coinToSend = prevOutputCoin;
+          prevOutputCoin = undefined;
+        } else {
+          // Pull from wallet — SUI splits from gas, non-SUI from owned objects.
+          if (leg.coinTypeIn === COIN_TYPES.SUI) {
+            [coinToSend] = tx.splitCoins(tx.gas, [leg.amountInNative]);
+          } else {
+            coinToSend = await selectNonSuiCoin(client, tx, senderAddress, leg.coinTypeIn, leg.amountInNative);
+          }
+        }
+
+        tx.transferObjects([coinToSend], recipient);
+        compositeLegs.push({
+          actionType: "send",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+          recipient,
+        });
+        prevOutputCoin = undefined;
+
+      } else if (leg.actionType === "swap") {
+        // Swap leg: Cetus aggregator routerSwap → output coin (PTBResult).
+        if (!agg || !aggMod) {
+          throw new CompositeBuildError("Aggregator not initialized for swap leg.");
+        }
+        if (!leg.coinTypeOut) {
+          throw new CompositeBuildError(`Swap leg at index ${i} requires coinTypeOut.`);
+        }
+
+        let inputCoin: TransactionObjectArgument | undefined;
+        if (isChained && prevOutputCoin) {
+          inputCoin = prevOutputCoin;
+          prevOutputCoin = undefined;
+        } else if (leg.coinTypeIn === COIN_TYPES.SUI) {
+          // SUI: split from gas coin (composable mode)
+          inputCoin = tx.splitCoins(tx.gas, [leg.amountInNative])[0] as TransactionObjectArgument;
+        }
+        // Non-SUI, non-chained: omit inputCoin — routerSwap selects wallet coins
+
+        const slippageBps = leg.slippageBps ?? 50;
+        const router = await agg.findRouters({
+          from: leg.coinTypeIn,
+          target: leg.coinTypeOut,
+          amount: (isChained ? 0n : leg.amountInNative).toString(),
+          byAmountIn: true,
+          providers: [...AGGREGATOR_ACTIVE_PROVIDERS],
+        });
+        if (!router || router.amountOut == null) {
+          throw new CompositeBuildError(`Aggregator returned no route for swap leg ${i}.`);
+        }
+        const estimatedOut = BigInt(router.amountOut.toString());
+        const minOut = (estimatedOut * BigInt(10_000 - slippageBps)) / 10_000n;
+        if (minOut <= 0n) {
+          throw new CompositeBuildError(`Swap leg ${i} produced zero minimum output.`);
+        }
+        swapEstimatedOutByLeg.set(i, estimatedOut.toString());
+
+        const swapResult = (await agg.routerSwap({
+          router,
+          txb: tx,
+          slippage: slippageBps / 10_000,
+          ...(inputCoin ? { inputCoin } : {}),
+        } as never)) as TransactionObjectArgument;
+        if (!swapResult) {
+          throw new CompositeBuildError(`Cetus routerSwap returned no output coin for leg ${i}.`);
+        }
+
+        // The output coin is the full swap output; downstream leg may split it.
+        prevOutputCoin = swapResult;
+        compositeLegs.push({
+          actionType: "swap",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+        });
+
+      } else if (leg.actionType === "lend_deposit") {
+        // NAVI deposit: consume inputCoin (chained or wallet-selected).
+        if (!navi) {
+          throw new CompositeBuildError("NAVI SDK not initialized for lend_deposit leg.");
+        }
+
+        let inputCoin: TransactionObjectArgument;
+        let depositAmount: bigint;
+
+        if (isChained && prevOutputCoin) {
+          // Use the previous leg's output coin (e.g., swap output).
+          // We split the guaranteed min out from it for the deposit (same invariant as buildLiveSwapLendPtb).
+          // For chained legs we don't have a separate minOut; we deposit the whole prevOutput.
+          inputCoin = prevOutputCoin;
+          depositAmount = leg.amountInNative > 0n ? leg.amountInNative : 1n; // must be > 0
+          prevOutputCoin = undefined;
+          const [depositCoin] = tx.splitCoins(inputCoin, [depositAmount]);
+          // Return the remainder (dust) to sender so no coin object dangles.
+          tx.transferObjects([inputCoin], senderAddress);
+          const naviOptions = { account: senderAddress, amount: Number(depositAmount) } as never;
+          await navi.depositCoinPTB(tx, leg.coinTypeIn, depositCoin as never, naviOptions);
+        } else {
+          if (leg.coinTypeIn === COIN_TYPES.SUI) {
+            inputCoin = tx.splitCoins(tx.gas, [leg.amountInNative])[0] as TransactionObjectArgument;
+          } else {
+            inputCoin = await selectNonSuiCoin(client, tx, senderAddress, leg.coinTypeIn, leg.amountInNative);
+          }
+          depositAmount = leg.amountInNative;
+          const naviOptions = { account: senderAddress, amount: Number(depositAmount) } as never;
+          await navi.depositCoinPTB(tx, leg.coinTypeIn, inputCoin as never, naviOptions);
+        }
+
+        compositeLegs.push({
+          actionType: "lend_deposit",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+        });
+        prevOutputCoin = undefined;
+
+      } else if (leg.actionType === "stake") {
+        // Stake leg: Haedal haSUI direct-PTB or Aftermath afSUI SDK.
+        // The chained path is not meaningful for stake (stake is terminal — haSUI is minted
+        // into the sender's wallet, no output coin is wired into the next leg).
+        const lstProvider = leg.lstProvider ?? "afsui";
+
+        if (lstProvider === "hasui") {
+          // Haedal: interface::request_stake(SuiSystemState, Staking, Coin<SUI>, address)
+          let suiCoin: TransactionObjectArgument;
+          if (isChained && prevOutputCoin) {
+            suiCoin = prevOutputCoin;
+            prevOutputCoin = undefined;
+          } else {
+            [suiCoin] = tx.splitCoins(tx.gas, [leg.amountInNative]);
+          }
+          tx.moveCall({
+            target: `${HAEDAL_PACKAGE}::interface::request_stake`,
+            arguments: [
+              tx.object("0x0000000000000000000000000000000000000000000000000000000000000005"),
+              tx.object(HAEDAL_STAKING_OBJECT),
+              suiCoin,
+              tx.pure.address(senderAddress),
+            ],
+          });
+        } else {
+          // Aftermath afSUI: use the SDK's getStakeTransaction then incorporate into this tx.
+          // WHY: Aftermath's SDK creates its own Transaction internally — we cannot inject
+          // it directly. For a standalone stake, we delegate to the SDK builder. For a composite
+          // leg, we use the Haedal direct-PTB path as the composable alternative.
+          // If the user picks afSUI in a composite, fall back to Haedal for composability;
+          // if they explicitly want afsui, throw clearly so the caller can handle.
+          throw new CompositeBuildError(
+            `Aftermath afSUI staking (lstProvider "afsui") cannot be composed inline in a dynamic composite — ` +
+            `the Aftermath SDK builds its own internal transaction. Use lstProvider "hasui" (Haedal) for ` +
+            `composable staking in a multi-leg PTB.`,
+          );
+        }
+
+        compositeLegs.push({
+          actionType: "stake",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+        });
+        prevOutputCoin = undefined;
+      }
+    }
+
+    // After all legs: a final unconsumed output (e.g. an independent swap as the last leg)
+    // returns to the sender so the PTB has no dangling value (UnusedValueWithoutDrop).
+    if (prevOutputCoin !== undefined) {
+      tx.transferObjects([prevOutputCoin], senderAddress);
+      prevOutputCoin = undefined;
+    }
+
+    // Build the transaction. If any swap leg used the aggregator, build via the aggregator's
+    // own builder so it can resolve gas with its gRPC client. Otherwise use the JSON-RPC client.
+    let bytes: Uint8Array;
+    if (agg && needsSwap) {
+      bytes = await agg.buildTransactionBytes(tx);
+    } else {
+      // Pin gas for SUI-input-only legs (send/lend/stake from wallet SUI).
+      const suiLegs = legs.filter(
+        (l) => l.coinTypeIn === COIN_TYPES.SUI && (!l.amountFrom || l.amountFrom === "explicit"),
+      );
+      const totalSuiOut = suiLegs.reduce((sum, l) => sum + l.amountInNative, 0n);
+      if (totalSuiOut > 0n) {
+        await pinSuiGasPayment(client, tx, senderAddress, totalSuiOut);
+      }
+      bytes = await tx.build({ client: client as unknown as ClientWithCoreApi });
+    }
+
+    return {
+      txBytes: Buffer.from(bytes).toString("base64"),
+      isFixture: false,
+      compositeLegs,
+      swapEstimatedOutByLeg: swapEstimatedOutByLeg.size > 0 ? swapEstimatedOutByLeg : undefined,
+    };
+  } catch (err) {
+    if (err instanceof CompositeBuildError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/insufficientcoinbalance|insufficient coin balance|insufficient.*balance/i.test(msg)) {
+      throw new CompositeBuildError(
+        "Insufficient balance for this composite transaction. " +
+          "Check your coin balances and leave some SUI for gas, then try again.",
+      );
+    }
+    throw new CompositeBuildError(`Dynamic composite PTB construction failed: ${msg}`);
+  }
+}
+
+/**
+ * Fixture dynamic composite builder — builds a structurally valid TransactionKind
+ * using placeholder Move calls. No live chain or gas resolution needed.
+ *
+ * WHY onlyTransactionKind: tx.build({ onlyTransactionKind: true }) skips the gas-coin
+ * resolution step (which requires a live getCoins RPC call) so the fixture path works
+ * in unit tests with a stub client. The Guardian's delta/owner walk runs on whatever
+ * PTB bytes come back; fixture bytes only need to parse cleanly.
+ *
+ * Per-leg compositeLegs (with recipients for send legs) is returned so the caller can
+ * forward it into proposal.compositeLegs for the Guardian's anti-leak gate.
+ */
+async function buildFixtureDynamicComposite(
+  _client: SuiClient,
+  senderAddress: string,
+  legs: DynamicCompositeLeg[],
+): Promise<DynamicCompositeBuildResult> {
+  try {
+    const tx = new Transaction();
+    // setSender is needed for TransactionKind serialization context.
+    tx.setSender(senderAddress);
+
+    const compositeLegs: DynamicCompositeLegResult[] = [];
+    // Placeholder: split 1 MIST from gas as stand-in for any coin in the chained path.
+    // In live mode, each leg produces a real PTBResult — in fixture mode, we approximate
+    // the structural shape (gas-split coin = stand-in for the swap / deposit output).
+    let prevOutputCoin: TransactionObjectArgument | undefined;
+
+    for (let i = 0; i < legs.length; i++) {
+      const leg = legs[i];
+      const isChained = leg.amountFrom === "prev-output" && prevOutputCoin != null;
+      // Use 1n as the split amount for chained legs (the real amount is resolved at runtime).
+      const splitAmt = isChained ? 1n : leg.amountInNative > 0n ? leg.amountInNative : 1n;
+
+      if (leg.actionType === "send") {
+        const recipient = leg.recipient!;
+        let coinToSend: TransactionObjectArgument;
+        if (isChained && prevOutputCoin) {
+          coinToSend = prevOutputCoin;
+          prevOutputCoin = undefined;
+        } else {
+          [coinToSend] = tx.splitCoins(tx.gas, [splitAmt]);
+        }
+        tx.transferObjects([coinToSend], recipient);
+        compositeLegs.push({
+          actionType: "send",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+          recipient,
+        });
+        prevOutputCoin = undefined;
+
+      } else if (leg.actionType === "swap") {
+        // Fixture: split from gas as stand-in for the swap output coin.
+        const [swapOut] = tx.splitCoins(tx.gas, [splitAmt]);
+        prevOutputCoin = swapOut as TransactionObjectArgument;
+        compositeLegs.push({
+          actionType: "swap",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+        });
+
+      } else if (leg.actionType === "lend_deposit") {
+        const NAVI_PKG = "0x1e4a13a0494d5facdbe8473e74127b838c2d446ecec0ce262e2eddafa77259cb";
+        let inputCoin: TransactionObjectArgument;
+        if (isChained && prevOutputCoin) {
+          inputCoin = prevOutputCoin;
+          prevOutputCoin = undefined;
+        } else {
+          [inputCoin] = tx.splitCoins(tx.gas, [splitAmt]);
+        }
+        tx.moveCall({
+          target: `${NAVI_PKG}::incentive_v3::entry_deposit`,
+          arguments: [inputCoin],
+        });
+        compositeLegs.push({
+          actionType: "lend_deposit",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+        });
+        prevOutputCoin = undefined;
+
+      } else if (leg.actionType === "stake") {
+        // Fixture stake leg: use a pure-only MoveCall placeholder (no tx.object() calls)
+        // so the TransactionKind can be built without a live client.
+        // In live mode, the Haedal direct-PTB path uses tx.object() + HAEDAL_STAKING_OBJECT.
+        // The fixture only needs to exercise the structural shape — a pure sender arg suffices.
+        let suiCoin: TransactionObjectArgument;
+        if (isChained && prevOutputCoin) {
+          suiCoin = prevOutputCoin;
+          prevOutputCoin = undefined;
+        } else {
+          [suiCoin] = tx.splitCoins(tx.gas, [splitAmt]);
+        }
+        tx.moveCall({
+          target: `${HAEDAL_PACKAGE}::interface::request_stake`,
+          // Omit the shared-object args (SuiSystemState + Staking) in fixture mode:
+          // tx.object() triggers object resolution which requires a client.
+          // The Guardian's multiset gate checks for this target; the coin arg is sufficient
+          // for structural validation without live object data.
+          arguments: [suiCoin, tx.pure.address(senderAddress)],
+        });
+        compositeLegs.push({
+          actionType: "stake",
+          coinTypeIn: leg.coinTypeIn,
+          amountInNative: leg.amountInNative,
+        });
+        prevOutputCoin = undefined;
+      }
+    }
+
+    // Build as TransactionKind — skips gas resolution + live RPC calls.
+    // Avoids needing a real SuiClient in tests (no pinSuiGasPayment call).
+    const bytes = await tx.build({ onlyTransactionKind: true });
+    return {
+      txBytes: Buffer.from(bytes).toString("base64"),
+      isFixture: true,
+      compositeLegs,
+    };
+  } catch (err) {
+    if (err instanceof CompositeBuildError) throw err;
+    throw new CompositeBuildError(
+      `Dynamic composite fixture PTB construction failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }

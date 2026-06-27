@@ -20,7 +20,7 @@ import { buildAftermathSwap } from "@dewlock/sui/build-aftermath-swap";
 import { buildLimitOrder } from "@dewlock/sui/build-limit-order";
 import { buildLend } from "@dewlock/sui/build-lend";
 import { buildStake, buildUnstake } from "@dewlock/sui/build-stake";
-import { buildComposite, CompositeBuildError } from "@dewlock/sui/build-composite";
+import { buildComposite, buildDynamicComposite, CompositeBuildError } from "@dewlock/sui/build-composite";
 // DeepBook order-lifecycle builders + BM resolver (DeepBook SDK lazy-imported inside).
 import {
   buildCreateBalanceManager,
@@ -247,22 +247,31 @@ export const prepareTrade = createTool({
     compositeLegs: z
       .array(
         z.object({
-          // Per-leg role for the recipe (leg 0 = "swap", leg 1 = "lend_deposit" for
-          // swap_lend_v1). Required — the composite builder validates leg roles by this
-          // field; omitting it from the schema would silently strip it (Zod drops unknown
-          // keys), surfacing as 'leg 0 must be "swap", got "undefined"'.
-          actionType: z.enum(["swap", "lend_deposit"]),
+          // Per-leg action type. "send" and "stake" added for dynamic composites.
+          // Required — the composite builder validates leg roles by this field;
+          // omitting it from the schema would silently strip it (Zod drops unknown keys).
+          actionType: z.enum(["swap", "lend_deposit", "send", "stake"]),
           coinTypeIn: z.enum(COIN_TYPE_VALUES),
           coinTypeOut: z.enum(COIN_TYPE_VALUES).optional(),
           amountInNative: z.string().regex(/^\d+$/).describe("Amount in native units"),
           lendingProtocol: z.enum(LENDING_PROTOCOLS).optional(),
           slippageBps: z.number().int().min(0).max(5000).optional(),
+          // Resolved 0x recipient for send legs (Guardian anti-leak gate reads this).
+          // The server must never re-resolve a SuiNS name here — TOCTOU.
+          recipient: z
+            .string()
+            .regex(/^0x[0-9a-fA-F]{64}$/)
+            .optional()
+            .describe("Resolved 0x recipient for send legs"),
+          // Whether this leg consumes the prior leg's PTBResult (chaining).
+          amountFrom: z.enum(["explicit", "prev-output"]).optional(),
         }),
       )
       .optional()
       .describe(
-        "Per-leg specs for a composite proposal. Must have exactly as many entries as the declared " +
-          "recipe's leg count. The linkage (leg-0 output = leg-1 input) is verified by the Guardian.",
+        "Per-leg specs for a composite proposal. For swap_lend_v1 use exactly 2 legs. " +
+          "For compositeRecipeId='dynamic', list all legs including send/stake; " +
+          "send legs require recipient (resolved 0x). The Guardian verifies every leg.",
       ),
 
     // --- Lending fields (actionType==="lend_*") ---
@@ -509,6 +518,13 @@ export const prepareTrade = createTool({
     let compositeSwapEstimatedOut: string | undefined;
     let compositeSwapMinOut: string | undefined;
     let lendHealthBefore: number | undefined;
+    // For dynamic composites: the per-leg summary from the builder (Guardian anti-leak reads these).
+    let dynamicCompositeLegs: Array<{
+      actionType?: "send" | "swap" | "lend_deposit" | "stake";
+      coinTypeIn: string;
+      amountInNative: bigint;
+      recipient?: string;
+    }> | undefined;
     // Limit-order extra context for Guardian proposal
     let limitOrderBookParams: { tickSize: number; lotSize: number; minSize: number } | undefined;
     let limitOrderMidPrice: number | undefined;
@@ -698,7 +714,7 @@ export const prepareTrade = createTool({
         txBytes = lendResult.txBytes;
         lendHealthBefore = lendResult.healthBefore;
       } else if (actionType === "composite") {
-        // Atomic composite: build all legs into ONE PTB using the declared recipe.
+        // Atomic composite: build all legs into ONE PTB.
         // The Guardian's checkCompositeRecipe then verifies the whole composite's
         // target multiset + delta/owner anti-leak before any signature is returned.
         if (!compositeRecipeId) {
@@ -715,20 +731,47 @@ export const prepareTrade = createTool({
             gates: ["input_validation"],
           };
         }
-        // Parse native amounts from strings and pass to the composite builder.
-        const parsedLegs = compositeLegs.map((leg) => ({
-          ...leg,
-          amountInNative: BigInt(leg.amountInNative),
-          lendingProtocol: leg.lendingProtocol as "navi" | "suilend" | undefined,
-        }));
-        const compositeResult = await buildComposite(suiClient, {
-          senderAddress: walletAddress,
-          recipeId: compositeRecipeId,
-          legs: parsedLegs as Parameters<typeof buildComposite>[1]["legs"],
-        });
-        txBytes = compositeResult.txBytes;
-        compositeSwapEstimatedOut = compositeResult.swapEstimatedOutNative;
-        compositeSwapMinOut = compositeResult.swapMinOutNative;
+
+        if (compositeRecipeId === "dynamic") {
+          // Dynamic path: buildDynamicComposite handles any ordered sequence of
+          // send/swap/lend_deposit/stake legs with optional chaining.
+          const dynLegs = compositeLegs.map((leg) => ({
+            actionType: leg.actionType as "send" | "swap" | "lend_deposit" | "stake",
+            coinTypeIn: leg.coinTypeIn,
+            coinTypeOut: leg.coinTypeOut,
+            amountInNative: BigInt(leg.amountInNative),
+            amountFrom: leg.amountFrom,
+            recipient: leg.recipient,
+            slippageBps: leg.slippageBps,
+            lendingProtocol: leg.lendingProtocol as "navi" | "suilend" | undefined,
+          }));
+          const dynResult = await buildDynamicComposite(suiClient, walletAddress, dynLegs);
+          txBytes = dynResult.txBytes;
+          // Forward the per-leg summaries (with recipients) into dynamicCompositeLegs so the
+          // Guardian proposal carries them for the anti-leak gate.
+          dynamicCompositeLegs = dynResult.compositeLegs;
+          // Pick the first swap leg's estimate for the composite flow preview (if any).
+          if (dynResult.swapEstimatedOutByLeg && dynResult.swapEstimatedOutByLeg.size > 0) {
+            const firstSwapEstimate = [...dynResult.swapEstimatedOutByLeg.values()][0];
+            compositeSwapEstimatedOut = firstSwapEstimate;
+          }
+        } else {
+          // Closed-registry path (swap_lend_v1): unchanged.
+          // Parse native amounts from strings and pass to the composite builder.
+          const parsedLegs = compositeLegs.map((leg) => ({
+            ...leg,
+            amountInNative: BigInt(leg.amountInNative),
+            lendingProtocol: leg.lendingProtocol as "navi" | "suilend" | undefined,
+          }));
+          const compositeResult = await buildComposite(suiClient, {
+            senderAddress: walletAddress,
+            recipeId: compositeRecipeId,
+            legs: parsedLegs as Parameters<typeof buildComposite>[1]["legs"],
+          });
+          txBytes = compositeResult.txBytes;
+          compositeSwapEstimatedOut = compositeResult.swapEstimatedOutNative;
+          compositeSwapMinOut = compositeResult.swapMinOutNative;
+        }
       } else {
         // swap
         if (!coinTypeOut) {
@@ -826,13 +869,25 @@ export const prepareTrade = createTool({
       healthBefore: lendHealthBefore,
       // Composite
       compositeRecipeId: actionType === "composite" ? compositeRecipeId : undefined,
-      compositeLegs: actionType === "composite" && compositeLegs
-        ? compositeLegs.map((leg) => ({
-            coinTypeIn: leg.coinTypeIn,
-            coinTypeOut: leg.coinTypeOut,
-            amountInNative: BigInt(leg.amountInNative),
-            lendingProtocol: leg.lendingProtocol,
-          }))
+      // For dynamic composites: use the builder-returned leg summaries (they carry
+      // per-leg recipient addresses that the Guardian's anti-leak gate reads).
+      // For closed-registry composites (swap_lend_v1): build from the zod input legs.
+      compositeLegs: actionType === "composite"
+        ? (compositeRecipeId === "dynamic" && dynamicCompositeLegs
+            ? dynamicCompositeLegs.map((l) => ({
+                actionType: l.actionType as "send" | "swap" | "lend_deposit" | "stake",
+                coinTypeIn: l.coinTypeIn,
+                amountInNative: l.amountInNative,
+                recipient: l.recipient,
+              }))
+            : compositeLegs?.map((leg) => ({
+                actionType: leg.actionType as "send" | "swap" | "lend_deposit" | "stake",
+                coinTypeIn: leg.coinTypeIn,
+                coinTypeOut: leg.coinTypeOut,
+                amountInNative: BigInt(leg.amountInNative),
+                lendingProtocol: leg.lendingProtocol,
+              }))
+          )
         : undefined,
     };
 

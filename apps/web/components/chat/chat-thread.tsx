@@ -1271,60 +1271,196 @@ function ChainPlanWithComposite({
   const [atomicPreparing, setAtomicPreparing] = useState(false);
   const [atomicTx, setAtomicTx] = useState<PrepareTradePass | null>(null);
 
-  // Parse a swap amount (native bigint) from a clause like "swap 5 SUI to USDC".
-  // Used to populate the swap leg's amountInNative for the composite proposal.
-  function parseSwapAmountNative(clause: string): string {
-    // Match decimal number in "swap <number> <COIN>" pattern.
-    const m = clause.match(/swap\s+([\d.,]+)\s+([A-Za-z]+)/i);
+  // ---------------------------------------------------------------------------
+  // Clause parsers for the dynamic composite builder.
+  // Each parser returns { amountNative, coinTypeIn, coinTypeOut?, recipient? }.
+  // Canonical coin types are hardcoded to avoid a round-trip; they match the
+  // server-side COIN_TYPES allowlist exactly.
+  // ---------------------------------------------------------------------------
+
+  // Canonical coin types (client-side mirror of COIN_TYPES in protocol-constants.ts)
+  const CT_SUI = "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI";
+  const CT_USDC = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+  const CT_AFSUI = "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI";
+
+  /** Map a coin symbol to its canonical type. Unknown defaults to SUI. */
+  function coinTypeForSym(sym: string): string {
+    const s = sym.toUpperCase();
+    if (s === "USDC") return CT_USDC;
+    if (s === "AFSUI") return CT_AFSUI;
+    return CT_SUI; // SUI or unknown
+  }
+
+  /** Decimals for a coin symbol. SUI/afSUI = 9, USDC = 6. */
+  function decimalsForSym(sym: string): number {
+    const s = sym.toUpperCase();
+    if (s === "USDC") return 6;
+    if (s === "DEEP") return 6;
+    return 9;
+  }
+
+  /**
+   * Parse native amount from a clause like "swap 5 SUI to USDC" or "send 1.5 SUI to 0x...".
+   * Matches the first <number> <COIN> occurrence.
+   */
+  function parseAmountNative(clause: string, verb: string): string {
+    const m = clause.match(new RegExp(`${verb}\\s+([\\d.,]+)\\s+([A-Za-z]+)`, "i"));
     if (!m) return "0";
     const human = parseFloat(m[1].replace(/,/g, ""));
-    const sym = m[2].toUpperCase();
-    // SUI = 9 decimals, others default 9 — composite only supports SUI→USDC in v1.
-    const decimals = sym === "USDC" ? 6 : sym === "DEEP" ? 6 : 9;
-    return BigInt(Math.round(human * 10 ** decimals)).toString();
+    return BigInt(Math.round(human * 10 ** decimalsForSym(m[2]))).toString();
+  }
+
+  /**
+   * Parse the swap leg from a clause: "swap N SUI to USDC".
+   * Returns coinTypeIn, coinTypeOut, amountNative.
+   */
+  function parseSwapLeg(clause: string): {
+    coinTypeIn: string;
+    coinTypeOut: string;
+    amountNative: string;
+  } {
+    const m = clause.match(/swap\s+([\d.,]+)\s+([A-Za-z]+)\s+(?:to|for|into)\s+([A-Za-z]+)/i);
+    if (m) {
+      const human = parseFloat(m[1].replace(/,/g, ""));
+      const inSym = m[2];
+      const outSym = m[3];
+      const nativeAmt = BigInt(Math.round(human * 10 ** decimalsForSym(inSym))).toString();
+      return { coinTypeIn: coinTypeForSym(inSym), coinTypeOut: coinTypeForSym(outSym), amountNative: nativeAmt };
+    }
+    // Fallback: parse just the amount with "swap" verb
+    const amtNative = parseAmountNative(clause, "swap");
+    return { coinTypeIn: CT_SUI, coinTypeOut: CT_USDC, amountNative: amtNative };
+  }
+
+  /**
+   * Parse the send leg from a clause: "send 1 SUI to 0xABC..." or "send 5 USDC to alice.sui".
+   * Returns coinTypeIn, amountNative, recipient (raw 0x or .sui name; server resolves .sui).
+   */
+  function parseSendLeg(clause: string): {
+    coinTypeIn: string;
+    amountNative: string;
+    recipient: string | null;
+  } {
+    const m = clause.match(/send\s+([\d.,]+)\s+([A-Za-z]+)\s+(?:to|→)\s+(\S+)/i);
+    if (m) {
+      const human = parseFloat(m[1].replace(/,/g, ""));
+      const sym = m[2];
+      const nativeAmt = BigInt(Math.round(human * 10 ** decimalsForSym(sym))).toString();
+      // Capture recipient: 0x address or .sui name; strip trailing punctuation
+      const rawRecipient = m[3].replace(/[.,;!?]$/, "");
+      return { coinTypeIn: coinTypeForSym(sym), amountNative: nativeAmt, recipient: rawRecipient };
+    }
+    const amtNative = parseAmountNative(clause, "send");
+    return { coinTypeIn: CT_SUI, amountNative: amtNative, recipient: null };
+  }
+
+  /**
+   * Parse the stake leg from a clause: "stake 2 SUI" or "stake 2 SUI via haedal".
+   */
+  function parseStakeLeg(clause: string): {
+    coinTypeIn: string;
+    amountNative: string;
+  } {
+    const amtNative = parseAmountNative(clause, "stake");
+    return { coinTypeIn: CT_SUI, amountNative: amtNative };
+  }
+
+  /**
+   * Parse the lend leg from a clause: "deposit 100 USDC into NAVI" or "lend 100 USDC".
+   */
+  function parseLendLeg(clause: string): {
+    coinTypeIn: string;
+    amountNative: string;
+  } {
+    const m = clause.match(/(?:deposit|lend|supply)\s+([\d.,]+)\s+([A-Za-z]+)/i);
+    if (m) {
+      const human = parseFloat(m[1].replace(/,/g, ""));
+      const sym = m[2];
+      const nativeAmt = BigInt(Math.round(human * 10 ** decimalsForSym(sym))).toString();
+      return { coinTypeIn: coinTypeForSym(sym), amountNative: nativeAmt };
+    }
+    // Fallback: if no match, amountInNative=0 signals "use prev-output" (server handles).
+    return { coinTypeIn: CT_USDC, amountNative: "0" };
   }
 
   const handleRunAtomic = useCallback(async () => {
     if (!walletAddress || !isAtomicEligible(plan)) return;
 
-    const [swapStep, lendStep] = plan.steps;
-    if (!swapStep || !lendStep) return;
-
-    // Canonical coin types for the swap_lend_v1 recipe.
-    // v1 is SUI → USDC → NAVI deposit. The composite builder enforces coinTypeOut=lendCoinTypeIn.
-    const SUI_TYPE = "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI";
-    const USDC_TYPE = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
-
-    const swapAmountNative = parseSwapAmountNative(swapStep.clause);
-
     setAtomicPreparing(true);
     setAtomicError(null);
 
     try {
+      // Build legs from ALL chain steps (generalized dynamic composite).
+      // Map each step.category to its composite actionType and parse amount/coins from clause.
+      const compositeLegs: Array<{
+        actionType: string;
+        coinTypeIn: string;
+        coinTypeOut?: string;
+        amountInNative: string;
+        amountFrom?: string;
+        recipient?: string;
+        slippageBps?: number;
+        lendingProtocol?: string;
+      }> = plan.steps.map((step) => {
+        const isChained = step.amountFrom === "prev-output";
+        if (step.category === "swap") {
+          const { coinTypeIn, coinTypeOut, amountNative } = parseSwapLeg(step.clause);
+          return {
+            actionType: "swap",
+            coinTypeIn,
+            coinTypeOut,
+            amountInNative: isChained ? "0" : amountNative,
+            amountFrom: step.amountFrom,
+            slippageBps: 50,
+          };
+        } else if (step.category === "send") {
+          const { coinTypeIn, amountNative, recipient } = parseSendLeg(step.clause);
+          return {
+            actionType: "send",
+            coinTypeIn,
+            amountInNative: amountNative,
+            amountFrom: step.amountFrom,
+            // recipient must be a resolved 0x — if we only have a .sui name the server
+            // cannot re-resolve it (TOCTOU), so we pass the raw name and let the server block
+            // with a clear message. A proper integration would pre-resolve at decompose time.
+            recipient: recipient ?? undefined,
+          };
+        } else if (step.category === "stake") {
+          const { coinTypeIn, amountNative } = parseStakeLeg(step.clause);
+          return {
+            actionType: "stake",
+            coinTypeIn,
+            amountInNative: isChained ? "0" : amountNative,
+            amountFrom: step.amountFrom,
+          };
+        } else {
+          // lend
+          const { coinTypeIn, amountNative } = parseLendLeg(step.clause);
+          return {
+            actionType: "lend_deposit",
+            coinTypeIn,
+            amountInNative: amountNative,
+            amountFrom: step.amountFrom,
+            lendingProtocol: "navi",
+          };
+        }
+      });
+
+      // coinTypeIn for the overall proposal = first leg's coinTypeIn
+      const firstLeg = compositeLegs[0];
+      const firstCoinTypeIn = firstLeg?.coinTypeIn ?? CT_SUI;
+      const firstAmountNative = firstLeg?.amountInNative ?? "0";
+
       const res = await fetch("/api/prepare-trade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           walletAddress,
           actionType: "composite",
-          coinTypeIn: SUI_TYPE,
-          amountInNative: swapAmountNative,
-          compositeRecipeId: "swap_lend_v1",
-          compositeLegs: [
-            {
-              actionType: "swap",
-              coinTypeIn: SUI_TYPE,
-              coinTypeOut: USDC_TYPE,
-              amountInNative: swapAmountNative,
-              slippageBps: 50,
-            },
-            {
-              actionType: "lend_deposit",
-              coinTypeIn: USDC_TYPE,
-              amountInNative: "0",
-              lendingProtocol: "navi",
-            },
-          ],
+          coinTypeIn: firstCoinTypeIn,
+          amountInNative: firstAmountNative,
+          compositeRecipeId: "dynamic",
+          compositeLegs,
           argProvenance: { amount: "user_turn" },
         }),
       });

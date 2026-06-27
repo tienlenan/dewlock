@@ -2566,21 +2566,20 @@ function checkCompositeDeltaAntiLeak(
     }
   }
 
-  // Also check objectChanges for non-coin third-party objects (NFTs etc.) not captured
-  // in balanceDeltas. Any third-party objectChange whose owner is NOT a declared send
-  // recipient is an unexplained leak.
-  const declaredRecipients = new Set(declaredSendLegs.map((l) => l.recipient.toLowerCase()));
+  // Coin transfers are authoritatively verified by the balanceDelta multiset above
+  // (owner + coinType + amount). objectChanges carry only an ownerKind, NOT an owner
+  // address, so they cannot re-confirm WHICH recipient a coin went to — the multiset is
+  // the source of truth for coins, and a transferred coin always surfaces as a balanceDelta.
+  // Here we only catch a NON-coin third-party object (e.g. an NFT): v1 send legs move coins,
+  // so any non-coin object leaving to a third party is unexplained → leak.
   for (const change of dryRun.objectChanges ?? []) {
     if (change.ownerKind !== "third-party") continue;
-    // If the object is owned by a declared send recipient, it is the transferred coin
-    // object — already accounted for by the balanceDelta check above.
-    if (change.ownerAddress && declaredRecipients.has(change.ownerAddress.toLowerCase())) continue;
+    if (/::coin::Coin</.test(change.objectType ?? "")) continue; // value-verified by balanceDeltas
     return {
       ok: false,
       reason:
         `Composite dry-run shows a non-coin object (${change.objectId}) transferred to a ` +
-        `third-party address not in any declared send leg. ` +
-        "Blocking the composite (anti-leak invariant).",
+        `third-party address — not a declared coin send. Blocking the composite (anti-leak invariant).`,
     };
   }
 

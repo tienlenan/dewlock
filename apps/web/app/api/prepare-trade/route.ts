@@ -106,12 +106,17 @@ const requestSchema = z.object({
   compositeLegs: z
     .array(
       z.object({
-        actionType: z.enum(["swap", "lend_deposit"]),
+        actionType: z.enum(["swap", "lend_deposit", "send", "stake"]),
         coinTypeIn: z.enum(SUPPORTED_COIN_TYPES as readonly [SupportedCoinType, ...SupportedCoinType[]]),
         coinTypeOut: z.enum(SUPPORTED_COIN_TYPES as readonly [SupportedCoinType, ...SupportedCoinType[]]).optional(),
         amountInNative: z.string().regex(/^\d+$/).describe("Amount in native units"),
         lendingProtocol: z.enum(["navi", "suilend"]).optional(),
         slippageBps: z.number().int().min(0).max(5000).optional(),
+        // Dynamic composite: resolved 0x recipient (send legs only) + chaining hint.
+        // recipient is constrained to a 0x address — the WYSIWYS-approved target the
+        // Guardian anti-leak gate matches against (names must be pre-resolved by the client).
+        recipient: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/).optional(),
+        amountFrom: z.enum(["explicit", "prev-output"]).optional(),
       }),
     )
     .optional()
@@ -322,6 +327,8 @@ export async function POST(req: NextRequest) {
         amountInNative: leg.amountInNative,
         lendingProtocol: leg.lendingProtocol,
         slippageBps: leg.slippageBps,
+        recipient: leg.recipient, // resolved 0x (send legs) — read by the anti-leak gate
+        amountFrom: leg.amountFrom, // chaining hint (prev-output → consume prior leg output)
       })),
       actionLabel,
       argProvenance,

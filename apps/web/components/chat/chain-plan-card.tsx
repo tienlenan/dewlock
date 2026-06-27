@@ -4,12 +4,13 @@
  * ChainPlanCard — sequential multi-step intent plan (Track A) with optional atomic mode.
  *
  * TOGGLE — "Run as 1 transaction (atomic)" vs "Step-by-step":
- *   When the user selects atomic, the parent calls onRunAtomic() which builds a COMPOSITE
- *   proposal from the chain steps (recipeId "swap_lend_v1", legs from step definitions)
- *   and fires prepareTrade with actionType "composite" → one tx-preview card → one sign.
+ *   When the user selects atomic, the parent calls onRunAtomic() which builds a DYNAMIC
+ *   COMPOSITE proposal from all chain steps (compositeRecipeId="dynamic", legs mapped
+ *   from the step definitions) and fires prepareTrade with actionType "composite" →
+ *   one tx-preview card → one sign.
  *   When the toggle reverts to step-by-step, the existing sequential flow resumes.
- *   Atomic mode is only shown when the plan has exactly 2 steps matching the swap_lend_v1
- *   recipe (swap step → lend step with navi protocol).
+ *   Atomic mode is shown when the plan has 2–8 steps, every step's category is in
+ *   {send, swap, lend, stake}, and no step is already done/blocked/cancelled.
  *
  * The card renders inline in the thread; while a chain is in progress it is simply the
  * last message, so it stays at the bottom naturally (no sticky/fixed positioning).
@@ -94,16 +95,29 @@ function StepDot({ status }: { status: ChainStepStatus }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Actions that can participate in an atomic composite. Maps the chain-plan step
+ * category to the composite actionType. Only these categories are atomic-eligible.
+ */
+const ATOMIC_ELIGIBLE_CATEGORIES = new Set(["send", "swap", "lend", "stake"]);
+
+/**
  * Determine if this plan qualifies for atomic (composite) execution.
- * Currently swap_lend_v1 only: exactly 2 steps where step[0] is "swap" and step[1] is "lend".
- * Only shown when neither step has confirmed/blocked yet (nothing signed yet).
+ *
+ * Eligible when:
+ *  - 2–8 steps
+ *  - every step's category is in ATOMIC_ELIGIBLE_CATEGORIES (send/swap/lend/stake)
+ *  - no step is already done/blocked/cancelled (nothing signed yet)
+ *
+ * Previously hardcoded to exactly [swap, lend] (swap_lend_v1). Now generalizes
+ * to any combination of allowlisted action types that the dynamic composite builder
+ * supports. The handleRunAtomic path routes to compositeRecipeId="dynamic".
  */
 export function isAtomicEligible(plan: ChainPlanData): boolean {
   const { steps } = plan;
-  if (steps.length !== 2) return false;
-  const [s0, s1] = steps;
-  if (s0.category !== "swap") return false;
-  if (s1.category !== "lend") return false;
+  // Must have 2–8 steps (matches buildDynamicComposite bounds)
+  if (steps.length < 2 || steps.length > 8) return false;
+  // Every step must be an allowlisted atomic action
+  if (!steps.every((s) => ATOMIC_ELIGIBLE_CATEGORIES.has(s.category))) return false;
   // Only show the toggle before any step has been signed or blocked.
   const anyConfirmedOrBlocked = steps.some(
     (s) => s.status === "done" || s.status === "blocked" || s.status === "cancelled",
