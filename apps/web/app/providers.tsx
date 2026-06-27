@@ -17,9 +17,10 @@ import {
   createNetworkConfig,
 } from "@mysten/dapp-kit";
 import "@mysten/dapp-kit/dist/index.css";
+import { TestWalletPanel } from "@/components/dev/test-wallet-panel";
 
-// Network config — mainnet primary, devnet for confidential module (feature-flagged).
-// dapp-kit 1.x requires a `network` field to match the key.
+// Network config — mainnet primary, devnet for confidential module (feature-flagged),
+// localnet for the dev test wallet (`sui start`). dapp-kit 1.x requires a `network` field.
 const { networkConfig } = createNetworkConfig({
   mainnet: {
     url: "https://fullnode.mainnet.sui.io:443",
@@ -28,6 +29,10 @@ const { networkConfig } = createNetworkConfig({
   devnet: {
     url: "https://fullnode.devnet.sui.io:443",
     network: "devnet" as const,
+  },
+  localnet: {
+    url: "http://127.0.0.1:9000",
+    network: "localnet" as const,
   },
 });
 
@@ -41,17 +46,20 @@ const queryClient = new QueryClient({
   },
 });
 
-type Network = "mainnet" | "devnet";
+type Network = "mainnet" | "devnet" | "localnet";
+const envNetwork = process.env.NEXT_PUBLIC_SUI_NETWORK as Network | undefined;
 const defaultNetwork: Network =
-  (process.env.NEXT_PUBLIC_SUI_NETWORK as Network | undefined) === "devnet"
-    ? "devnet"
-    : "mainnet";
+  envNetwork === "devnet" || envNetwork === "localnet" ? envNetwork : "mainnet";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networkConfig} defaultNetwork={defaultNetwork}>
-        <WalletProvider autoConnect>{children}</WalletProvider>
+        <WalletProvider autoConnect>
+          {children}
+          {/* Dev-only burner wallet (double-gated; dead-code-eliminated on the deployed app). */}
+          <TestWalletPanel />
+        </WalletProvider>
       </SuiClientProvider>
     </QueryClientProvider>
   );

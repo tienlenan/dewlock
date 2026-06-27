@@ -21,6 +21,7 @@
     "@mysten/dapp-kit": "^1.0.0",
     "@mysten/seal": "1.2.0",
     "@mysten/sui": "2.18.0",
+    "@mysten/wallet-standard": "^0.21.3",
     "@mysten/walrus": "1.1.7",
     "@naviprotocol/lending": "2.0.0-beta.0",
     "@suilend/sdk": "^3.0.4",
