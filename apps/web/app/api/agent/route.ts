@@ -234,11 +234,58 @@ export async function POST(req: NextRequest) {
 
   try {
     /* eslint-disable-next-line @typescript-eslint/no-require-imports */
-    const { detectMultiAction, isChainableSequence, parseChainSteps } = require("@dewlock/agent/intent/detect-multi-action") as {
+    const { detectMultiAction, isChainableSequence, parseChainSteps, parseMultiRecipientSend } = require("@dewlock/agent/intent/detect-multi-action") as {
       detectMultiAction: (text: string) => { multi: boolean; actions: string[] };
       isChainableSequence: (actions: string[]) => boolean;
       parseChainSteps: (text: string) => import("@dewlock/agent/intent/detect-multi-action").ChainStep[] | null;
+      parseMultiRecipientSend: (
+        text: string,
+      ) =>
+        | { kind: "steps"; steps: import("@dewlock/agent/intent/detect-multi-action").ChainStep[] }
+        | { kind: "needsLlm" }
+        | null;
     };
+
+    // Emit a chainPlan NDJSON response from parsed steps. Shared by the regex chain
+    // fast path and the multi-recipient send expansion — identical shape, one source.
+    const emitChainPlanResponse = (
+      steps: import("@dewlock/agent/intent/detect-multi-action").ChainStep[],
+    ) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              ndjsonLine({
+                type: "tool-result",
+                toolName: "chainPlan",
+                result: {
+                  steps: steps.map((s, i) => ({
+                    index: i,
+                    category: s.category,
+                    clause: s.clause,
+                    amountFrom: s.amountFrom,
+                    status: "pending",
+                  })),
+                  walletAddress: walletAddress ?? null,
+                  originalText: lastMessage.content,
+                },
+              }),
+            );
+            controller.enqueue(ndjsonLine({ type: "done" }));
+            controller.close();
+          },
+        }),
+        {
+          headers: {
+            "content-type": "application/x-ndjson; charset=utf-8",
+            "x-content-type-options": "nosniff",
+            "cache-control": "no-cache",
+            ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
+            ...corsHeaders(origin),
+          },
+        },
+      );
+
     const ma = detectMultiAction(lastMessage.content);
     if (ma.multi) {
       // Carve-out: a chainable ordered sequence routes to the chain planner.
@@ -247,38 +294,7 @@ export async function POST(req: NextRequest) {
         const steps = parseChainSteps(lastMessage.content);
         if (steps) {
           // Fast path: regex parsed the steps cleanly — emit chainPlan immediately.
-          const stream = new ReadableStream({
-            start(controller) {
-              controller.enqueue(
-                ndjsonLine({
-                  type: "tool-result",
-                  toolName: "chainPlan",
-                  result: {
-                    steps: steps.map((s, i) => ({
-                      index: i,
-                      category: s.category,
-                      clause: s.clause,
-                      amountFrom: s.amountFrom,
-                      status: "pending",
-                    })),
-                    walletAddress: walletAddress ?? null,
-                    originalText: lastMessage.content,
-                  },
-                }),
-              );
-              controller.enqueue(ndjsonLine({ type: "done" }));
-              controller.close();
-            },
-          });
-          return new Response(stream, {
-            headers: {
-              "content-type": "application/x-ndjson; charset=utf-8",
-              "x-content-type-options": "nosniff",
-              "cache-control": "no-cache",
-              ...rateLimitHeaders(rl, RATE_LIMIT_MAX),
-              ...corsHeaders(origin),
-            },
-          });
+          return emitChainPlanResponse(steps);
         }
         // Regex parse failed but actions are chainable — delegate to the LLM decomposeIntent
         // tool for complex separators ("finally", ".", "each", per-clause amounts).
@@ -310,6 +326,18 @@ export async function POST(req: NextRequest) {
             ...corsHeaders(origin),
           },
         });
+      }
+    } else {
+      // Single-verb send to MULTIPLE recipients ("send 0.2 SUI to Alice and Bob"):
+      // detectMultiAction sees one "send" verb (multi=false), but it must fan out to
+      // N sends. Deterministic expansion when recipients share one amount; the verified
+      // LLM decomposer handles per-recipient amounts ("…to A and 0.3 to B").
+      const mr = parseMultiRecipientSend(lastMessage.content);
+      if (mr?.kind === "steps") {
+        return emitChainPlanResponse(mr.steps);
+      }
+      if (mr?.kind === "needsLlm") {
+        needsDecompose = true;
       }
     }
   } catch {

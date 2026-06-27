@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectRecipient, truncateAddress } from "@/lib/chat/recipient-detect";
+import { detectRecipient, detectRecipients, truncateAddress } from "@/lib/chat/recipient-detect";
 
 const ADDR = "0x" + "a".repeat(64);
 
@@ -40,5 +40,36 @@ describe("truncateAddress", () => {
   });
   it("leaves short strings unchanged", () => {
     expect(truncateAddress("0xabc")).toBe("0xabc");
+  });
+});
+
+describe("detectRecipients (multi-recipient send)", () => {
+  const tokens = (t: string) => detectRecipients(t).map((r) => r.token);
+
+  it("returns one mention token per friend (adjacent @mentions)", () => {
+    expect(tokens("send 0.2 SUI to @Alice @Bob")).toEqual(["Alice", "Bob"]);
+  });
+
+  it("strips a typed connector / comma between mentions", () => {
+    expect(tokens("send 0.2 SUI to @Alice and @Bob")).toEqual(["Alice", "Bob"]);
+    expect(tokens("send 1 USDC to @a, @b, @c")).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps multi-word contact names intact", () => {
+    expect(tokens("send 0.2 SUI to @Mom Wallet @Bob")).toEqual(["Mom Wallet", "Bob"]);
+  });
+
+  it("falls back to the single recipient for one mention", () => {
+    expect(detectRecipients("send 0.2 SUI to @Alice")).toEqual([{ token: "Alice", kind: "mention" }]);
+  });
+
+  it("single typed address is one recipient", () => {
+    const r = detectRecipients("send 1 SUI to alice.sui");
+    expect(r).toHaveLength(1);
+    expect(r[0].kind).toBe("suins");
+  });
+
+  it("no recipient → empty list", () => {
+    expect(detectRecipients("swap 1 SUI to USDC")).toEqual([]);
   });
 });

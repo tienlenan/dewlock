@@ -304,7 +304,7 @@ function ChatShell({
             error={convos.decryptError}
           />
         ) : (
-          <ChatThread messages={chat.messages} onReplaceCard={chat.onReplaceCard} walletAddress={walletAddress} onSend={(t) => void chat.sendMessage(t)} chainCallbacks={chainCallbacks} />
+          <ChatThread messages={chat.messages} onReplaceCard={chat.onReplaceCard} walletAddress={walletAddress} onSend={(t) => void chat.sendMessage(t)} chainCallbacks={chainCallbacks} contacts={contacts} />
         )}
         <ChatInput
           onSendText={(t) => void chat.sendMessage(t)}

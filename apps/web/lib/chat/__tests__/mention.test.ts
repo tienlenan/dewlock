@@ -52,6 +52,27 @@ describe("substituteMentions", () => {
   it("leaves an unknown @x intact", () => {
     expect(substituteMentions("hi @nobody", ["Alice"])).toBe("hi @nobody");
   });
+  it("joins adjacent mentions with a comma (multi-recipient send)", () => {
+    // The menu inserts "@Name " with no connector, so two picks land space-separated.
+    expect(substituteMentions("send 0.2 SUI to @Alice @Bob", ["Alice", "Bob"])).toBe(
+      "send 0.2 SUI to Alice, Bob",
+    );
+  });
+  it("joins three adjacent mentions", () => {
+    expect(substituteMentions("send 1 USDC to @a @b @c", ["a", "b", "c"])).toBe(
+      "send 1 USDC to a, b, c",
+    );
+  });
+  it("preserves a typed connector between mentions (no double separator)", () => {
+    expect(substituteMentions("send 0.2 SUI to @Alice and @Bob", ["Alice", "Bob"])).toBe(
+      "send 0.2 SUI to Alice and Bob",
+    );
+  });
+  it("joins adjacent multi-word contact names correctly", () => {
+    expect(substituteMentions("send 0.2 SUI to @Mom Wallet @Bob", ["Mom Wallet", "Bob"])).toBe(
+      "send 0.2 SUI to Mom Wallet, Bob",
+    );
+  });
 });
 
 describe("filterContacts", () => {

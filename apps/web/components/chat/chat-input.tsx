@@ -21,6 +21,7 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import type { Suggestion } from "@/lib/suggestions";
 import { useRecipientResolution } from "./use-recipient-resolution";
 import { RecipientBadge } from "./recipient-badge";
+import { detectRecipients } from "@/lib/chat/recipient-detect";
 import { MentionMenu } from "./mention-menu";
 import {
   activeMentionQuery,
@@ -72,6 +73,17 @@ function SendIcon() {
 }
 
 // ---------------------------------------------------------------------------
+// Recipient chip — one resolved badge per recipient in a multi-recipient send
+// ("send X to @A @B" shows a chip for each friend). Each chip self-resolves via the
+// hook; feeding the token as an @mention makes the contact matcher (friend) fire.
+// ---------------------------------------------------------------------------
+
+function RecipientChip({ token, contacts }: { token: string; contacts: MentionContact[] }) {
+  const resolved = useRecipientResolution(`@${token}`, contacts);
+  return <RecipientBadge recipient={resolved} />;
+}
+
+// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
@@ -99,8 +111,10 @@ export function ChatInput({ onSendText, disabled = false, suggestions, contacts 
   const menuItems = mention ? filterContacts(contacts, mention.query) : [];
   const menuOpen = mention !== null;
 
-  // Live recipient badge (display-only).
+  // Live recipient badge (display-only). recipientList drives the multi-recipient case
+  // ("send X to @A @B" → one chip per friend); single send keeps the existing single badge.
   const recipient = useRecipientResolution(text, contacts);
+  const recipientList = detectRecipients(text);
 
   // Dynamic chips when context is available; otherwise the static example set.
   const chips: ExamplePrompt[] =
@@ -254,8 +268,17 @@ export function ChatInput({ onSendText, disabled = false, suggestions, contacts 
           ))}
         </div>
 
-        {/* Recipient badge — live, display-only preview of the resolved recipient */}
-        <RecipientBadge recipient={recipient} />
+        {/* Recipient preview — live, display-only. One chip per friend for a multi-recipient
+            send ("…to @A @B"); a single badge otherwise. */}
+        {recipientList.length >= 2 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {recipientList.map((r, i) => (
+              <RecipientChip key={`${r.token}-${i}`} token={r.token} contacts={contacts} />
+            ))}
+          </div>
+        ) : (
+          <RecipientBadge recipient={recipient} />
+        )}
 
         {/* Text input row */}
         <form

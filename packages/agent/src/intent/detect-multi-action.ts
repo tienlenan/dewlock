@@ -26,8 +26,9 @@
  * of each clause counts — so a recipient NAME that happens to be a verb keyword
  * ("send 5 SUI to Lend") is never miscounted as a second action.
  *
- * Known v1 limitation: same-category multi-target ("send 1 SUI to A and 1 SUI to B")
- * is one category → not flagged here; the persona backstop covers it.
+ * Same-category multi-target ("send 0.2 SUI to A and B") is one category, so
+ * detectMultiAction reports multi=false. parseMultiRecipientSend handles that case
+ * directly: it fans the single send out into one send step per recipient.
  */
 
 import {
@@ -218,4 +219,87 @@ export function parseChainSteps(text: string): ChainStep[] | null {
           : "explicit";
     return { category, clause, amountFrom };
   });
+}
+
+/**
+ * Capture the "send <amount> <coin> to " prefix plus the FIRST recipient of a send
+ * clause. Greedy `.*` up to the LAST " to " keeps any amount/coin in the prefix so a
+ * sibling recipient can reuse it verbatim.
+ */
+const SEND_TO_PREFIX_RE = /^(.*\bto\s+)(\S.*)$/i;
+
+/**
+ * Expand a SINGLE send addressed to MULTIPLE recipients into one ChainStep per
+ * recipient. detectMultiAction sees only one "send" verb (multi=false), so these
+ * never reach parseChainSteps — this handles the same-category multi-target case
+ * the module header flags as a v1 limitation.
+ *
+ * Returns:
+ *  - { kind: "steps", steps } — clean same-amount recipient list ("send 0.2 SUI to
+ *    Alice and Bob", "send 1 USDC to a, b, c"). Each step reuses the first clause's
+ *    "<amount> <coin> to" prefix, so every recipient gets the stated amount.
+ *    Deterministic; emitted straight to a chainPlan (no LLM).
+ *  - { kind: "needsLlm" } — a later recipient clause carries its OWN amount
+ *    ("send 0.2 SUI to Alice and 0.3 to Bob"); too varied for the regex, so the
+ *    caller routes to the verified LLM decomposer.
+ *  - null — not a multi-recipient send (single recipient, non-send first verb, or a
+ *    real multi-verb chain handled by parseChainSteps / the refusal path).
+ */
+export function parseMultiRecipientSend(
+  text: string,
+): { kind: "steps"; steps: ChainStep[] } | { kind: "needsLlm" } | null {
+  const normalized = normalizeVnConnectors(text);
+  const clauses = normalized
+    .split(CLAUSE_SPLIT_RE)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (clauses.length < 2) return null;
+
+  // First clause must be a send with an explicit "to <recipient>".
+  const first = clauses[0];
+  let firstCat: string | undefined;
+  for (const w of first.toLowerCase().split(/[^a-z0-9]+/)) {
+    const c = WORD_TO_CATEGORY.get(w);
+    if (c) {
+      firstCat = c;
+      break;
+    }
+  }
+  if (firstCat !== "send") return null;
+
+  const m = first.match(SEND_TO_PREFIX_RE);
+  if (!m) return null;
+  // Drop "each" so the synthesized per-recipient command parses cleanly downstream.
+  const prefix = m[1].replace(/\beach\b/gi, " ").replace(/\s+/g, " ");
+  const recipients = [m[2].trim()];
+
+  let amountBearingExtras = 0;
+  for (const clause of clauses.slice(1)) {
+    // A verb in a later clause means this is a real multi-verb chain (or unrelated
+    // trailing text), not a recipient list — defer to parseChainSteps / refusal.
+    let hasVerb = false;
+    for (const w of clause.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (WORD_TO_CATEGORY.has(w)) {
+        hasVerb = true;
+        break;
+      }
+    }
+    if (hasVerb) return null;
+    // A digit means a per-recipient amount → too varied for the deterministic prefix.
+    if (/\d/.test(clause)) {
+      amountBearingExtras++;
+      continue;
+    }
+    recipients.push(clause);
+  }
+
+  if (amountBearingExtras > 0) return { kind: "needsLlm" };
+  if (recipients.length < 2) return null;
+
+  const steps: ChainStep[] = recipients.map((r) => ({
+    category: "send",
+    clause: `${prefix}${r}`.replace(/\s+/g, " ").trim(),
+    amountFrom: "explicit",
+  }));
+  return { kind: "steps", steps };
 }

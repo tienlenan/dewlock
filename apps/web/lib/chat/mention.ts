@@ -58,10 +58,20 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Sentinels (char codes 0 and 1) wrapping each resolved mention, so ADJACENT mentions
+// are detectable even when the contact name contains spaces ("Mom Wallet"). Built at
+// runtime so no literal control bytes live in source; stripped before return.
+const MENTION_OPEN = String.fromCharCode(0);
+const MENTION_CLOSE = String.fromCharCode(1);
+
 /**
  * Rewrite each `@Name` whose Name matches a known contact (longest-first, so "Mom Wallet"
  * wins over "Mom") to the bare contact name. Unknown `@x` tokens are left intact. The bare
  * name then flows through the existing deterministic contact resolver on the server.
+ *
+ * Two mentions separated only by whitespace ("@Alice @Bob") are joined with ", " so the
+ * deterministic multi-recipient parser fans the send out to every friend — the menu inserts
+ * "@Name " with no connector, so adjacent mentions are the natural multi-recipient form.
  */
 export function substituteMentions(text: string, contactNames: string[]): string {
   let out = text;
@@ -69,9 +79,12 @@ export function substituteMentions(text: string, contactNames: string[]): string
   for (const name of names) {
     // "@Name" not followed by a word char/hyphen, so "@Al" can't partial-match "@Alice".
     const re = new RegExp(`@${escapeRegExp(name)}(?![\\w-])`, "gi");
-    out = out.replace(re, name);
+    out = out.replace(re, `${MENTION_OPEN}${name}${MENTION_CLOSE}`);
   }
-  return out;
+  // Adjacent mentions ("@Alice @Bob") → comma so multi-recipient parsing splits them. A typed
+  // connector ("@Alice and @Bob", "@Alice, @Bob") has non-space between, so it is left as-is.
+  out = out.replace(new RegExp(`${MENTION_CLOSE}\\s+${MENTION_OPEN}`, "g"), ", ");
+  return out.replace(new RegExp(`[${MENTION_OPEN}${MENTION_CLOSE}]`, "g"), "");
 }
 
 /**

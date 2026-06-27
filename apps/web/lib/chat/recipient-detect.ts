@@ -85,6 +85,33 @@ export function detectRecipient(text: string): DetectedRecipient {
   return NONE;
 }
 
+/**
+ * Detect ALL recipient candidates for a multi-recipient send ("send X to @A @B",
+ * "send X to @A and @B"). Returns one entry per recipient. For 0–1 recipients it is
+ * just `detectRecipient(text)` (or `[]`), so single-send behaviour is unchanged.
+ *
+ * Multi-recipient is keyed on 2+ "@" mentions in the RAW (pre-submit) composer text —
+ * the @mention menu inserts "@Name " per friend, so the live text holds raw @tokens
+ * (substituteMentions only runs on submit). Names may contain spaces, so each segment
+ * after an "@" (up to the next "@") is one recipient token; trailing connectors/commas
+ * the split leaves ("Alice and", "Alice,") are stripped — the hook prefix-matches anyway.
+ */
+export function detectRecipients(text: string): DetectedRecipient[] {
+  const raw = text.trim();
+  if (!raw) return [];
+  const atCount = (raw.match(/@/g) || []).length;
+  if (atCount >= 2) {
+    return raw
+      .split("@")
+      .slice(1)
+      .map((seg) => seg.replace(/[\s,]+$/, "").replace(/\s+(?:and|plus)$/i, "").trim())
+      .filter(Boolean)
+      .map((token) => ({ token, kind: "mention" as const }));
+  }
+  const single = detectRecipient(raw);
+  return single.kind === "none" ? [] : [single];
+}
+
 /** Shorten a 0x address for display: "0x1234…abcd". Returns the input unchanged when too short. */
 export function truncateAddress(address: string, head = 6, tail = 4): string {
   if (!address.startsWith("0x") || address.length <= head + tail + 1) return address;

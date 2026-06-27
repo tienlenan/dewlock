@@ -34,6 +34,9 @@ import { SwapFormCard, type SwapFormData } from "@/components/chat/swap-form-car
 import { LimitOrderFormCard, type LimitOrderFormData } from "@/components/chat/limit-order-form-card";
 import { ActionFormCard, type ActionFormData } from "@/components/chat/action-form-card";
 import { ContactPickerCard, type ContactPickerData } from "@/components/chat/contact-picker-card";
+import { ChainPlanCard, isAtomicEligible } from "@/components/chat/chain-plan-card";
+import { splitMessageByContacts } from "@/lib/chat/resolve-message-contacts";
+import { truncateAddress } from "@/lib/chat/recipient-detect";
 import { ReceiveCard, type ReceiveCardData } from "@/components/receive-card";
 import { AgentThinkingLoader } from "@/components/chat/agent-thinking-loader";
 import { EcosystemYieldsCard } from "@/components/chat/ecosystem-yields-card";
@@ -214,6 +217,8 @@ interface ChatThreadProps {
   onSend?: (text: string) => void;
   /** Chain-plan signing loop callbacks. Absent = chain-plan cards render read-only. */
   chainCallbacks?: ChainSignCallbacks;
+  /** Saved friend book — annotates contact names in user bubbles with their address. */
+  contacts?: { name: string; address: string }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -556,7 +561,7 @@ function InlineTxSign({
 // Root component
 // ---------------------------------------------------------------------------
 
-export function ChatThread({ messages, onReplaceCard, walletAddress, onSend, chainCallbacks }: ChatThreadProps) {
+export function ChatThread({ messages, onReplaceCard, walletAddress, onSend, chainCallbacks, contacts = [] }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const isEmpty = messages.length === 0;
 
@@ -606,6 +611,7 @@ export function ChatThread({ messages, onReplaceCard, walletAddress, onSend, cha
             walletAddress={walletAddress}
             onSend={onSend}
             chainCallbacks={chainCallbacks}
+            contacts={contacts}
           />
         ))}
 
@@ -677,18 +683,47 @@ function WelcomeRow({
 // MessageRow
 // ---------------------------------------------------------------------------
 
+/** Render a user message with each saved-contact name annotated as "Name (0x1234…)" so the
+ *  bubble shows who a "send … to Alice, Bob" actually targets. Display-only — the Guardian
+ *  re-resolves the recipient server-side at send time. */
+function UserMessageText({
+  text,
+  contacts,
+}: {
+  text: string;
+  contacts: { name: string; address: string }[];
+}) {
+  const segments = splitMessageByContacts(text, contacts);
+  return (
+    <>
+      {segments.map((seg, i) =>
+        typeof seg === "string" ? (
+          <span key={i}>{seg}</span>
+        ) : (
+          <span key={i}>
+            {seg.name}
+            <span style={{ opacity: 0.6, fontSize: "0.92em" }}> ({truncateAddress(seg.address)})</span>
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
 function MessageRow({
   message,
   onReplaceCard,
   walletAddress,
   onSend,
   chainCallbacks,
+  contacts = [],
 }: {
   message: ChatMessage;
   onReplaceCard: (messageId: string, cardIndex: number, replacement: ToolCard) => void;
   walletAddress?: string;
   onSend?: (text: string) => void;
   chainCallbacks?: ChainSignCallbacks;
+  contacts?: { name: string; address: string }[];
 }) {
   const isUser = message.role === "user";
 
@@ -713,7 +748,7 @@ function MessageRow({
             whiteSpace: "pre-wrap",
           }}
         >
-          {message.text}
+          <UserMessageText text={message.text} contacts={contacts} />
         </div>
       </div>
     );
@@ -1232,11 +1267,6 @@ function ChainPlanWithComposite({
   walletAddress?: string;
   chainCallbacks?: ChainSignCallbacks;
 }) {
-  const { ChainPlanCard, isAtomicEligible } = require("@/components/chat/chain-plan-card") as {
-    ChainPlanCard: (props: import("@/components/chat/chain-plan-card").ChainPlanCardProps) => React.ReactElement | null;
-    isAtomicEligible: (plan: import("@/components/chat/chain-plan-card").ChainPlanData) => boolean;
-  };
-
   const [atomicError, setAtomicError] = useState<string | null>(null);
   const [atomicPreparing, setAtomicPreparing] = useState(false);
   const [atomicTx, setAtomicTx] = useState<PrepareTradePass | null>(null);
