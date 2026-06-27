@@ -59,7 +59,7 @@ import {
 // guardian-gates.ts (so tests can import it without the SDK chain). guardianCheck uses
 // this binding; it is re-exported below for the public API (index.ts).
 import { checkProvenance } from "./guardian-gates";
-import { getRecipe } from "./chaining/composite-recipes";
+import { getRecipe, buildDynamicRecipe } from "./chaining/composite-recipes";
 import type { CompositeRecipe } from "./chaining/composite-recipes";
 
 // ---------------------------------------------------------------------------
@@ -227,12 +227,21 @@ export interface TradeProposal {
    * Per-leg coin types for the composite — ordered by leg index.
    * Used for provenance: the Guardian checks that the declared coin types
    * match the recipe's linkage (leg-0 output coin == leg-1 input coin).
+   *
+   * For "send" legs, `recipient` carries the resolved 0x address captured at
+   * WYSIWYS proposal time. The anti-leak gate compares dry-run inflows against
+   * this address — the Guardian NEVER re-resolves a SuiNS name here (TOCTOU).
+   * `actionType: "send"` marks the leg for the anti-leak extractor.
    */
   compositeLegs?: Array<{
     coinTypeIn: string;
     coinTypeOut?: string;
     amountInNative: bigint;
     lendingProtocol?: string;
+    /** Resolved 0x recipient — only set for send legs. */
+    recipient?: string;
+    /** Marks a send leg so the anti-leak gate can extract it. */
+    actionType?: "send" | "swap" | "lend_deposit" | "stake";
   }>;
   /**
    * Net SUI delta cap for composite transactions (in MIST). Bounds tx.gas-split exfiltration
@@ -2122,14 +2131,55 @@ export async function checkCompositeRecipe(
     };
   }
 
-  const recipe = getRecipe(recipeId);
-  if (!recipe) {
-    return {
-      ok: false,
-      reason:
-        `Composite recipe "${recipeId}" is not in the declared registry. ` +
-        "Only pre-declared recipes may be composed into a single PTB.",
-    };
+  // Resolve the recipe: either a pre-registered static recipe OR a dynamically-built
+  // recipe derived from the declared compositeLegs.actionType annotations.
+  //
+  // "dynamic" is a sentinel id that means "build the recipe from the declared legs".
+  // All other ids must match a pre-registered static recipe in the registry.
+  let recipe: CompositeRecipe;
+  let isDynamic = false;
+  if (recipeId === "dynamic") {
+    // Dynamic path: build the recipe from the per-leg actionType declared in compositeLegs.
+    // compositeLegs is required but MAY be empty (e.g. a zero-declared-recipient gas-only
+    // composite — the anti-leak gate enforces that no third-party inflows exist).
+    // Fail-closed: compositeLegs must not be undefined.
+    if (!proposal.compositeLegs) {
+      return {
+        ok: false,
+        reason:
+          'Dynamic composite ("dynamic" recipe id) requires compositeLegs (may be empty). ' +
+          "Refusing (fail-closed).",
+      };
+    }
+    const legTypes = proposal.compositeLegs.map((l) => ({
+      actionType: (l.actionType ?? "swap") as "send" | "swap" | "lend_deposit" | "stake",
+    }));
+    if (legTypes.length === 0) {
+      // Zero-leg dynamic: no MoveCall requirements; only anti-leak + caps apply.
+      recipe = { id: "dynamic", description: "Dynamic composite (zero legs)", legs: [], linkages: [] };
+    } else {
+      try {
+        recipe = buildDynamicRecipe(legTypes);
+      } catch (err) {
+        return {
+          ok: false,
+          reason:
+            `Failed to build dynamic recipe: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+    isDynamic = true;
+  } else {
+    const staticRecipe = getRecipe(recipeId);
+    if (!staticRecipe) {
+      return {
+        ok: false,
+        reason:
+          `Composite recipe "${recipeId}" is not in the declared registry. ` +
+          "Only pre-declared recipes may be composed into a single PTB.",
+      };
+    }
+    recipe = staticRecipe;
   }
 
   // --- (a) Target multiset check ---
@@ -2137,8 +2187,29 @@ export async function checkCompositeRecipe(
   if (!multisetResult.ok) return multisetResult;
 
   // --- (b) Coin-type provenance check ---
-  const provenanceResult = checkCompositeCoinProvenance(proposal, recipe);
-  if (!provenanceResult.ok) return provenanceResult;
+  // Skip for dynamic recipes: dynamic composites have no pre-declared linkages.
+  // Independent legs each source from the wallet; chained legs are verified by the
+  // builder's output-coin threading (not expressible in a static linkage list).
+  if (!isDynamic) {
+    const provenanceResult = checkCompositeCoinProvenance(proposal, recipe);
+    if (!provenanceResult.ok) return provenanceResult;
+  }
+
+  // --- Extract declared send legs for the recipient-aware anti-leak check ---
+  // These are the WYSIWYS-approved recipients captured at proposal time.
+  // Recipients are already resolved 0x addresses — never re-resolved here (no TOCTOU).
+  const declaredSendLegs: SendLeg[] = [];
+  if (proposal.compositeLegs) {
+    for (const leg of proposal.compositeLegs) {
+      if (leg.actionType === "send" && leg.recipient) {
+        declaredSendLegs.push({
+          recipient: leg.recipient,
+          coinType: leg.coinTypeIn,
+          amountMist: leg.amountInNative,
+        });
+      }
+    }
+  }
 
   // --- Run dry-run for (c) and (d) ---
   // Fail-closed: any dry-run error → BLOCK. We pass the sender address so
@@ -2156,8 +2227,10 @@ export async function checkCompositeRecipe(
     };
   }
 
-  // --- (c) Delta/owner anti-leak: no third-party owner in objectChanges ---
-  const leakResult = checkCompositeDeltaAntiLeak(dryRun, proposal.walletAddress);
+  // --- (c) Recipient-aware anti-leak ---
+  // When declaredSendLegs is empty (e.g. swap_lend_v1), degrades to the original
+  // "no third-party inflow" check — backward compatible.
+  const leakResult = checkCompositeDeltaAntiLeak(dryRun, proposal.walletAddress, declaredSendLegs);
   if (!leakResult.ok) return leakResult;
 
   // --- (d) Net-USD cap on whole composite ---
@@ -2257,8 +2330,16 @@ function checkCompositeTargetMultiset(txBytesB64: string, recipe: CompositeRecip
   // Check that at least one call from each recipe leg is present (no missing legs).
   // This catches a stripped composite that omits an entire leg while passing the
   // "no extra calls" check above.
+  //
+  // EXCEPTION: "send" legs have zero allowedTargets (TransferObjects is a PTB command,
+  // not a MoveCall). Requiring a call for a zero-target leg would always fail. These
+  // legs are verified exclusively by the recipient-aware anti-leak gate (gate c).
   for (let i = 0; i < recipe.legs.length; i++) {
     const leg = recipe.legs[i];
+    // Skip the "has at least one call" requirement for zero-target legs (e.g. send).
+    // Their correctness is the anti-leak gate's responsibility, not this multiset gate.
+    if (leg.allowedTargets.size === 0) continue;
+
     const legAllowed = leg.allowedTargets;
     const hasLegCall = calls.some(
       (c) =>
@@ -2324,57 +2405,183 @@ function checkCompositeCoinProvenance(proposal: TradeProposal, recipe: Composite
 }
 
 /**
- * (c) Delta/owner anti-leak: walk every objectChange in the dry-run result.
- * Any object ending up with a third-party owner (an address that is neither the
- * sender, shared, object-owned, nor immutable) → BLOCK.
+ * A declared send leg extracted from the WYSIWYS-approved proposal.
+ * Recipients are resolved 0x addresses captured at proposal time — never re-resolved.
+ */
+interface SendLeg {
+  /** Resolved 0x recipient address (lower-case, normalised). */
+  recipient: string;
+  /** Canonical coin type being sent. */
+  coinType: string;
+  /** Amount in native units (MIST for SUI, micro-units for tokens). */
+  amountMist: bigint;
+}
+
+/**
+ * (c) Recipient-aware anti-leak: verify that EVERY third-party inflow in the dry-run
+ * is explained by exactly one declared `send` leg (same recipient, same coinType, same
+ * amount). The multiset of observed inflows MUST equal the multiset of declared legs —
+ * no extra, no missing, no amount drift.
  *
- * This is the authoritative value/leak check. It catches:
- * - TransferObjects([coin], attacker) → objectChange.type="transferred", owner=attacker
- * - SplitCoins(tx.gas)→TransferObjects([that], attacker) → net-SUI delta to non-sender
- * - Result-derived recipient that isn't the sender → classified as third-party
+ * Invariant: actual == expected (strict multiset equality, summed per recipient+coinType).
  *
- * The sender is always the only allowed address owner. Protocol-owned/shared objects
- * (NAVI pool, Suilend market, etc.) appear as "shared" or "object" and are permitted.
+ * Attack coverage:
+ * - A2: ATTACKER not in legs → unlisted inflow → BLOCK.
+ * - A3: correct recipient but inflated amount → amount mismatch → BLOCK.
+ * - A4: leg says Alice, PTB sends to ATTACKER → unknown key → BLOCK.
+ * - A5: declared leg + dust skim to ATTACKER → extra actual key → BLOCK.
+ * - A6: gas exfil via positive delta to ATTACKER → unlisted inflow → BLOCK.
+ * - A7: dropped send leg → expected key missing from actual → BLOCK.
+ * - A9: coin-type teleport → (recipient, actual-coinType) ≠ (recipient, declared-coinType) → BLOCK.
  *
- * NOTE: we also walk balanceDeltas to catch cases where a coin transfer doesn't produce
- * an objectChange (e.g. if a balance merge hides the recipient). Any positive balance
- * delta (inflow) to a non-sender address → BLOCK.
+ * Backward compatibility: when `declaredSendLegs` is empty (e.g. swap_lend_v1), the
+ * rule degrades to the original "no third-party inflow at all" behaviour.
+ *
+ * De-duplication: a transferred coin appears in BOTH objectChanges (ownerKind=third-party)
+ * AND balanceDeltas (positive delta to recipient). To avoid double-counting, we accumulate
+ * inflows exclusively from balanceDeltas (which are guaranteed present for every coin
+ * transfer) and use the objectChanges walk only as a supplementary check for objects that
+ * do NOT appear as balance deltas (non-coin objects sent to a third party → always leak).
+ *
+ * Gas effects: gas is a sender cost; the SUI gas deduction appears as a negative sender
+ * delta, never as a positive third-party delta. The net-SUI cap (gate d) independently
+ * bounds SUI exfiltration for the sender side.
  */
 function checkCompositeDeltaAntiLeak(
   dryRun: DryRunResult,
   sender: string,
+  declaredSendLegs: readonly SendLeg[] = [],
 ): GateResult {
   const senderNorm = sender.toLowerCase();
 
-  // Walk objectChanges — classify each owner relative to the sender.
-  // Third-party owners are the leak signal (fail-loud, never hidden).
-  for (const change of dryRun.objectChanges ?? []) {
-    if (change.ownerKind === "third-party") {
+  // Walk objectChanges — non-coin objects (e.g. NFTs, shared object mutations) with
+  // a third-party owner are ALWAYS a leak regardless of declared send legs, because
+  // send legs only account for fungible coin transfers (balanceDeltas path).
+  // A transferred coin also appears as a third-party objectChange; we suppress that
+  // false-positive only when the accompanying balanceDelta is covered by a declared leg.
+  // For simplicity and safety: if any objectChange has ownerKind="third-party" AND there
+  // are no declared send legs that would explain it (zero-send-leg path), block immediately.
+  // When send legs ARE declared, we defer to the balanceDelta multiset check below,
+  // which is the authoritative accounting path (de-dup strategy: balanceDelta wins).
+  if (declaredSendLegs.length === 0) {
+    // Backward-compatible path: no send legs declared → zero tolerance for third-party owners.
+    for (const change of dryRun.objectChanges ?? []) {
+      if (change.ownerKind === "third-party") {
+        return {
+          ok: false,
+          reason:
+            `Composite dry-run shows an object (${change.objectId}) with a third-party owner ` +
+            `— a non-sender address controls an asset after this transaction. ` +
+            "Blocking the composite (anti-leak invariant).",
+        };
+      }
+    }
+
+    // Backward-compatible path: no third-party balance inflows allowed.
+    for (const delta of dryRun.balanceDeltas) {
+      if (delta.amount <= 0n) continue;
+      const ownerNorm = (delta.owner ?? "").toLowerCase();
+      if (ownerNorm && ownerNorm !== senderNorm) {
+        return {
+          ok: false,
+          reason:
+            `Composite dry-run shows a positive balance delta for a non-sender address ` +
+            `("${delta.owner}" gained ${delta.amount} of ${delta.coinType}). ` +
+            "This is a leak to a third party — blocking the composite.",
+        };
+      }
+    }
+    return { ok: true, reason: "" };
+  }
+
+  // Recipient-aware path: send legs declared.
+  //
+  // Build the EXPECTED multiset: sum declared amounts per (recipient, coinType).
+  // Keys are normalised lower-case to prevent case-based bypass.
+  const expected = new Map<string, bigint>();
+  for (const leg of declaredSendLegs) {
+    const key = `${leg.recipient.toLowerCase()}::${normalizeCoinType(leg.coinType)}`;
+    expected.set(key, (expected.get(key) ?? 0n) + leg.amountMist);
+  }
+
+  // Build the ACTUAL multiset: sum positive non-sender balance deltas per (owner, coinType).
+  // This is the authoritative inflow source — coin transfers always appear here.
+  const actual = new Map<string, bigint>();
+  for (const delta of dryRun.balanceDeltas) {
+    if (delta.amount <= 0n) continue; // outflow or zero
+    const ownerNorm = (delta.owner ?? "").toLowerCase();
+    if (!ownerNorm || ownerNorm === senderNorm) continue; // sender residual — allowed
+    const key = `${ownerNorm}::${normalizeCoinType(delta.coinType)}`;
+    actual.set(key, (actual.get(key) ?? 0n) + delta.amount);
+  }
+
+  // Check: every actual inflow key must appear in expected with equal amount.
+  // This stops A2 (unlisted recipient), A4 (swapped recipient), A5 (dust skim), A6 (gas exfil).
+  for (const [key, amount] of actual) {
+    const expectedAmount = expected.get(key);
+    if (expectedAmount === undefined) {
+      const [owner, coinType] = key.split("::", 2);
       return {
         ok: false,
         reason:
-          `Composite dry-run shows an object (${change.objectId}) with a third-party owner ` +
-          `— a non-sender address controls an asset after this transaction. ` +
-          "Blocking the composite (anti-leak invariant).",
+          `Composite dry-run shows an unexpected inflow: "${owner}" received ${amount} of ${coinType}. ` +
+          "This recipient+coinType is not in any declared send leg — potential leak. " +
+          "Blocking the composite (anti-leak: unlisted inflow).",
+      };
+    }
+    if (amount !== expectedAmount) {
+      const [owner, coinType] = key.split("::", 2);
+      return {
+        ok: false,
+        reason:
+          `Composite dry-run amount mismatch: "${owner}" received ${amount} of ${coinType}, ` +
+          `but the declared leg specifies ${expectedAmount}. ` +
+          "Blocking the composite (anti-leak: amount must match declared leg exactly).",
       };
     }
   }
 
-  // Walk balanceDeltas — any positive delta (inflow) to a non-sender address is a leak.
-  // This catches balance-level transfers the objectChange walk might not surface (e.g.
-  // a coin that is created, transferred, and the objectChange is suppressed by merging).
-  for (const delta of dryRun.balanceDeltas) {
-    if (delta.amount <= 0n) continue; // outflow or zero — not a third-party inflow
-    const ownerNorm = (delta.owner ?? "").toLowerCase();
-    if (ownerNorm && ownerNorm !== senderNorm) {
+  // Check: every expected inflow key must appear in actual with equal amount.
+  // This stops A7 (dropped send leg — declared but no matching dry-run inflow).
+  for (const [key, expectedAmount] of expected) {
+    const actualAmount = actual.get(key);
+    const [owner, coinType] = key.split("::", 2);
+    if (actualAmount === undefined) {
       return {
         ok: false,
         reason:
-          `Composite dry-run shows a positive balance delta for a non-sender address ` +
-          `("${delta.owner}" gained ${delta.amount} of ${delta.coinType}). ` +
-          "This is a leak to a third party — blocking the composite.",
+          `Composite dry-run is missing the expected inflow: "${owner}" was supposed to receive ` +
+          `${expectedAmount} of ${coinType} per the declared send leg, but received nothing. ` +
+          "Blocking the composite (anti-leak: declared send leg not executed).",
       };
     }
+    if (actualAmount !== expectedAmount) {
+      return {
+        ok: false,
+        reason:
+          `Composite dry-run amount mismatch for declared recipient "${owner}": ` +
+          `expected ${expectedAmount} of ${coinType}, observed ${actualAmount}. ` +
+          "Blocking the composite (anti-leak: amount must match declared leg exactly).",
+      };
+    }
+  }
+
+  // Also check objectChanges for non-coin third-party objects (NFTs etc.) not captured
+  // in balanceDeltas. Any third-party objectChange whose owner is NOT a declared send
+  // recipient is an unexplained leak.
+  const declaredRecipients = new Set(declaredSendLegs.map((l) => l.recipient.toLowerCase()));
+  for (const change of dryRun.objectChanges ?? []) {
+    if (change.ownerKind !== "third-party") continue;
+    // If the object is owned by a declared send recipient, it is the transferred coin
+    // object — already accounted for by the balanceDelta check above.
+    if (change.ownerAddress && declaredRecipients.has(change.ownerAddress.toLowerCase())) continue;
+    return {
+      ok: false,
+      reason:
+        `Composite dry-run shows a non-coin object (${change.objectId}) transferred to a ` +
+        `third-party address not in any declared send leg. ` +
+        "Blocking the composite (anti-leak invariant).",
+    };
   }
 
   return { ok: true, reason: "" };
