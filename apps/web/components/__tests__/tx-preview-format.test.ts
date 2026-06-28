@@ -176,6 +176,7 @@ describe("deriveCompositeFlow", () => {
     coinTypeIn: USDC,
     amountInNative: "0", // placeholder — deposits the swap output
     lendingProtocol: "navi",
+    amountFrom: "prev-output", // chained: consumes the swap output
   };
 
   it("renders BOTH legs of a swap→lend composite (the lend leg is never hidden)", () => {
@@ -195,6 +196,10 @@ describe("deriveCompositeFlow", () => {
     expect(steps[1].edgeLabel).toBe("USDC");
     expect(steps[1].isOutflow).toBe(false);
     expect(steps[1].logoId).toBe("navi");
+
+    // The swap draws from the wallet (independent); the lend consumes the swap output (chained).
+    expect(steps[0].chained).toBe(false);
+    expect(steps[1].chained).toBe(true);
   });
 
   it("shows the swap's estimated OUTPUT on the node and the lend-in edge", () => {
@@ -221,5 +226,23 @@ describe("deriveCompositeFlow", () => {
   it("only the first leg is an outflow (later legs move between protocols)", () => {
     const steps = deriveCompositeFlow([swapLeg, lendLeg]);
     expect(steps.filter((s) => s.isOutflow)).toHaveLength(1);
+  });
+
+  it("INDEPENDENT legs each draw from the wallet (multi-send → two outflows, not a chain)", () => {
+    const sendA: CompositeFlowLeg = { actionType: "send", coinTypeIn: SUI, amountInNative: "50000000", recipient: "0x" + "a".repeat(64) };
+    const sendB: CompositeFlowLeg = { actionType: "send", coinTypeIn: SUI, amountInNative: "50000000", recipient: "0x" + "b".repeat(64) };
+    const steps = deriveCompositeFlow([sendA, sendB]);
+    // Both sends pull from the wallet → both outflows, neither chained. The graph renders TWO
+    // branches from You (the bug was rendering send #2 as fed by send #1 / a prior protocol node).
+    expect(steps.every((s) => s.isOutflow && !s.chained)).toBe(true);
+    expect(steps.map((s) => s.nodeSub)).toEqual(["Send", "Send"]);
+  });
+
+  it("mixed swap + send: the send draws from the wallet, NOT from the swap output", () => {
+    const send: CompositeFlowLeg = { actionType: "send", coinTypeIn: SUI, amountInNative: "50000000", recipient: "0x" + "c".repeat(64) };
+    const steps = deriveCompositeFlow([swapLeg, send]);
+    expect(steps[0].chained).toBe(false); // swap from wallet
+    expect(steps[1].chained).toBe(false); // send from wallet (independent), not fed by Cetus
+    expect(steps.filter((s) => s.isOutflow)).toHaveLength(2);
   });
 });

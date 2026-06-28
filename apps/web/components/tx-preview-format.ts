@@ -120,6 +120,9 @@ export interface CompositeFlowLeg {
   lendingProtocol?: string;
   /** Send leg: the resolved 0x recipient — shown as the flow node label. */
   recipient?: string;
+  /** "prev-output" → this leg consumes the PRIOR leg's output (chained); else it draws from
+   *  the wallet (independent). Drives whether the flow node branches from You or the prior node. */
+  amountFrom?: "explicit" | "prev-output";
   /** Swap leg: estimated output in native units of coinTypeOut (live route estimate). */
   estimatedOutNative?: string;
   /** Swap leg: guaranteed-minimum output in native units (slippage floor). */
@@ -137,25 +140,31 @@ export interface FlowPreviewInput {
 
 /** A rendered hop in a composite flow: a protocol node + the coin flowing INTO it. */
 export interface CompositeFlowStep {
-  /** Protocol/step node label, e.g. "Cetus Aggregator" / "NAVI". */
+  /** Protocol/step node label, e.g. "Cetus Aggregator" / "NAVI" / a recipient. */
   nodeLabel: string;
-  /** Category sub-line, e.g. "Swap → USDC" / "Lending · deposit". */
+  /** Category sub-line, e.g. "Swap → USDC" / "Lending · deposit" / "Send". */
   nodeSub: string;
-  /** Coin flowing into this node from the previous node, e.g. "1 SUI" / "USDC". */
+  /** Coin flowing INTO this node: from the wallet (independent) or the prior leg (chained). */
   edgeLabel: string;
-  /** True for the first hop (funds leaving the wallet) → rendered as an outflow. */
+  /** True when funds enter this node straight from the wallet — an independent leg's outflow. */
   isOutflow: boolean;
-  /** ProtocolLogo id for this node's brand mark (e.g. "cetus-aggregator", "navi"). */
+  /** True when this leg consumes the PRIOR leg's output → its input edge starts at the prior
+   *  node. Independent legs (false) branch straight from You (the wallet). */
+  chained: boolean;
+  /** ProtocolLogo id for this node's brand mark (e.g. "cetus-aggregator", "navi", "haedal"). */
   logoId?: string;
 }
 
 /**
- * Turn composite legs into an ordered You → leg0 → leg1 … chain for the flow map.
+ * Turn composite legs into flow steps. Each step records whether it is CHAINED (consumes the
+ * prior leg's output) or INDEPENDENT (draws from the wallet), so the graph routes its input edge
+ * from the correct source: independent legs (a send, or a swap not fed by a prior leg) branch
+ * straight from You; only a prev-output leg connects to the prior protocol node. This is what
+ * makes "send X to A and B" show TWO outflows from the wallet — not a sequential A→B chain.
  *
- * WHY a dedicated path (not deriveFlowRows): a composite's intermediate coin (e.g. the
- * swap-output USDC that is immediately deposited) nets to ~0 at the wallet, so it never
- * appears in balanceDeltas — the lend leg would be invisible. These legs come straight
- * from the declared recipe, so every hop is shown explicitly and accurately.
+ * WHY a dedicated path (not deriveFlowRows): a composite's intermediate coin (e.g. a swap-output
+ * USDC immediately deposited) nets to ~0 at the wallet, so it never appears in balanceDeltas —
+ * that leg would be invisible. These legs come from the declared recipe, shown explicitly.
  */
 export function deriveCompositeFlow(
   legs: CompositeFlowLeg[],
@@ -171,59 +180,29 @@ export function deriveCompositeFlow(
   };
 
   return legs.map((leg, i) => {
+    const chained = i > 0 && leg.amountFrom === "prev-output";
+    const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
+    // Coin INTO this node: a chained leg shows the prior leg's output; an independent leg shows
+    // the amount it pulls from the wallet.
+    const edgeLabel = chained
+      ? (outLabel(legs[i - 1]) ?? shortCoinType(leg.coinTypeIn))
+      : `${amtIn} ${shortCoinType(leg.coinTypeIn)}`;
+
+    let meta: Pick<CompositeFlowStep, "nodeLabel" | "nodeSub" | "logoId">;
     if (leg.actionType === "swap") {
-      const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
       const out = outLabel(leg);
-      return {
-        nodeLabel: "Cetus Aggregator",
-        // Show the swap's estimated OUTPUT on the node (in = the incoming edge below).
-        nodeSub: out ? `Swap → ${out}` : "Swap",
-        edgeLabel: `${amtIn} ${shortCoinType(leg.coinTypeIn)}`,
-        isOutflow: i === 0,
-        logoId: "cetus-aggregator",
-      };
+      meta = { nodeLabel: "Cetus Aggregator", nodeSub: out ? `Swap → ${out}` : "Swap", logoId: "cetus-aggregator" };
+    } else if (leg.actionType === "lend_deposit") {
+      meta = { nodeLabel: (leg.lendingProtocol ?? "lending").toUpperCase(), nodeSub: "Lending · deposit", logoId: leg.lendingProtocol };
+    } else if (leg.actionType === "send") {
+      const to = leg.recipient ? `${leg.recipient.slice(0, 6)}…${leg.recipient.slice(-4)}` : "recipient";
+      meta = { nodeLabel: to, nodeSub: "Send" };
+    } else if (leg.actionType === "stake") {
+      meta = { nodeLabel: "Haedal", nodeSub: "Stake → haSUI", logoId: "haedal" };
+    } else {
+      meta = { nodeLabel: leg.actionType, nodeSub: "Step" };
     }
-    if (leg.actionType === "lend_deposit") {
-      // The deposited coin = this leg's input = the prior (swap) leg's estimated output.
-      const prev = legs[i - 1];
-      const incoming = prev ? outLabel(prev) : null;
-      return {
-        nodeLabel: (leg.lendingProtocol ?? "lending").toUpperCase(),
-        nodeSub: "Lending · deposit",
-        edgeLabel: incoming ?? shortCoinType(leg.coinTypeIn),
-        isOutflow: false,
-        logoId: leg.lendingProtocol, // "navi" | "suilend"
-      };
-    }
-    if (leg.actionType === "send") {
-      // A send leg moves funds OUT of the wallet to the recipient — its own outflow node.
-      const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
-      const to = leg.recipient
-        ? `${leg.recipient.slice(0, 6)}…${leg.recipient.slice(-4)}`
-        : "recipient";
-      return {
-        nodeLabel: to,
-        nodeSub: "Send",
-        edgeLabel: `${amtIn} ${shortCoinType(leg.coinTypeIn)}`,
-        isOutflow: true,
-      };
-    }
-    if (leg.actionType === "stake") {
-      const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
-      return {
-        nodeLabel: "Haedal",
-        nodeSub: "Stake → haSUI",
-        edgeLabel: `${amtIn} ${shortCoinType(leg.coinTypeIn)}`,
-        isOutflow: i === 0,
-        logoId: "haedal",
-      };
-    }
-    return {
-      nodeLabel: leg.actionType,
-      nodeSub: "Step",
-      edgeLabel: shortCoinType(leg.coinTypeIn),
-      isOutflow: i === 0,
-    };
+    return { ...meta, edgeLabel, isOutflow: !chained, chained };
   });
 }
 

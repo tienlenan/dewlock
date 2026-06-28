@@ -171,10 +171,10 @@ function buildGraph(
   return { nodes, edges };
 }
 
-// Composite chain: a straight vertical river You → leg0 → leg1 … Each protocol is its own
-// node and each edge carries the coin flowing into it, so a swap→lend composite shows BOTH
-// the swap and the lend node (the intermediate coin nets to ~0 at the wallet, so the
-// balance-delta graph would collapse it to a single swap node).
+// Composite flow: the correct in/out topology, NOT a forced sequential river. An INDEPENDENT leg
+// (a send, or a swap not fed by a prior leg) draws from the wallet, so its edge starts at You; a
+// CHAINED leg (amountFrom=prev-output, e.g. the lend in swap→lend) connects to the prior node.
+// So "send X to A and B" renders TWO outflows from You; swap→lend renders You → Cetus → NAVI.
 function buildCompositeGraph(
   steps: CompositeFlowStep[],
   walletAddress: string | undefined,
@@ -183,20 +183,36 @@ function buildCompositeGraph(
   const youSub = walletAddress ? (suins[walletAddress.toLowerCase()] ?? short0x(walletAddress)) : undefined;
   const node = (id: string, x: number, y: number, data: NodeMeta): Node => ({ id, type: "flow", position: { x, y }, data: data as unknown as Record<string, unknown> });
 
+  // Each independent leg gets its own column at depth 1 (branches straight from You); a chained
+  // leg sits one level below its parent in the same column (a vertical sub-chain).
+  const colOf: number[] = [];
+  const depthOf: number[] = [];
+  let branches = 0;
+  steps.forEach((s, i) => {
+    if (s.chained && i > 0) {
+      colOf[i] = colOf[i - 1];
+      depthOf[i] = depthOf[i - 1] + 1;
+    } else {
+      colOf[i] = branches++;
+      depthOf[i] = 1;
+    }
+  });
+  const centeredX = (c: number) => (c - (branches - 1) / 2) * COL_W; // centre the branches under You
+
   const nodes: Node[] = [node("you", 0, 0, { kind: "you", label: "You", sub: youSub, primary: true })];
   const edges: Edge[] = [];
-  let prevId = "you";
   steps.forEach((s, i) => {
     const id = `leg-${i}`;
-    nodes.push(node(id, 0, (i + 1) * LEVEL_H, { kind: "protocol", label: s.nodeLabel, sub: s.nodeSub, logoId: s.logoId }));
+    nodes.push(node(id, centeredX(colOf[i]), depthOf[i] * LEVEL_H, { kind: "protocol", label: s.nodeLabel, sub: s.nodeSub, logoId: s.logoId }));
+    const chained = s.chained && i > 0;
     edges.push({
       id: `el-${i}`,
-      source: prevId,
+      source: chained ? `leg-${i - 1}` : "you",
       target: id,
-      label: s.isOutflow ? `−${s.edgeLabel}` : s.edgeLabel,
-      ...edgeProps(s.isOutflow ? OUT : "var(--accent)"),
+      // From the wallet → outflow (−); from a prior leg → the intermediate coin (accent colour).
+      label: chained ? s.edgeLabel : `−${s.edgeLabel}`,
+      ...edgeProps(chained ? "var(--accent)" : OUT),
     });
-    prevId = id;
   });
   return { nodes, edges };
 }
