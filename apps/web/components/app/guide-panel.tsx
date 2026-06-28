@@ -5,7 +5,7 @@
  * Pure presentation, design-token styled. Rendered in the single-UI content panel.
  */
 
-import { MessageSquare, ShieldCheck, LayoutDashboard, ArrowLeftRight, Trophy, Boxes } from "lucide-react";
+import { MessageSquare, ShieldCheck, LayoutDashboard, ArrowLeftRight, Trophy, Boxes, Compass, Sparkles } from "lucide-react";
 
 interface GuideSection {
   icon: typeof MessageSquare;
@@ -52,7 +52,14 @@ const SECTIONS: GuideSection[] = [
   },
 ];
 
-export function GuidePanel() {
+interface GuidePanelProps {
+  /** Replays the interactive product tour. Provided by the app shell. */
+  onStartTour?: () => void;
+  /** Opens the scripted mock demo showcase. Provided by the app shell. */
+  onPlayDemo?: () => void;
+}
+
+export function GuidePanel({ onStartTour, onPlayDemo }: GuidePanelProps) {
   return (
     <div style={{ maxWidth: 620, width: "100%", display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
@@ -63,6 +70,54 @@ export function GuidePanel() {
           Dewlock is an intent-firewall copilot for Sui DeFi: tell it what you want, it builds one unsigned
           transaction, and the Guardian inspects it before <strong style={{ color: "var(--fg)" }}>you</strong> sign.
         </p>
+        {(onStartTour || onPlayDemo) && (
+          <div className="flex flex-wrap" style={{ gap: 8, marginTop: 12 }}>
+            {onStartTour && (
+              <button
+                type="button"
+                onClick={onStartTour}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "8px 14px",
+                  borderRadius: 9,
+                  border: "1px solid transparent",
+                  background: "var(--accent)",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Compass size={15} aria-hidden />
+                Take the tour
+              </button>
+            )}
+            {onPlayDemo && (
+              <button
+                type="button"
+                onClick={onPlayDemo}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "8px 14px",
+                  borderRadius: 9,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-elev)",
+                  color: "var(--fg)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Sparkles size={15} aria-hidden style={{ color: "var(--accent-ink)" }} />
+                See the demo
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {SECTIONS.map((s) => {

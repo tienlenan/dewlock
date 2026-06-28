@@ -19,7 +19,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { Menu, Settings, LogOut, PanelLeftOpen, Users } from "lucide-react";
+import { Menu, Settings, LogOut, PanelLeftOpen, Users, Compass, Sparkles } from "lucide-react";
 import {
   useCurrentAccount,
   useDisconnectWallet,
@@ -48,6 +48,8 @@ import { FriendListDialog } from "@/components/contacts/friend-list-dialog";
 import { UserDashboard, NetworkDashboard } from "@/components/dashboard/dashboard-client";
 import { MemoryView } from "@/components/memory/memory-view";
 import { ProtocolList } from "@/components/protocols/protocol-list";
+import { useOnboardingTour } from "@/lib/onboarding/use-onboarding-tour";
+import { DemoShowcaseOverlay } from "@/components/onboarding/demo-showcase-overlay";
 
 // ---------------------------------------------------------------------------
 // Local-theme hook — reads/writes localStorage "dewlock-app-theme".
@@ -327,11 +329,29 @@ export default function AppPage() {
   const { name: suinsName } = useSuinsName(account?.address);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
+  // Onboarding demo showcase — scripted, read-only mock cards (nothing executes).
+  const [demoOpen, setDemoOpen] = useState(false);
   // Single-UI content view — sidebar nav + Settings switch this in place (no routing).
   const [view, setView] = useState<AppView>("chat");
 
   // Local app theme — dark by default, independent of landing global theme
   const { isDark, toggle: toggleAppTheme } = useAppTheme();
+
+  // First-time onboarding tour. Auto-opens once when the connected chat shell is
+  // mounted (anchors live there); `startTour` replays it from the Guide panel.
+  // The tour's finale CTA opens the demo showcase via onFinishDemo.
+  const { startTour } = useOnboardingTour({
+    isDark,
+    enabled: !!account && view === "chat",
+    onFinishDemo: () => setDemoOpen(true),
+  });
+
+  // Replay from the Guide panel: switch back to the chat view first so the composer/send
+  // anchors are mounted, then drive once the shell has painted (filter drops any laggard).
+  const handleReplayTour = useCallback(() => {
+    setView("chat");
+    window.setTimeout(() => startTour(), 250);
+  }, [startTour]);
 
   // Lifted friend address book — ONE instance shared by the dialog, the dashboard card,
   // and the chat (single write path / single-flight). Its `contacts` feed the agent so a
@@ -341,6 +361,16 @@ export default function AppPage() {
   // Chat thread is the single source for the chat column. Conversation history
   // (list + persistence) is self-contained in AppSidebar, bound via the chat callbacks.
   const chat = useCopilotChat(account?.address ?? "", contactsApi.contacts);
+
+  // Demo "try it for real" — close the showcase, return to chat, send the real command.
+  const runDemoCommand = useCallback(
+    (text: string) => {
+      setDemoOpen(false);
+      setView("chat");
+      void chat.sendMessage(text);
+    },
+    [chat],
+  );
 
   // Sequential chain plan stepper — drives the prepare→sign→confirm→resolve-next loop.
   // Lives here (at page level) alongside chat so both share the same wallet address and
@@ -565,6 +595,7 @@ export default function AppPage() {
           aria-label="Open sidebar"
           aria-controls="app-sidebar"
           aria-expanded={sidebarOpen}
+          data-tour="menu-toggle"
           style={{
             width: 34,
             height: 34,
@@ -673,6 +704,7 @@ export default function AppPage() {
             onClick={() => setFriendsOpen(true)}
             aria-label="Friend list"
             title="Friend list"
+            data-tour="friend-list"
             style={{
               width: 34,
               height: 34,
@@ -695,6 +727,7 @@ export default function AppPage() {
             onClick={() => setView("protocols")}
             aria-label="Settings — supported protocols"
             aria-pressed={view === "protocols"}
+            data-tour="settings"
             style={{
               width: 34,
               height: 34,
@@ -709,6 +742,50 @@ export default function AppPage() {
             }}
           >
             <Settings size={15} aria-hidden />
+          </button>
+
+          {/* Play demo — opens the scripted mock showcase (nothing executes) */}
+          <button
+            type="button"
+            onClick={() => setDemoOpen(true)}
+            aria-label="See the demo"
+            title="See Dewlock in action (demo)"
+            style={{
+              width: 34,
+              height: 34,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid var(--border)",
+              borderRadius: 9,
+              background: "var(--bg-elev)",
+              color: "var(--fg-muted)",
+              cursor: "pointer",
+            }}
+          >
+            <Sparkles size={15} aria-hidden />
+          </button>
+
+          {/* Take the tour — replays the onboarding spotlight from any view */}
+          <button
+            type="button"
+            onClick={handleReplayTour}
+            aria-label="Take the tour"
+            title="Take the tour"
+            style={{
+              width: 34,
+              height: 34,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid var(--border)",
+              borderRadius: 9,
+              background: "var(--bg-elev)",
+              color: "var(--fg-muted)",
+              cursor: "pointer",
+            }}
+          >
+            <Compass size={15} aria-hidden />
           </button>
 
           {/* Local app theme toggle — flips dark class on this shell only */}
@@ -743,7 +820,7 @@ export default function AppPage() {
               {view === "network-dashboard" && <NetworkDashboard />}
               {view === "memory" && <MemoryView />}
               {view === "protocols" && <ProtocolList />}
-              {view === "guide" && <GuidePanel />}
+              {view === "guide" && <GuidePanel onStartTour={handleReplayTour} onPlayDemo={() => setDemoOpen(true)} />}
             </div>
           )}
         </main>
@@ -755,6 +832,15 @@ export default function AppPage() {
         onClose={() => setFriendsOpen(false)}
         api={contactsApi}
         connected={!!account}
+      />
+
+      {/* Onboarding demo showcase — scripted mock cards; rendered inside the themed
+          shell so it inherits the local dark/light tokens. Nothing here executes. */}
+      <DemoShowcaseOverlay
+        open={demoOpen}
+        onClose={() => setDemoOpen(false)}
+        walletAddress={account?.address}
+        onRunCommand={runDemoCommand}
       />
     </div>
   );

@@ -116,7 +116,7 @@ export function AppSidebar({
       </div>
 
       {/* Navigation — in-place views + the Bridge route */}
-      <nav className="flex flex-col gap-0.5" style={{ marginTop: 6 }} aria-label="Primary">
+      <nav className="flex flex-col gap-0.5" style={{ marginTop: 6 }} aria-label="Primary" data-tour="sidebar-nav">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const navClass = "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors text-left";

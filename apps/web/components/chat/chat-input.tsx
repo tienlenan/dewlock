@@ -285,6 +285,7 @@ export function ChatInput({ onSendText, disabled = false, suggestions, contacts 
         {/* Text input row */}
         <form
           onSubmit={handleSubmit}
+          data-tour="composer"
           style={{
             position: "relative",
             display: "flex",
@@ -329,6 +330,7 @@ export function ChatInput({ onSendText, disabled = false, suggestions, contacts 
           />
           <button
             type="submit"
+            data-tour="send"
             disabled={disabled || !text.trim()}
             style={{
               flexShrink: 0,

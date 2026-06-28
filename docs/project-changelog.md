@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-28 — First-run onboarding tour (driver.js)
+
+### Added
+- **Guided product tour** (`apps/web/lib/onboarding/`) — a driver.js spotlight tour that auto-opens once for a first-time user when the connected copilot shell (`app/app/page.tsx`) mounts, walking the core flow: chat composer → send → sidebar nav → friend list → settings (6 steps). A "Take the tour" button in the Guide panel replays it anytime (switches back to the chat view first so the composer step always plays). "Seen" is a single global `localStorage` flag (`dewlock:tour-completed`); finishing OR closing/ESC records it.
+- **`data-tour` anchors** on the composer/send (`chat-input.tsx`), sidebar nav (`app-sidebar.tsx`), and header friend-list/settings/menu-toggle buttons (`app/app/page.tsx`) — attribute-only, decoupled from styling/a11y.
+- **Theme-aware popover skin** (`.dewlock-tour--dark|--light` in `globals.css`). The `/app` shell applies `.dark` to its own root div, NOT `<html>`, and driver.js mounts its popover on `document.body` (outside that subtree) — so the engine picks the popover class + overlay color from the live app theme rather than relying on CSS-var inheritance. Mobile (<768px) swaps the sidebar-nav step for a menu-toggle step; absent/hidden anchors are filtered out.
+- **Header onboarding buttons** (`app/app/page.tsx`) — a Compass "Take the tour" button and a Sparkles "See the demo" button in the header bar, available from any view.
+- **Scripted demo showcase** (`components/onboarding/demo-showcase-overlay.tsx` + `lib/demo/onboarding-demo-cards.ts`) — a read-only overlay that walks a new user through what Dewlock produces: a mock portfolio, an atomic multi-intent chain-plan (with the "Run as 1 transaction" toggle), a single-PTB tx-preview, and a Guardian BLOCK. It renders the REAL card components (`PortfolioCard`/`ChainPlanCard`/`TxPreviewCard`/`BlockCard`) with mock data + inert handlers, deliberately bypassing the live signing/composite wrappers — so the UI is pixel-identical yet NOTHING can execute (every card carries the DEMO badge; action buttons surface an explanatory notice). "Try it for real" chips hand a real command to the live composer. The tour's finale button ("Show me an example ▶") and the Guide-panel/header buttons all open it. No chat/signing/composite logic was modified.
+
+### Notes
+- Verified live (dev burner wallet + headless drive): tour auto-fires once + seen-flag persistence + replay-bypasses-flag + popover legibility in BOTH themes; demo overlay renders the four real cards pixel-identical, and the atomic/confirm buttons show the demo notice instead of executing. Client-only; no wallet/secret access. Additive only (no logic touched); typecheck clean.
+
 ## 2026-06-28 — Generalized atomic composite engine (any ordered sequence → one signature)
 
 ### Added

@@ -731,3 +731,92 @@ main > article + section { margin-top: -1px; }
 .theme-light .protocol-logo-soft {
   filter: saturate(0.8) brightness(0.92);
 }
+
+/* ==========================================================================
+   driver.js onboarding-tour popover skin.
+
+   The /app shell applies its `.dark` class to its own root <div>, NOT <html>.
+   driver.js appends `.driver-popover` to <document.body>, OUTSIDE that subtree,
+   so CSS custom properties there resolve from :root (light) regardless of the
+   app theme. We therefore cannot rely on var() inheritance — the engine passes
+   `popoverClass: "dewlock-tour dewlock-tour--dark|--light"` chosen from the live
+   app theme, and the two modifier classes below carry explicit colors copied
+   from the :root / .dark token blocks above. Keep these in sync with those.
+   ========================================================================== */
+.dewlock-tour.driver-popover {
+  border-radius: 10px;
+  padding: 16px 16px 14px;
+  font-family: var(--font-sans);
+  max-width: 320px;
+  border: 1px solid transparent;
+  box-shadow: 0 12px 32px -8px rgba(8, 15, 30, 0.35);
+}
+.dewlock-tour .driver-popover-title {
+  font-size: 14.5px;
+  font-weight: 650;
+  margin: 0 0 6px;
+}
+.dewlock-tour .driver-popover-description {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.dewlock-tour .driver-popover-progress-text {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.dewlock-tour .driver-popover-footer button {
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 7px;
+  padding: 6px 12px;
+  text-shadow: none;
+  border: 1px solid transparent;
+}
+.dewlock-tour .driver-popover-next-btn {
+  background: var(--accent);
+  color: #fff;
+}
+/* Keep the button background steady on hover/focus — driver.css's .driver-popover-footer-btn
+   default would otherwise swap it to grey. Affordance comes from the cursor only. */
+.dewlock-tour .driver-popover-next-btn:hover,
+.dewlock-tour .driver-popover-next-btn:focus {
+  background: var(--accent);
+  color: #fff;
+}
+.dewlock-tour--light .driver-popover-prev-btn:hover,
+.dewlock-tour--light .driver-popover-prev-btn:focus { background: hsl(205 30% 96%); }
+.dewlock-tour--dark .driver-popover-prev-btn:hover,
+.dewlock-tour--dark .driver-popover-prev-btn:focus { background: hsl(213 18% 17%); }
+.dewlock-tour .driver-popover-close-btn {
+  font-size: 18px;
+  opacity: 0.55;
+}
+
+/* Light variant — values copied from :root token block */
+.dewlock-tour--light.driver-popover {
+  background: hsl(0 0% 100%);
+  border-color: hsl(205 24% 90%);
+  color: hsl(213 24% 13%);
+}
+/* light variant keeps driver.css default white popover + arrow, which already
+   matches our light bg — only the text/secondary-button colors need pinning. */
+.dewlock-tour--light .driver-popover-title { color: hsl(213 24% 13%); }
+.dewlock-tour--light .driver-popover-description { color: hsl(212 12% 46%); }
+.dewlock-tour--light .driver-popover-prev-btn { background: hsl(205 30% 96%); color: hsl(213 24% 13%); }
+
+/* Dark variant — values copied from .dark token block */
+.dewlock-tour--dark.driver-popover {
+  background: hsl(213 20% 14%);
+  border-color: hsl(213 16% 28%);
+  color: hsl(205 25% 96%);
+}
+.dewlock-tour--dark .driver-popover-title { color: hsl(205 25% 96%); }
+.dewlock-tour--dark .driver-popover-description { color: hsl(210 12% 62%); }
+.dewlock-tour--dark .driver-popover-prev-btn { background: hsl(213 18% 17%); color: hsl(205 25% 96%); }
+.dewlock-tour--dark .driver-popover-close-btn { color: hsl(205 25% 96%); }
+/* driver.js builds the arrow from borders; recolor the visible side per direction
+   to the dark popover background so it doesn't render as the default white. */
+.dewlock-tour--dark .driver-popover-arrow-side-left { border-left-color: hsl(213 20% 14%); }
+.dewlock-tour--dark .driver-popover-arrow-side-right { border-right-color: hsl(213 20% 14%); }
+.dewlock-tour--dark .driver-popover-arrow-side-top { border-top-color: hsl(213 20% 14%); }
+.dewlock-tour--dark .driver-popover-arrow-side-bottom { border-bottom-color: hsl(213 20% 14%); }
