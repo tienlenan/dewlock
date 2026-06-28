@@ -1548,7 +1548,7 @@ function ChainPlanWithComposite({
           );
         setAtomicError(
           isComposeLimitation
-            ? "Atomic (1-transaction) bundling isn't available for this swap route right now — it can't be composed into a single PTB. Falling back to step-by-step; your funds and every Guardian check are unaffected."
+            ? "Atomic (1-transaction) bundling isn't available for this combination right now — it can't be composed into a single PTB. Falling back to step-by-step; your funds and every Guardian check are unaffected."
             : `Atomic unavailable for this transaction: ${rawReason} — falling back to step-by-step.`,
         );
         return;

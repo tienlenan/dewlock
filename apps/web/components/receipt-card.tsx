@@ -319,7 +319,7 @@ export function ReceiptCard({
           lineHeight: 1.45,
         }}
       >
-        Transaction confirmed on Sui mainnet. Review on the explorer for full details.
+        Transaction confirmed on Sui. Review on the explorer for full details.
       </div>
     </div>
   );

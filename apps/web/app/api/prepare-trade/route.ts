@@ -16,6 +16,7 @@
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { normalizeSuiAddress } from "@mysten/sui/utils";
 import { getDemoMode, getFixtureNearMissBlock } from "@/lib/demo/fixtures";
 import { checkRateLimit, clientIp, rateLimitHeaders } from "@/lib/rate-limit";
 
@@ -327,7 +328,10 @@ export async function POST(req: NextRequest) {
         amountInNative: leg.amountInNative,
         lendingProtocol: leg.lendingProtocol,
         slippageBps: leg.slippageBps,
-        recipient: leg.recipient, // resolved 0x (send legs) — read by the anti-leak gate
+        // Pad short → full 64-hex so the tool's strict recipient regex passes AND the anti-leak
+        // gate matches the dry-run owner (RPC returns full addresses). normalizeSuiAddress is a no-op
+        // on already-full addresses.
+        recipient: leg.recipient ? normalizeSuiAddress(leg.recipient) : undefined,
         amountFrom: leg.amountFrom, // chaining hint (prev-output → consume prior leg output)
       })),
       actionLabel,
