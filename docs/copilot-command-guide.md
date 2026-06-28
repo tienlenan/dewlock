@@ -36,10 +36,11 @@ Welcome to the Dewlock copilot. This guide covers the exact commands you can use
 - `"send 2 SUI to roast2026wc"`
 - `"send 100 USDC to 0x1234…"`
 - `"@alice 5 SUI"`
+- `"send 1 SUI to @alice and send 1 SUI to @bob"` (multi-recipient)
 
-**What you see:** If you type a name (e.g., `alice.sui` or `alice`), the copilot resolves it — either via SuiNS or your saved friend book. If the name matches multiple contacts, you'll get a picker card. The preview shows the recipient address, the amount, and a homoglyph-guard alert if the name looks suspiciously similar to a known contact (spoofing protection).
+**What you see:** If you type a name (e.g., `alice.sui` or `alice`), the copilot resolves it — either via SuiNS or your saved friend book. If the name matches multiple contacts, you'll get a picker card. The preview shows the recipient address, the amount, and a homoglyph-guard alert if the name looks suspiciously similar to a known contact (spoofing protection). For multi-recipient sends, each recipient is resolved and appears as a separate send step.
 
-**Tech:** SuiNS resolution + per-wallet friend address book (encrypted as a Walrus blob). The Guardian blocks homoglyph lookalikes (e.g., `888-l.sui` vs `888-1.sui`). If a recipient is inferred from memory or a pool, you'll see a confirm gate — anti-injection safety.
+**Tech:** SuiNS resolution + per-wallet friend address book (encrypted as a Walrus blob). The Guardian blocks homoglyph lookalikes (e.g., `888-l.sui` vs `888-1.sui`). If a recipient is inferred from memory or a pool, you'll see a confirm gate — anti-injection safety. Adjacent @mentions are joined into separate send legs and can execute atomically as one signature.
 
 ---
 
@@ -148,15 +149,19 @@ Welcome to the Dewlock copilot. This guide covers the exact commands you can use
 ---
 
 ### Atomic Composite Chaining (Single-Sign) — LIVE
-**Status:** LIVE on mainnet (recipe `swap_lend_v1`)  
+**Status:** LIVE on mainnet (generalized dynamic recipe)  
 **End-user commands:**
 - `"swap 2 SUI to USDC then lend it on navi"` → on the plan card, click **"Run as 1 transaction (atomic)"**.
+- `"send 1 SUI to @alice and send 1 SUI to @bob"` → on the plan card, click **"Run as 1 transaction (atomic)"**.
+- `"swap 5 SUI to USDC, then send 1 USDC to alice, then lend the rest on NAVI"` → complex chaining, click **"Run as 1 transaction (atomic)"**.
 
-**What you see:** The two-step plan card offers a **"Run as 1 transaction (atomic)"** toggle. Click it and both legs are composed into ONE PTB you sign **once** — all-or-nothing. The tx-preview shows the full flow map: **You → Cetus Aggregator (Swap → ≈ estimated USDC) → NAVI (deposit)**, with real protocol logos and the estimated output on each node.
+**What you see:** The multi-step plan card offers a **"Run as 1 transaction (atomic)"** toggle (when 2–8 eligible steps). Click it and all legs are composed into ONE PTB you sign **once** — all-or-nothing. The tx-preview shows the full flow map with real protocol logos and estimated amounts. Independent legs branch from "You"; chained legs connect to the prior node. Example: **You → Cetus (swap 5 SUI → ≈5 USDC) → NAVI (deposit)** for chained flow, or two parallel **You → Alice** and **You → Bob** branches for multi-send.
 
-**What it is NOT:** It does not change the safety model — the Guardian's `checkCompositeRecipe` re-verifies the entire composed PTB before the single signature. If the route can't be composed or any check fails, it **degrades to the sequential chain** above; funds and every Guardian check are unaffected. A SUI/gas shortfall is reported plainly ("not enough SUI…"), not as a route error.
+**What it is NOT:** It does not change the safety model — the Guardian's `checkCompositeRecipe` re-verifies the entire composed PTB before the single signature. If the composite can't be built or any check fails, it **degrades to the sequential chain** above; funds and every Guardian check are unaffected. A SUI/gas shortfall is reported plainly ("not enough SUI…"), not as a route error.
 
-**Tech:** Built via the Cetus aggregator's `routerSwap` (the swap-output coin is fed structurally into the NAVI deposit), with an upfront SUI-coverage gate. The Guardian gate enforces four invariants: (a) closed-recipe registry (no ad-hoc composition), (b) target multiset (exact PTB shape), (c) coin-type linkage (swap output = lend input), (d) delta/owner anti-leak + dual caps (USD + net-SUI). One signature, WYSIWYS, all-or-nothing. Full detail: `atomic-composite-mode.md`.
+**Supported actions:** `send`, `swap`, `lend_deposit`, `stake` (haSUI only; afSUI is not composable). Any other action type → BLOCK.
+
+**Tech:** Dynamic recipe registry; builder supports optional chaining (leg k-1 output feeds leg k input). The Guardian gate enforces four invariants: (a) closed-recipe registry (only allowlisted actions), (b) target multiset (exact PTB MoveCall set; send legs emit zero calls), (c) coin-type linkage (for chained legs), (d) recipient-aware anti-leak via multiset equality for declared send legs + dual caps (USD + net-SUI). One signature, WYSIWYS, all-or-nothing. Full detail: `atomic-composite-mode.md`.
 
 ---
 

@@ -1,6 +1,6 @@
 # Atomic Composite Mode — One Signature, All-or-Nothing
 
-**Status: LIVE on mainnet.** A multi-step intent such as *"swap 2 SUI to USDC then lend it on NAVI"* can execute as **one Programmable Transaction Block (PTB), one wallet signature**, all-or-nothing — instead of two separate signed steps.
+**Status: LIVE on mainnet.** A multi-step intent such as *"swap 2 SUI to USDC then lend it on NAVI"* or *"send 1 SUI to alice and send 1 SUI to bob"* can execute as **one Programmable Transaction Block (PTB), one wallet signature**, all-or-nothing — instead of multiple separate signed steps.
 
 This is Dewlock's headline chaining capability and a direct expression of the moat: **the LLM only proposes the legs; a deterministic builder composes them and the Guardian re-derives and fail-closes before any signature is requested.**
 
@@ -8,31 +8,37 @@ This is Dewlock's headline chaining capability and a direct expression of the mo
 
 ## 1 · What the user does
 
-1. Type a compound intent: `swap 2 SUI to USDC then lend it on navi`.
-2. A **chain-plan card** appears with two steps and a toggle: **"Run as 1 transaction (atomic)"**.
-3. Click it → a single tx-preview card renders with the full **flow map** (both legs, real protocol logos, estimated output).
-4. Sign **once** in the wallet → both legs settle together, or neither does.
+1. Type a compound intent: `swap 2 SUI to USDC then lend it on navi` or `send 1 SUI to @alice and send 1 SUI to @bob`.
+2. A **chain-plan card** appears with multiple steps and a toggle: **"Run as 1 transaction (atomic)"**.
+3. Click it → a single tx-preview card renders with the full **flow map** (all legs, real protocol logos, estimated output).
+4. Sign **once** in the wallet → all legs settle together, or neither does.
 
-The atomic toggle is offered only when the plan is **eligible**: exactly two steps, leg 0 = `swap`, leg 1 = `lend_deposit` on NAVI (recipe `swap_lend_v1`), and nothing has been signed yet.
+The atomic toggle is offered only when the plan is **eligible**: 2–8 steps, all using allowlisted action types (`send`, `swap`, `lend_deposit`, `stake`), optional chaining (a leg may consume a prior leg's output), and nothing has been signed yet.
 
 ---
 
-## 2 · How one PTB is built (`swap_lend_v1`)
+## 2 · How one PTB is built (dynamic recipe)
 
-The composite builder (`packages/sui/src/build-composite.ts` → `buildLiveSwapLendPtb`) assembles both legs into a single PTB whose swap-output coin feeds the lend input **structurally** — no wallet round-trip between legs:
+The composite builder (`packages/sui/src/build-composite.ts` → `buildDynamicComposite`) assembles an ordered sequence of legs into a single PTB, with optional structural chaining:
 
-| Step | What happens | Why it matters |
-|------|--------------|----------------|
-| **Coverage gate** | `assertSuiGasCoverage` — total SUI ≥ swap amount + 0.05 SUI gas reserve, else `InsufficientGasCoverageError` | A shortfall is caught **before** the route fetch, surfaced as the same `insufficient_gas` gate as a normal swap — not a confusing "route unavailable" error |
-| **Route** | Cetus aggregator `findRouters` (venues: CETUS + DEEPBOOK) → best route + estimated output | Same engine as a normal swap, so multi-path routes compose cleanly |
-| **Swap leg** | `routerSwap({ router, txb, inputCoin, slippage })` returns `targetCoin` (the swap-output coin as a PTB argument) | `routerSwap` (not `fastRouterSwap`) returns the coin instead of sending it to the wallet — that is what makes it composable |
-| **Link** | split exactly `minAmountOut` (the slippage floor) from `targetCoin` → `depositCoin` | Reproduces the proven NAVI deposit invariant (coin value == deposit amount); the floor is always ≤ the real output, so the split never aborts |
-| **Lend leg** | `navi.depositCoinPTB(txb, USDC, depositCoin, …)` | The swap output is deposited in the same PTB |
-| **Dust** | `transferObjects([targetCoin], sender)` returns the small remainder above the floor | No coin object dangles; the remainder goes back to the user |
+| Component | What happens | Why it matters |
+|-----------|--------------|----------------|
+| **Recipe build** | `buildDynamicRecipe(legs)` creates a `CompositeRecipe` with id="dynamic"; allowed MoveCall targets per leg come from the existing per-action allowlist (`allowedTargetsForLegType`) | Closed registry: only allowlisted actions compose; ad-hoc composition is refused |
+| **Leg 0** | First leg is built independently (no input from a prior leg) | Establishes the entry point (e.g., a swap from the sender's wallet, a send from the sender, a stake of sender's SUI) |
+| **Leg k (k ≥ 1)** | If leg k's `amountFrom="prev-output"`, consume leg k-1's output coin structurally (no wallet round-trip); else build independently from the sender's wallet | Chaining is opt-in per leg; independent legs do NOT consume prior output |
+| **Coin output handling** | After each leg builds, if the next leg doesn't consume its output, return it to the sender via `transferObjects([outputCoin], sender)` | No coin object dangles mid-PTB; unconsumed outputs go back to the user |
+| **Coverage gate** (swap legs only) | `assertSuiGasCoverage` — total SUI ≥ swap amount + 0.05 SUI gas reserve | A shortfall is caught **before** the route fetch, surfaced as the same `insufficient_gas` gate as a normal swap |
+| **Route** (swap legs only) | Cetus aggregator `findRouters` (venues: CETUS + DEEPBOOK) → best route + estimated output | Same engine as a normal swap, so multi-path routes compose cleanly |
 
-**Atomicity:** a Move abort in *either* leg (slippage exceeded, NAVI deposit rejected, …) reverts the **entire** PTB. Nothing executes on a partial failure.
+**Atomicity:** a Move abort in *any* leg reverts the **entire** PTB. Nothing executes on a partial failure.
 
-> **Why Cetus, not Aftermath:** the earlier builder used Aftermath's `addTransactionForCompleteTradeRoute`, which splits the gas-token SUI input during a deferred resolution step that aborts (MoveAbort 46001) for multi-path routes — so atomic *always* fell back. The Cetus aggregator returns the output coin directly and is the same route engine normal swaps already use.
+**Example flows:**
+- **swap→lend**: swap produces a coin; lend consumes it structurally. No wallet round-trip.
+- **send→send**: two independent sends from the sender's wallet. Both settle together.
+- **swap→stake**: swap produces a coin; stake deposits it. Full chaining.
+- **send+swap+lend** (mixed, same priority): three independent legs (each from the wallet) settling together. Each renders as a separate outflow in the flow map.
+
+> **Why Cetus for swaps, not Aftermath:** Aftermath's `addTransactionForCompleteTradeRoute` splits the gas-token SUI during a deferred resolution step that aborts (MoveAbort 46001) for multi-path routes — so atomic *always* fell back. The Cetus aggregator returns the output coin directly and is the same route engine normal swaps already use.
 
 ---
 
@@ -40,26 +46,46 @@ The composite builder (`packages/sui/src/build-composite.ts` → `buildLiveSwapL
 
 The builder produces bytes; it does **not** grant trust. `checkCompositeRecipe` (`packages/agent/src/guardian.ts`) re-derives four invariants on the **built PTB** before returning an `approvedDigest`:
 
-1. **Closed-recipe registry** — only declared recipes (`swap_lend_v1`) are composable. No ad-hoc composition.
-2. **Target multiset** — every MoveCall in the PTB must be in the recipe's `allowedTargets` (the Cetus aggregator swap calls + NAVI `entry_deposit` / `refresh_stake`), and **every leg must be present**. `allowSignatureMatch` admits the per-hop `<dex>::swap` calls by module::function.
-3. **Coin-type linkage** — the swap output coin type must equal the lend input coin type (the structural proof the legs are connected).
-4. **Delta/owner anti-leak + dual caps** — no third-party owner or balance delta, USD value within `TX_USD_CAP`, and net-SUI outflow within `NET_SUI_DELTA_CAP_MIST`.
+1. **Closed-recipe registry** — only recipes in the registry (including the dynamic recipe) are composable. Ad-hoc composition is refused.
+2. **Target multiset** — every MoveCall in the PTB must be in the recipe's `allowedTargets` (per-action allowlists: aggregator swaps, NAVI/Suilend lend calls, Haedal staking). Send legs emit ZERO MoveCalls (TransferObjects is a PTB command, not a MoveCall), so send legs are identified by the absence of calls in their range. `allowSignatureMatch` admits aggregator per-hop calls by module::function signature. **Every declared leg must be present** (or for sends, the range must have zero calls and matching balance deltas).
+3. **Coin-type linkage** (chained legs only) — for legs where `amountFrom="prev-output"`, the output coin type of the prior leg must equal the input coin type of the consuming leg (the structural proof the legs are connected).
+4. **Recipient-aware anti-leak + dual caps** — via `checkCompositeDeltaAntiLeak`:
+   - **When there are declared send legs:** Every third-party inflow (positive balance delta) in the dry-run must exactly match a declared send leg's (recipient, coinType, amount) — multiset equality. Any inflow not covered by a declared leg → BLOCK. Coin objectChanges with third-party owners are safely skipped (they appear alongside balanceDeltas; balanceDeltas is authoritative).
+   - **When there are NO send legs:** Zero tolerance for third-party balance inflows or third-party objectChange owners.
+   - **Caps:** USD value within `TX_USD_CAP` + net-SUI outflow within `NET_SUI_DELTA_CAP_MIST`.
 
 Any failure → **BLOCK** (no signature). The approved digest is bound to the exact bytes (**WYSIWYS**): if the bytes change after approval, signing is refused.
 
 ---
 
-## 4 · The flow map — clear input → output at every node
+## 4 · The flow map — topology reflects chaining
 
-The composite tx-preview renders an explicit **You → Cetus → NAVI** chain (both the node graph and the row view), because the intermediate USDC nets to ~0 at the wallet and would otherwise be invisible in balance deltas:
+The composite tx-preview renders the legs by chaining: independent legs branch straight from "You" (the wallet) as separate outflows; only a chained leg (consuming a prior leg's output) connects to the prior protocol node.
 
+**Example: swap→lend (chained):**
 ```
 [You]  — 2 SUI →  [Cetus Aggregator · Swap → ~6.2 USDC]  — ~6.2 USDC →  [NAVI · Lending · deposit]
 ```
 
-- **Real protocol logos** on each node (Cetus, NAVI, …), resolved from the bundled brand assets.
-- **Estimated output** from the live route shown on the swap node and on the edge into the lend node, so every node has a clear **in** (incoming edge) and **out** (estimated amount).
-- The estimate is the aggregator's own route number (same value a normal swap preview shows); the **minimum** is the slippage floor that actually executes.
+**Example: send→send (independent):**
+```
+        [Alice]
+         ← 1 SUI
+[You] 
+         → 1 SUI
+        [Bob]
+```
+
+**Example: swap+send+lend (mixed, all independent):**
+```
+[You]  ├→ 2 SUI → [Cetus · swap]
+       ├→ 1 SUI → [Alice]
+       └→ 50 USDC → [NAVI · lend]
+```
+
+- **Real protocol logos** on each node (Cetus, NAVI, Haedal, etc.), resolved from the bundled brand assets.
+- **Estimated output** from the live route shown on action nodes (swap output on the swap node, expected haSUI output on the stake node) and on the edge connecting to the consuming leg.
+- The estimate is the engine's own number (e.g., the aggregator's route number for swaps); the **minimum** is the slippage floor (for swaps) or floor-based bound (for other actions) that actually executes.
 
 ---
 
@@ -76,9 +102,10 @@ Sequential mode also auto-recovers from a transient stale-object error by rebuil
 
 ## 6 · Scope & limitations
 
-- **v1 recipe:** `swap_lend_v1` only (SUI → USDC → NAVI deposit). The architecture is recipe-driven, so adding a recipe = declaring its legs + allowed targets in `composite-recipes.ts`.
+- **Allowlisted actions only** — composable actions are `send`, `swap`, `lend_deposit`, `stake` (haSUI only; afSUI builds its own tx and is not composable). Any other action type in a composite → BLOCK.
+- **1–8 legs** — DoS/UX bound. Enforced by `buildDynamicRecipe`.
 - **Page refresh** loses an in-flight sequential chain (durable resume not yet implemented). The atomic path is a single signature, so it isn't affected mid-flight.
-- The **estimate** is a dry-run figure; the guaranteed amount is the slippage-floor minimum.
+- The **estimate** is a dry-run figure; the guaranteed amount is the slippage-floor minimum (for swaps) or the safe floor bound (for other actions).
 
 ---
 

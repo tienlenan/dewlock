@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-06-28 — Generalized atomic composite engine (any ordered sequence → one signature)
+
+### Added
+- **Generalized atomic composite builder** (`buildDynamicComposite` in `packages/sui/src/build-composite.ts`) — composes ANY ordered sequence of allowlisted actions (`send`, `swap`, `lend_deposit`, `stake`) into ONE atomic PTB, one signature, all-or-nothing. Replaces the v1 `swap_lend_v1` static recipe. Dynamic recipe registry: `buildDynamicRecipe(legs)` in `composite-recipes.ts` returns a `CompositeRecipe` with id="dynamic". Allowed MoveCall targets per leg come from the existing per-action allowlist (`allowedTargetsForLegType`). Supports full chaining: leg k+1 can consume the output of leg k. Allows same-type-multi-target (N sends to different addresses, N swaps, N deposits) and mixed combos (send+swap+lend, stake+swap, etc.). Max 8 legs (DoS/UX bound).
+- **Recipient-aware anti-leak gate** (`checkCompositeDeltaAntiLeak` in `packages/agent/src/guardian.ts`) — multi-set equality for declared send legs. Every third-party inflow in the dry-run MUST exactly match a declared `send` leg (resolved 0x recipient + coinType + amount, per-recipient sum, multiset-equality to the balance deltas), else BLOCK. When there are no send legs (e.g. swap→lend), degrades to the prior "no third-party inflow" behavior. Coin object changes (which carry no ownerAddress) are safely skipped; balanceDeltas is the authoritative source. Closes 13 adversarial vectors: attacker address injection, amount inflation, recipient swapped, dust skim, gas exfil via coin teleport, dropped leg, unspent leg output, per-recipient mismatch, etc.
+- **Composite flow-map topology fix** (`deriveCompositeFlow` + `buildCompositeGraph` in `packages/web/components/tx-preview-format.ts` / `tx-flow-graph.tsx`) — legs are rendered by chaining. Independent legs (a send, or a swap not fed by a prior leg's output) branch straight from "You" (the wallet) as separate outflows; only a chained leg (amountFrom=prev-output) connects to the prior node. Example: "send 1 to A and send 1 to B" renders TWO wallet outflows, not a sequential A→B chain; "swap→lend" renders You → Cetus → NAVI (each node with real logos + estimated amounts).
+- **Multi-recipient send deterministic flow** — "send X to @A @B" fans into N independent send legs; adjacent @mentions joined by comma, each resolved 0x server-side, each branch from the wallet in the flow map.
+- Atomic toggle ("Run as 1 transaction") now shows on any 2–8-step eligible chain (not just swap→lend); UI: `isAtomicEligible` extended.
+
+### Fixed
+- **Guardian route/tool schema mismatch** — `prepareTrade` → `routeAction` cross-check (gates 2/10) was comparing the declared action's `actionType` against the tool's result `category`, but they use different enum names (`ActionType` vs `Action` enum in the tools module). Now both normalize to the canonical router's output, so a swap intent doesn't fail a false "category != actionType" mismatch.
+- **Anti-leak gate skips coin objectChanges** — coin transfers appear in BOTH `objectChanges` (as Coin objects transferred to recipients) AND `balanceDeltas` (as fungible amounts per owner). The prior gate double-counted, treating a transferred coin's `ownerKind="third-party"` as a leak even when it matched a declared send leg. Now: if there are declared send legs, we skip objectChanges and trust balanceDeltas (the authoritative accounting path); if no send legs, objectChanges with third-party owners still block (backward-compatible).
+- **Builder dangling-output leak** — when a leg's output is NOT consumed by a later leg (e.g. a solo swap that isn't fed into anything), the builder must return it to the sender via `transferObjects([outputCoin], sender)`. The prior builder left this unconsumed, so the coin dangled mid-PTB — the anti-leak gate caught it as an objectChange leak. Now: after building each leg's output, if the next leg doesn't consume it, transfer it back. Verified: an atomic multi-send now executes on-chain with all coin outputs returned to the sender.
+
+### Notes
+- afSUI (Aftermath) staking remains non-composable (SDK builds its own tx); haSUI (Haedal) is composable via direct PTB.
+- Whole-composite caps unchanged (net-USD + net-SUI). WYSIWYS unchanged.
+- Backward-compatible: the Guardian's `checkCompositeRecipe` rejects any `compositeRecipeId` not in the registry (dynamic is in the registry; ad-hoc is not). Tests: 1143/1143 green.
+
 ## 2026-06-27 — Hybrid multi-intent decomposition (regex fast-path + verified LLM fallback)
 
 ### Added
