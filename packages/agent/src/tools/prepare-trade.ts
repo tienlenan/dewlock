@@ -341,6 +341,7 @@ export const prepareTrade = createTool({
               coinTypeOut: z.string().optional(),
               amountInNative: z.string(),
               lendingProtocol: z.string().optional(),
+              recipient: z.string().optional(), // send-leg recipient for the flow node
               // Swap-leg estimate (native units of coinTypeOut) so the node can show its output.
               estimatedOutNative: z.string().optional(),
               minOutNative: z.string().optional(),
@@ -938,6 +939,7 @@ export const prepareTrade = createTool({
                 coinTypeOut: leg.coinTypeOut,
                 amountInNative: String(leg.amountInNative),
                 lendingProtocol: leg.lendingProtocol,
+                recipient: leg.recipient, // send leg → flow node shows the recipient
                 // The swap leg carries the live route estimate so its node shows the output amount.
                 estimatedOutNative: leg.actionType === "swap" ? compositeSwapEstimatedOut : undefined,
                 minOutNative: leg.actionType === "swap" ? compositeSwapMinOut : undefined,

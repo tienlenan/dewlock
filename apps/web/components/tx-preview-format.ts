@@ -113,11 +113,13 @@ export function primaryCounterpartyLabel(ctx: OwnerCtx): string {
 
 /** One leg of an atomic composite (e.g. swap→lend), as surfaced on the preview. */
 export interface CompositeFlowLeg {
-  actionType: string; // "swap" | "lend_deposit"
+  actionType: string; // "swap" | "lend_deposit" | "send" | "stake"
   coinTypeIn: string;
   coinTypeOut?: string;
   amountInNative: string;
   lendingProtocol?: string;
+  /** Send leg: the resolved 0x recipient — shown as the flow node label. */
+  recipient?: string;
   /** Swap leg: estimated output in native units of coinTypeOut (live route estimate). */
   estimatedOutNative?: string;
   /** Swap leg: guaranteed-minimum output in native units (slippage floor). */
@@ -191,6 +193,29 @@ export function deriveCompositeFlow(
         edgeLabel: incoming ?? shortCoinType(leg.coinTypeIn),
         isOutflow: false,
         logoId: leg.lendingProtocol, // "navi" | "suilend"
+      };
+    }
+    if (leg.actionType === "send") {
+      // A send leg moves funds OUT of the wallet to the recipient — its own outflow node.
+      const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
+      const to = leg.recipient
+        ? `${leg.recipient.slice(0, 6)}…${leg.recipient.slice(-4)}`
+        : "recipient";
+      return {
+        nodeLabel: to,
+        nodeSub: "Send",
+        edgeLabel: `${amtIn} ${shortCoinType(leg.coinTypeIn)}`,
+        isOutflow: true,
+      };
+    }
+    if (leg.actionType === "stake") {
+      const amtIn = formatNative(leg.amountInNative, leg.coinTypeIn, coinDecimals);
+      return {
+        nodeLabel: "Haedal",
+        nodeSub: "Stake → haSUI",
+        edgeLabel: `${amtIn} ${shortCoinType(leg.coinTypeIn)}`,
+        isOutflow: i === 0,
+        logoId: "haedal",
       };
     }
     return {
