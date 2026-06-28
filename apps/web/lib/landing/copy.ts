@@ -112,6 +112,13 @@ export const COPY = {
     eyebrow: "Security model",
     headline: "Fail-closed. Not trust-me.",
     sub: "The Guardian re-derives every critical value independently. Ambiguity, simulation failure, or parse error closes the gate — no degraded modes.",
+    // Disambiguation: the hero word "Sealed" is a Guardian metaphor, not the Sui Seal
+    // encryption product (which this same page credits in "Powered by"). State it plainly
+    // so a Sui-native reader never reads "Sealed" as "the transaction is encrypted".
+    note: {
+      lead: "“Sealed” means Guardian-verified — not encrypted.",
+      body: "The Guardian re-derives the math and byte-locks each transaction to exactly what you reviewed (WYSIWYS). That’s verification, not cryptography. Encryption is a separate layer: Dewlock uses Sui Seal only to protect your private conversations — never the transaction itself.",
+    },
     gates: [
       {
         label: "Zero user keys server-side",

@@ -57,6 +57,25 @@ export function SecurityTrust() {
           >
             {C.sub}
           </p>
+
+          {/* "Sealed" disambiguation — Guardian metaphor, not the Seal encryption product */}
+          <div
+            className="mt-4 max-w-xl rounded-xl border border-border bg-card/70 px-4 py-3 shadow-sm backdrop-blur"
+            style={{ borderLeftWidth: "3px", borderLeftColor: "var(--accent)" }}
+          >
+            <p
+              className="font-semibold text-fg"
+              style={{ fontSize: "var(--text-sm)", lineHeight: "var(--lh-body)" }}
+            >
+              {C.note.lead}
+            </p>
+            <p
+              className="mt-1 leading-relaxed text-fg-muted"
+              style={{ fontSize: "var(--text-sm)", lineHeight: "var(--lh-body)" }}
+            >
+              {C.note.body}
+            </p>
+          </div>
         </ScrollReveal>
 
         {/* Gates grid */}

@@ -12,6 +12,8 @@ Welcome to the Dewlock copilot. This guide covers the exact commands you can use
 
 **Safety guarantee:** Every transaction passes through a fail-closed Guardian. An unsafe intent is BLOCKED before you sign — no exceptions.
 
+> **What "sealed" means:** Guardian-*verified*, not *encrypted*. The Guardian re-derives the math and byte-locks each transaction to exactly what you reviewed (WYSIWYS). Encryption is a separate layer — Dewlock uses Sui Seal only for your private conversations, never the transaction.
+
 ---
 
 ## Commands by Feature
@@ -219,6 +221,9 @@ Every action goes through the **Guardian** — a deterministic, code-authoritati
 
 **Q: Can the copilot move my assets without my signature?**  
 A: No. Every transaction requires your explicit wallet signature. The server builds unsigned PTBs only; keys never leave your wallet.
+
+**Q: Is "sealed before you sign" the same as encryption (Sui Seal / Walrus)?**  
+A: No. "Sealed" is the **Guardian** — it re-derives the math and byte-locks the transaction to exactly what you reviewed (WYSIWYS). That's verification, not cryptography. Your transaction is signed in the clear and visible on-chain. Sui **Seal** is a separate layer Dewlock uses only to encrypt your private conversations.
 
 **Q: What if the copilot misunderstands my intent?**  
 A: If the intent is ambiguous (e.g., "swap" without specifying an output token), the copilot renders an interactive form card instead of guessing. Fill it in and re-submit.

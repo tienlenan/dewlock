@@ -2,6 +2,8 @@
 
 > **Every transaction, sealed before you sign.**
 > An **intent-firewall** for agentic Sui DeFi.
+>
+> *“Sealed” = Guardian-verified, not encrypted — the Guardian re-derives the math and byte-locks each transaction to exactly what you reviewed (WYSIWYS). Sui **Seal** is a separate layer used only to encrypt your private conversations, never the transaction itself.*
 
 - **Event / Tracks:** Sui Overflow 2026 — **DeFi & Payments** + **DeepBook**
 - **Live demo:** https://dewlock.vercel.app (Sui **mainnet**)

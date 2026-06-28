@@ -17,6 +17,10 @@
 </p>
 
 <p align="center">
+  <sub><b>“Sealed” = Guardian-verified, not encrypted</b> — the Guardian re-derives the math and byte-locks each transaction to exactly what you reviewed (WYSIWYS). Sui <b>Seal</b> is a separate layer Dewlock uses only to encrypt your private conversations, never the transaction itself.</sub>
+</p>
+
+<p align="center">
   <a href="https://dewlock.vercel.app/"><b>Live App</b></a>
   ·
   <a href="docs/copilot-command-guide.md">Command Guide</a>
