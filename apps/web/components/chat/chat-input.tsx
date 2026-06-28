@@ -13,8 +13,9 @@
  * DISPLAY-ONLY — the Guardian re-resolves server-side and is the security path.
  *
  * @mention: typing "@" opens a friends menu; selecting inserts "@Name". On submit each
- * "@Name" is rewritten to the bare contact name so the existing deterministic resolver
- * (matchContacts → unique name → 1 match) handles the send unchanged.
+ * "@Name" is rewritten to that contact's resolved 0x ADDRESS (captured from the dropdown
+ * pick), so downstream send/atomic parsing never re-reads a friendly name — multi-word and
+ * duplicate names can't be mis-resolved. A pasted bare 0x or typed .sui flows through as-is.
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
@@ -146,8 +147,9 @@ export function ChatInput({ onSendText, disabled = false, suggestions, contacts 
     (value: string) => {
       const trimmed = value.trim();
       if (!trimmed || disabled) return;
-      // Rewrite @mentions to bare contact names → existing deterministic resolver path.
-      const finalText = substituteMentions(trimmed, contacts.map((c) => c.name));
+      // Smart-resolve @mentions to their 0x address at submit (captured from the dropdown pick),
+      // so downstream never re-parses a friendly name. Pasted 0x / typed .sui flow through as-is.
+      const finalText = substituteMentions(trimmed, contacts);
       onSendText(finalText);
       setText("");
       setMention(null);

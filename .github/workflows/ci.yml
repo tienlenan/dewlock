@@ -25,9 +25,9 @@ jobs:
           node-version: "20"
 
       - name: Setup pnpm
+        # No `version:` here — pnpm/action-setup@v4 reads "packageManager" (pnpm@9.15.9) from
+        # package.json as the single source of truth. Specifying both errors with ERR_PNPM_BAD_PM_VERSION.
         uses: pnpm/action-setup@v4
-        with:
-          version: "9"
 
       - name: Get pnpm store path
         id: pnpm-cache
@@ -44,6 +44,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # @dewlock/{sui,walrus,agent} expose their public API via package.json "exports" → ./dist/*.
+      # Typecheck (agent imports @dewlock/sui/*) and the web build resolve those subpaths to dist,
+      # which a fresh checkout has not built yet — so build the libraries first (topological order).
+      - name: Build workspace libraries
+        run: pnpm --filter @dewlock/sui --filter @dewlock/walrus --filter @dewlock/agent build
 
       # Typecheck all packages in dependency order
       - name: Typecheck

@@ -41,37 +41,39 @@ describe("applyMentionSelection", () => {
 });
 
 describe("substituteMentions", () => {
-  it("rewrites @Name to the bare contact name", () => {
-    expect(substituteMentions("send 5 SUI to @Alice", ["Alice"])).toBe("send 5 SUI to Alice");
+  const c = (name: string, address: string) => ({ name, address });
+
+  it("rewrites @Name to the contact's 0x address (captured at submit)", () => {
+    expect(substituteMentions("send 5 SUI to @Alice", [c("Alice", "0xalice")])).toBe("send 5 SUI to 0xalice");
   });
   it("longest-match wins (Mom Wallet over Mom)", () => {
-    expect(substituteMentions("send 1 SUI to @Mom Wallet", ["Mom", "Mom Wallet"])).toBe(
-      "send 1 SUI to Mom Wallet",
-    );
+    expect(
+      substituteMentions("send 1 SUI to @Mom Wallet", [c("Mom", "0xmom"), c("Mom Wallet", "0xmomwallet")]),
+    ).toBe("send 1 SUI to 0xmomwallet");
   });
   it("leaves an unknown @x intact", () => {
-    expect(substituteMentions("hi @nobody", ["Alice"])).toBe("hi @nobody");
+    expect(substituteMentions("hi @nobody", [c("Alice", "0xalice")])).toBe("hi @nobody");
   });
   it("joins adjacent mentions with a comma (multi-recipient send)", () => {
     // The menu inserts "@Name " with no connector, so two picks land space-separated.
-    expect(substituteMentions("send 0.2 SUI to @Alice @Bob", ["Alice", "Bob"])).toBe(
-      "send 0.2 SUI to Alice, Bob",
+    expect(substituteMentions("send 0.2 SUI to @Alice @Bob", [c("Alice", "0xalice"), c("Bob", "0xbob")])).toBe(
+      "send 0.2 SUI to 0xalice, 0xbob",
     );
   });
   it("joins three adjacent mentions", () => {
-    expect(substituteMentions("send 1 USDC to @a @b @c", ["a", "b", "c"])).toBe(
-      "send 1 USDC to a, b, c",
-    );
+    expect(
+      substituteMentions("send 1 USDC to @a @b @c", [c("a", "0xa"), c("b", "0xb"), c("c", "0xc")]),
+    ).toBe("send 1 USDC to 0xa, 0xb, 0xc");
   });
   it("preserves a typed connector between mentions (no double separator)", () => {
-    expect(substituteMentions("send 0.2 SUI to @Alice and @Bob", ["Alice", "Bob"])).toBe(
-      "send 0.2 SUI to Alice and Bob",
-    );
+    expect(
+      substituteMentions("send 0.2 SUI to @Alice and @Bob", [c("Alice", "0xalice"), c("Bob", "0xbob")]),
+    ).toBe("send 0.2 SUI to 0xalice and 0xbob");
   });
-  it("joins adjacent multi-word contact names correctly", () => {
-    expect(substituteMentions("send 0.2 SUI to @Mom Wallet @Bob", ["Mom Wallet", "Bob"])).toBe(
-      "send 0.2 SUI to Mom Wallet, Bob",
-    );
+  it("resolves adjacent multi-word contact names to their addresses", () => {
+    expect(
+      substituteMentions("send 0.2 SUI to @Mom Wallet @Bob", [c("Mom Wallet", "0xmomwallet"), c("Bob", "0xbob")]),
+    ).toBe("send 0.2 SUI to 0xmomwallet, 0xbob");
   });
 });
 

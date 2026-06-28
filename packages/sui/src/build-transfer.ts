@@ -76,7 +76,10 @@ export async function buildTransfer(
   let resolvedRecipient: string;
   let suiNsResolution: SuiNSResolutionResult | null = null;
 
-  const isRawAddress = recipientInput.startsWith("0x") && recipientInput.length >= 64;
+  // A raw recipient must be a fully-formed 32-byte 0x address (0x + 64 hex = 66 chars). A shorter,
+  // over-long, or non-hex 0x string is NOT treated as raw — it falls through to SuiNS resolution,
+  // which fail-closes. (The old `length >= 64` let 64/65-char and malformed strings pass unnormalized.)
+  const isRawAddress = /^0x[0-9a-fA-F]{64}$/.test(recipientInput);
   if (isRawAddress) {
     resolvedRecipient = recipientInput;
   } else {

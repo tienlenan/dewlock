@@ -616,6 +616,9 @@ async function buildLiveDynamicComposite(
     }
 
     const swapEstimatedOutByLeg = new Map<number, string>();
+    // Each swap leg's guaranteed minimum output (estimate × (1 − slippage)). A chained lend leg
+    // splits exactly this from the prior swap's output coin — guaranteed to succeed on-chain.
+    const swapMinOutByLeg = new Map<number, bigint>();
     const compositeLegs: DynamicCompositeLegResult[] = [];
 
     for (let i = 0; i < legs.length; i++) {
@@ -694,6 +697,7 @@ async function buildLiveDynamicComposite(
           throw new CompositeBuildError(`Swap leg ${i} produced zero minimum output.`);
         }
         swapEstimatedOutByLeg.set(i, estimatedOut.toString());
+        swapMinOutByLeg.set(i, minOut);
 
         const swapResult = (await agg.routerSwap({
           router,
@@ -723,14 +727,22 @@ async function buildLiveDynamicComposite(
         let depositAmount: bigint;
 
         if (isChained && prevOutputCoin) {
-          // Use the previous leg's output coin (e.g., swap output).
-          // We split the guaranteed min out from it for the deposit (same invariant as buildLiveSwapLendPtb).
-          // For chained legs we don't have a separate minOut; we deposit the whole prevOutput.
+          // Split the prior swap leg's GUARANTEED minimum output (same invariant as
+          // buildLiveSwapLendPtb): routerSwap guarantees the realized output >= minOut, so splitting
+          // exactly minOut always succeeds. Splitting a FIXED pre-quote leg.amountInNative could
+          // exceed the realized swap output and abort the whole PTB on-chain. A chained leg consumes
+          // the immediately-prior leg's output, so the producing swap is leg i-1.
           inputCoin = prevOutputCoin;
-          depositAmount = leg.amountInNative > 0n ? leg.amountInNative : 1n; // must be > 0
           prevOutputCoin = undefined;
+          const priorMinOut = swapMinOutByLeg.get(i - 1);
+          depositAmount =
+            priorMinOut && priorMinOut > 0n
+              ? priorMinOut
+              : leg.amountInNative > 0n
+                ? leg.amountInNative
+                : 1n;
           const [depositCoin] = tx.splitCoins(inputCoin, [depositAmount]);
-          // Return the remainder (dust) to sender so no coin object dangles.
+          // Return the remainder (dust = realized output − minOut) to sender so no coin dangles.
           tx.transferObjects([inputCoin], senderAddress);
           const naviOptions = { account: senderAddress, amount: Number(depositAmount) } as never;
           await navi.depositCoinPTB(tx, leg.coinTypeIn, depositCoin as never, naviOptions);

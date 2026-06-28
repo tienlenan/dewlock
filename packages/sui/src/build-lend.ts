@@ -311,11 +311,9 @@ async function buildSuilendLend(client: SuiClient, spec: LendSpec): Promise<Lend
       tx.transferObjects([ownerCap as Parameters<Transaction["transferObjects"]>[0][number]], senderAddress);
     } else {
       if (!obligationId) throw new LendBuildError("Suilend repay requires an existing obligationId.");
-      const isSui = coinType === COIN_TYPES.SUI;
-      const coin = isSui
-        ? tx.splitCoins(tx.gas, [amountNative])[0]
-        : await selectCoin(client, tx, senderAddress, coinType, amountNative);
-      void coin;
+      // repayIntoObligation selects + splits its own coin from the sender, so no pre-selection is
+      // needed here. A discarded selectCoin/gas-split only emits orphaned merge/split PTB commands
+      // plus an unused coin value.
       await lc.repayIntoObligation(senderAddress, obligationId, coinType, amountNative.toString(), tx);
     }
 

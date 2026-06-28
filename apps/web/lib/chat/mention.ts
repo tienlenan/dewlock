@@ -3,9 +3,10 @@
  *
  * The composer stays a plain <input>; we track the caret to know when an `@query`
  * is being typed (open + filter the menu), insert the FULL canonical `@Name` on
- * select, and on submit rewrite each `@Name` back to the bare contact name so the
- * existing deterministic resolver (matchContacts → unique name → 1 match) handles
- * the send. DISPLAY/INPUT convenience only — no security weight.
+ * select, and on submit rewrite each `@Name` to that contact's RESOLVED 0x ADDRESS
+ * (captured from the dropdown pick, not re-parsed from rendered text downstream) so
+ * multi-word/duplicate names can't be mis-read. DISPLAY/INPUT convenience only — the
+ * Guardian still re-resolves and re-checks the recipient server-side at send time.
  */
 
 export interface MentionContact {
@@ -65,21 +66,25 @@ const MENTION_OPEN = String.fromCharCode(0);
 const MENTION_CLOSE = String.fromCharCode(1);
 
 /**
- * Rewrite each `@Name` whose Name matches a known contact (longest-first, so "Mom Wallet"
- * wins over "Mom") to the bare contact name. Unknown `@x` tokens are left intact. The bare
- * name then flows through the existing deterministic contact resolver on the server.
+ * Smart recipient capture at submit: rewrite each `@Name` matching a saved contact (longest-first,
+ * so "Mom Wallet" wins over "Mom") to that contact's RESOLVED 0x ADDRESS. The recipient is captured
+ * from the dropdown selection here — NOT re-parsed from rendered text downstream — so multi-word and
+ * duplicate names can't be mis-read. A pasted/typed 0x or `.sui` is left as-is (a 0x flows straight
+ * through; a `.sui` is resolved server/atomic-side). Unknown `@x` is left intact.
  *
  * Two mentions separated only by whitespace ("@Alice @Bob") are joined with ", " so the
  * deterministic multi-recipient parser fans the send out to every friend — the menu inserts
  * "@Name " with no connector, so adjacent mentions are the natural multi-recipient form.
  */
-export function substituteMentions(text: string, contactNames: string[]): string {
+export function substituteMentions(text: string, contacts: MentionContact[]): string {
   let out = text;
-  const names = [...contactNames].filter(Boolean).sort((a, b) => b.length - a.length);
-  for (const name of names) {
+  const sorted = [...contacts]
+    .filter((c) => c.name && c.address)
+    .sort((a, b) => b.name.length - a.name.length);
+  for (const c of sorted) {
     // "@Name" not followed by a word char/hyphen, so "@Al" can't partial-match "@Alice".
-    const re = new RegExp(`@${escapeRegExp(name)}(?![\\w-])`, "gi");
-    out = out.replace(re, `${MENTION_OPEN}${name}${MENTION_CLOSE}`);
+    const re = new RegExp(`@${escapeRegExp(c.name)}(?![\\w-])`, "gi");
+    out = out.replace(re, `${MENTION_OPEN}${c.address}${MENTION_CLOSE}`);
   }
   // Adjacent mentions ("@Alice @Bob") → comma so multi-recipient parsing splits them. A typed
   // connector ("@Alice and @Bob", "@Alice, @Bob") has non-space between, so it is left as-is.

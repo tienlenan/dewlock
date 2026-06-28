@@ -1371,13 +1371,16 @@ function ChainPlanWithComposite({
     amountNative: string;
     recipient: string | null;
   } {
-    const m = clause.match(/send\s+([\d.,]+)\s+([A-Za-z]+)\s+(?:to|→)\s+(\S+)/i);
+    // Capture the FULL recipient after "to" — a chain step is one send, so the rest of the
+    // clause is the whole recipient. `(.+)$` (not `\S+`) keeps multi-word contact names
+    // intact ("Test 1", "Mom Wallet"); a single-token `\S+` truncated them to the first word.
+    const m = clause.match(/send\s+([\d.,]+)\s+([A-Za-z]+)\s+(?:to|→)\s+(.+)$/i);
     if (m) {
       const human = parseFloat(m[1].replace(/,/g, ""));
       const sym = m[2];
       const nativeAmt = BigInt(Math.round(human * 10 ** decimalsForSym(sym))).toString();
-      // Capture recipient: 0x address or .sui name; strip trailing punctuation
-      const rawRecipient = m[3].replace(/[.,;!?]$/, "");
+      // 0x address, .sui name, or a saved-contact name (may contain spaces); strip trailing punctuation.
+      const rawRecipient = m[3].trim().replace(/[.,;!?]+$/, "");
       return { coinTypeIn: coinTypeForSym(sym), amountNative: nativeAmt, recipient: rawRecipient };
     }
     const amtNative = parseAmountNative(clause, "send");

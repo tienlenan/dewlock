@@ -24,6 +24,22 @@ describe("splitMessageByContacts", () => {
     expect(segs).toEqual(["send 1 SUI to ", { name: "Mom Wallet", address: book[3].address }]);
   });
 
+  it("annotates by resolved 0x ADDRESS (mentions now carry the address)", () => {
+    // After substituteMentions, "@Alice @Bob" becomes "0xaaa…001, 0xbbb…002" in the sent text.
+    const segs = splitMessageByContacts(`send 0.2 SUI to ${book[0].address}, ${book[1].address}`, book);
+    expect(segs).toEqual([
+      "send 0.2 SUI to ",
+      { name: "Alice", address: book[0].address },
+      ", ",
+      { name: "Bob", address: book[1].address },
+    ]);
+  });
+
+  it("leaves a pasted bare 0x with no saved contact as plain text", () => {
+    const unknown = "0xdead000000000000000000000000000000000000000000000000000000009999";
+    expect(splitMessageByContacts(`send 1 SUI to ${unknown}`, book)).toEqual([`send 1 SUI to ${unknown}`]);
+  });
+
   it("returns plain text unchanged with no contacts", () => {
     expect(splitMessageByContacts("send 1 SUI to Alice", [])).toEqual(["send 1 SUI to Alice"]);
   });
