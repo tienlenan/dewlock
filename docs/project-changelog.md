@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-30 — Pay-in-any-coin (swap → send exact, one signature) — mainnet-verified
+
+### Added
+- **`splitExactFromChained`** ([build-composite.ts](../packages/sui/src/build-composite.ts)) — a chained leg now splits EXACTLY the declared amount from a variable upstream output (e.g. a swap result) and returns the dust to the sender, guarded so the amount can't exceed the prior swap's guaranteed `minOut`. The chained `send` leg uses it to deliver an exact amount instead of forwarding the whole coin; the chained lend-deposit was refactored onto the same helper (DRY; the L1 minOut split is unchanged).
+- **Pay-in-any-coin**: *"swap 1 SUI to USDC then send 0.5 USDC to @bob"* now compiles to ONE atomic transaction where the recipient receives the exact declared amount and the residual returns to the sender.
+
+### Verified (mainnet)
+- Real on-chain execution: tx **`8pfAQPLJ4xnVHoDEqUiqusBsH7cWQBv7w3CjdcvDXSqi`** (success) — atomic swap 0.05 SUI → USDC then send EXACTLY 0.01 USDC to a distinct recipient; recipient balance delta = 10000 (0.01 USDC) to the mist, dust returned to sender. This also certifies the LIVE dynamic-composite path on mainnet (previously only the fixture branch + hermetic mocks were exercised).
+
+### Tests
+- New live-path cases in `build-dynamic-composite-live.test.ts`: exact-pay split assertion + over-pay (amount > minOut) rejection. Full suite green (1206).
+
 ## 2026-06-28 — First-run onboarding tour (driver.js)
 
 ### Added
