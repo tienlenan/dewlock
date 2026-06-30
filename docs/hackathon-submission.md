@@ -163,12 +163,11 @@ Your chat history is serialized, **encrypted client-side with Seal** (access bou
 
 ## 7. Status
 
-- Core flow (transfer / swap / lend / borrow / withdraw / liquid staking / multi-step chaining / limit-order / bridge), the security-verified Guardian (14 gates), the BLOCK theater, Seal-encrypted conversations, and the receipt/passport pipeline are **implemented and unit-tested (970+ tests)**.
-- **New in this hackathon:** borrow/withdraw (health-factor gate), afSUI + haSUI (provider-keyed staking), yield advisor + activity history (read-only), multi-step chaining (sequential end-to-end, delta-safe), atomic composite gate (fail-closed, not yet user-facing).
+- Core flow (transfer / swap / lend / borrow / withdraw / liquid staking / multi-step chaining / limit-order / bridge), the security-verified Guardian (14 gates), the BLOCK theater, Seal-encrypted conversations, and the receipt/passport pipeline are **implemented and unit-tested (1200+ tests)**.
+- **New in this hackathon:** borrow/withdraw (health-factor gate), afSUI + haSUI (provider-keyed staking), yield advisor + activity history (read-only), multi-step chaining (sequential end-to-end, delta-safe), **generalized atomic composite engine** (any allowlisted combo → one signature), and **pay-in-any-coin** (swap → send the exact amount in one tx).
 - **Status notes:**
-  - **Sequential chaining:** wired end-to-end; manual mainnet verification needed.
+  - **Atomic composite — MAINNET-VERIFIED:** live swap→lend tx [`2iyA4Go…`](https://suiscan.xyz/mainnet/tx/2iyA4GoVsBr1W5bZ4r2WVLY1YQFVVVZS2NUH16GvTQjh) and pay-in-any-coin swap→send-exact tx [`8pfAQP…`](https://suiscan.xyz/mainnet/tx/8pfAQPLJ4xnVHoDEqUiqusBsH7cWQBv7w3CjdcvDXSqi), both `success`, recipient/deposit amounts exact to the mist, dust returned to sender.
   - **haSUI (Haedal):** built & unit-tested; pending mainnet dry-run verification.
-  - **Atomic composite:** security gate fully tested; live builder fail-closed (degrades to sequential).
 - Running on **Sui mainnet** with small server-authoritative USD caps and **zero user-fund keys** server-side.
 - Live at **https://dewlock.vercel.app**.
 
