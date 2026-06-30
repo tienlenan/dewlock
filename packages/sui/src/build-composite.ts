@@ -546,6 +546,26 @@ async function selectNonSuiCoin(
 }
 
 /**
+ * Split EXACTLY `exactAmount` from a chained upstream coin and return that coin; the remainder
+ * (dust = realized − exact) is transferred back to `sender` so nothing dangles. Shared by the
+ * chained lend-deposit and the chained pay (swap→send-exact) paths.
+ *
+ * The caller MUST ensure `exactAmount` ≤ the upstream's guaranteed minimum (swap minOut /
+ * withdrawn principal); otherwise the on-chain split aborts. Dust ALWAYS returns to the sender —
+ * never to a third party (the upstream coin is the user's own).
+ */
+function splitExactFromChained(
+  tx: Transaction,
+  coin: TransactionObjectArgument,
+  exactAmount: bigint,
+  sender: string,
+): TransactionObjectArgument {
+  const [exact] = tx.splitCoins(coin, [exactAmount]);
+  tx.transferObjects([coin], sender);
+  return exact as TransactionObjectArgument;
+}
+
+/**
  * Live dynamic composite builder.
  * Iterates legs in order, tracking the "current output coin" for chaining.
  */
@@ -634,14 +654,29 @@ async function buildLiveDynamicComposite(
       }
 
       if (leg.actionType === "send") {
-        // Send leg: transfer `amountInNative` of `coinTypeIn` to `recipient`.
-        // If chained, transfer the previous output coin directly (ignore amountInNative).
+        // Send leg: deliver EXACTLY `amountInNative` of `coinTypeIn` to `recipient`.
         const recipient = leg.recipient!;
         let coinToSend: TransactionObjectArgument;
 
         if (isChained && prevOutputCoin) {
-          // The chained coin is the full output from the previous leg.
-          coinToSend = prevOutputCoin;
+          // Pay-in-any-coin: split EXACTLY the declared amount from the chained upstream output
+          // (e.g. a swap result) and send that; dust returns to the sender. The recipient must
+          // receive exactly `amountInNative` (the Guardian anti-leak verifies this), so we never
+          // forward the whole variable output. Guard: the exact amount must not exceed the prior
+          // swap's guaranteed minimum, else the split aborts on-chain.
+          if (leg.amountInNative <= 0n) {
+            throw new CompositeBuildError(
+              `Chained send leg ${i} requires a positive amountInNative (the exact pay amount).`,
+            );
+          }
+          const priorMinOut = swapMinOutByLeg.get(i - 1);
+          if (priorMinOut !== undefined && leg.amountInNative > priorMinOut) {
+            throw new CompositeBuildError(
+              `Chained send leg ${i} pays ${leg.amountInNative} but the prior swap only guarantees ` +
+                `${priorMinOut} out — increase the swap input so the exact amount is covered.`,
+            );
+          }
+          coinToSend = splitExactFromChained(tx, prevOutputCoin, leg.amountInNative, senderAddress);
           prevOutputCoin = undefined;
         } else {
           // Pull from wallet — SUI splits from gas, non-SUI from owned objects.
@@ -741,9 +776,8 @@ async function buildLiveDynamicComposite(
               : leg.amountInNative > 0n
                 ? leg.amountInNative
                 : 1n;
-          const [depositCoin] = tx.splitCoins(inputCoin, [depositAmount]);
-          // Return the remainder (dust = realized output − minOut) to sender so no coin dangles.
-          tx.transferObjects([inputCoin], senderAddress);
+          // Split exactly the guaranteed minOut; dust (realized − minOut) returns to sender.
+          const depositCoin = splitExactFromChained(tx, inputCoin, depositAmount, senderAddress);
           const naviOptions = { account: senderAddress, amount: Number(depositAmount) } as never;
           await navi.depositCoinPTB(tx, leg.coinTypeIn, depositCoin as never, naviOptions);
         } else {

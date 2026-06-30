@@ -56,7 +56,7 @@ vi.mock("@mysten/sui/grpc", () => ({
   },
 }));
 
-import { buildDynamicComposite, type DynamicCompositeLeg } from "../build-composite";
+import { buildDynamicComposite, CompositeBuildError, type DynamicCompositeLeg } from "../build-composite";
 import { COIN_TYPES } from "../protocol-constants";
 
 const WALLET = "0x" + "a".repeat(64);
@@ -128,5 +128,32 @@ describe("buildLiveDynamicComposite — swap-only", () => {
     expect(result.isFixture).toBe(false);
     expect(result.txBytes.length).toBeGreaterThan(0);
     expect(result.compositeLegs.map((l) => l.actionType)).toEqual(["swap"]);
+  });
+});
+
+describe("buildLiveDynamicComposite — pay-in-any-coin (swap → send exact)", () => {
+  const BOB = "0x" + "b".repeat(64);
+  // estimate 990000, default slippage 50bps → minOut = 985050; pay 500000 (< minOut) is covered.
+  const payLegs: DynamicCompositeLeg[] = [
+    { actionType: "swap", coinTypeIn: COIN_TYPES.SUI, coinTypeOut: COIN_TYPES.USDC, amountInNative: 1_000_000_000n },
+    { actionType: "send", coinTypeIn: COIN_TYPES.USDC, amountInNative: 500_000n, recipient: BOB, amountFrom: "prev-output" },
+  ];
+
+  it("splits EXACTLY the declared pay amount from the swap output (not the whole coin)", async () => {
+    const result = await buildDynamicComposite(client, WALLET, payLegs);
+
+    expect(result.isFixture).toBe(false);
+    expect(result.compositeLegs.map((l) => l.actionType)).toEqual(["swap", "send"]);
+    expect(result.compositeLegs[1].recipient).toBe(BOB);
+    const amounts = pureU64Inputs(h.builtTx);
+    expect(amounts).toContain(500_000n); // exact pay amount split for the recipient
+  });
+
+  it("rejects a chained pay that exceeds the prior swap's guaranteed minOut", async () => {
+    const tooMuch: DynamicCompositeLeg[] = [
+      payLegs[0],
+      { ...payLegs[1], amountInNative: 2_000_000n }, // > minOut 985050
+    ];
+    await expect(buildDynamicComposite(client, WALLET, tooMuch)).rejects.toBeInstanceOf(CompositeBuildError);
   });
 });
