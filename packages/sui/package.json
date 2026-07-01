@@ -32,7 +32,8 @@
     "./account-orders": "./dist/deepbook/account-orders.js",
     "./sign": "./dist/sign.js",
     "./suins-resolver": "./dist/suins-resolver.js",
-    "./build-composite": "./dist/build-composite.js"
+    "./build-composite": "./dist/build-composite.js",
+    "./pay-in-any-coin": "./dist/pay-in-any-coin.js"
   },
   "scripts": {
     "build": "node scripts/bundle-sdks.mjs && tsc --noCheck",
@@ -47,6 +48,7 @@
     "@mysten/sui": "2.18.0",
     "@mysten/suins": "1.2.0",
     "@naviprotocol/lending": "2.0.0-beta.0",
+    "@scallop-io/sui-scallop-sdk": "^4.1.2",
     "@suilend/sdk": "^3.0.4",
     "aftermath-ts-sdk": "2.1.0",
     "bn.js": "^5.2.3"

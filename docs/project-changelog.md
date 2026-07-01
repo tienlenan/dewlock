@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-01 — Natural-language pay-in-any-coin ("pay N COIN to @x") — mainnet-verified
+
+### Added
+- **`pay-in-any-coin.ts`** ([packages/sui/src](../packages/sui/src/pay-in-any-coin.ts)) — deterministic (no-LLM) `parsePayInAnyCoin("pay 0.5 USDC to @bob")` + `buildPayInAnyCoinLegs`: reverse-quotes the target amount back into the held coin to SIZE the swap (with a safety margin so the swap's guaranteed minOut covers the exact pay), then emits the `[swap → send-exact]` composite. The recipient receives EXACTLY the declared amount; dust returns to the sender; the Guardian re-derives and blocks on any mismatch.
+
+### Verified (mainnet)
+- End-to-end from the natural-language command — tx **`GCTweDg2madW5v2a9pMvtcwDUkmmFfFkEDYivD1chdEi`** (success): *"pay 0.01 USDC to 0xf99…"* while holding only SUI → parsed → sized a 0.0156 SUI swap → atomic swap→send → recipient balance delta = 10000 (exactly 0.01 USDC).
+
+### Tests
+- `pay-in-any-coin.test.ts`: parser cases (decimals, punctuation, reject non-pay/unknown-symbol/zero) + sizing (reverse-quote × margin, exact send leg, reject same-coin). 6 tests.
+
 ## 2026-06-30 — Pay-in-any-coin (swap → send exact, one signature) — mainnet-verified
 
 ### Added
