@@ -437,7 +437,11 @@ export const DEEPBOOK_PACKAGE =
  * Entry targets:
  *   stake:   interface::request_stake(&mut SuiSystemState, &mut Staking, Coin<SUI>, address)
  *   unstake: interface::request_unstake_instant(&mut Staking, Coin<HASUI>)
- * [needs mainnet verification] targets captured from mainnet tx; re-verify if Haedal upgrades.
+ * ⚠️ STALE (verified 2026-06-30 by mainnet cert): a live 0.05 SUI stake ABORTED with
+ * `staking::assert_version` (code 1) — Haedal upgraded/migrated and this package + the staking
+ * object below are outdated. haSUI staking is BROKEN until these are refreshed from Haedal's
+ * current mainnet deployment (SDK/GitHub or a recent real request_stake tx), then re-certed.
+ * afSUI (Aftermath) is unaffected.
  */
 export const HAEDAL_PACKAGE =
   "0xbde4ba4c2e274a60ce15c1cfff9e5c42e41654ac8b6d906a57efa4bd3c29f47d";
